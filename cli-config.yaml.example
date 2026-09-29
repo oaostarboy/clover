@@ -1648,7 +1648,11 @@ display:
   #   verbose: Full args, results, and debug logs (same as /verbose)
   #   log:     Silent in chat; append every tool call to ~/.clover/logs/tool_calls.log (gateway only)
   # Toggle at runtime with /verbose in the CLI
-  tool_progress: all
+  # Unset by default: the CLI uses "all" and each messaging platform keeps its
+  # own default (e.g. "off" where progress bubbles can't be edited). Setting
+  # it here overrides EVERY platform's default; prefer
+  # display.platforms.<platform>.tool_progress.
+  # tool_progress: all
 
   # Per-platform defaults can be quieter than the global setting. Telegram
   # tunes for mobile: tool_progress and busy_ack_detail default off (no
@@ -1664,16 +1668,18 @@ display:
   # removes the tool-progress bubble, "⏳ Still working..." notices, and
   # context-pressure status messages once the final reply has been delivered —
   # keeping long-running turns visible live, then tidy afterward. Failed runs
-  # leave the bubbles in place as breadcrumbs. Off by default.
-  # Per-platform override: display.platforms.telegram.cleanup_progress
+  # leave the bubbles in place as breadcrumbs. The default is per platform:
+  # ON for Telegram, Discord and Slack (the per-turn "🛠 N tool calls" summary
+  # card), off elsewhere. A value set HERE overrides every platform's default,
+  # so leave it unset and use the per-platform override instead:
   #   true:  Delete tracked progress/status bubbles on successful turn
-  #   false: Leave everything in place (default)
+  #   false: Leave everything in place
   # Example:
   #   display:
   #     platforms:
   #       telegram:
-  #         cleanup_progress: true
-  cleanup_progress: false
+  #         cleanup_progress: false
+  # cleanup_progress: false
 
   # Live delegation activity (gateway only). When the agent delegates work
   # (delegate_task, or agent CLIs registered with terminal(agent_job=...)),
@@ -1704,7 +1710,9 @@ display:
   # Independent of tool_progress and gateway streaming.
   #   true:  Keep/send mid-turn assistant updates (default)
   #   false: Only keep/send the final response
-  interim_assistant_messages: true
+  # Default per platform (on for editable chats, off where messages are
+  # permanent). Setting it here overrides every platform's default.
+  # interim_assistant_messages: true
 
   # Live "🧠" progress lines from provider reasoning summaries (default off).
   live_reasoning: false
@@ -1715,15 +1723,17 @@ display:
   # heartbeat edits a single message in place (where the adapter supports
   # editing) instead of posting a new bubble each interval.
   # Default: true everywhere, including Telegram (silent agents are worse
-  # than a single edit-in-place heartbeat).
-  long_running_notifications: true
+  # than a single edit-in-place heartbeat). Default per platform; setting it
+  # here overrides every platform's default.
+  # long_running_notifications: true
 
   # Include detailed iteration/tool/status context in busy acknowledgments
   # and long-running heartbeats. When true, busy acks show "iteration 21/60,
   # terminal, 10 min" and the heartbeat shows "⏳ Working — 12 min,
   # iteration 21/60, terminal". When false (Telegram default), both stay
   # terse: "Interrupting current task" and "⏳ Working — 12 min, terminal".
-  busy_ack_detail: true
+  # Default per platform; setting it here overrides every platform's default.
+  # busy_ack_detail: true
 
   # What Enter does when Clover is already busy (CLI and gateway platforms).
   #   interrupt: Interrupt the current run and redirect Clover (default)
