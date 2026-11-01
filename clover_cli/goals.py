@@ -49,7 +49,8 @@ logger = logging.getLogger(__name__)
 # Constants & defaults
 # ──────────────────────────────────────────────────────────────────────
 
-DEFAULT_MAX_TURNS = 20
+DEFAULT_MAX_TURNS = 5
+DEFAULT_MAX_DURATION_S = 600.0  # 10 minutes hard wall-clock timeout
 DEFAULT_JUDGE_TIMEOUT = 30.0
 # Judge output budget. The freeform judge returns a one-line JSON verdict, but
 # reasoning models (deepseek-v4, qwq, etc.) burn tokens on hidden reasoning
@@ -2176,6 +2177,7 @@ def run_kanban_goal_loop(
     task_status_fn,
     block_fn,
     max_turns: int = DEFAULT_MAX_TURNS,
+    max_duration_seconds: float = DEFAULT_MAX_DURATION_S,
     first_response: str = "",
     log=None,
 ) -> Dict[str, Any]:
@@ -2192,9 +2194,10 @@ def run_kanban_goal_loop(
        title + body). ``continue`` → feed a continuation prompt and run
        another turn IN THE SAME SESSION via ``run_turn``. ``done`` but the
        task is still open → one explicit "call kanban_complete" nudge.
-    3. When the turn budget is exhausted and the worker still hasn't
-       terminated the task, ``block_fn`` is invoked so the card lands in a
-       sticky ``blocked`` state for human review (NOT a silent exit).
+    3. When the turn budget is exhausted, wall-clock timeout is reached, or
+       the stall circuit breaker trips (repeated assistant response without
+       progress), ``block_fn`` is invoked so the card lands in a sticky
+       ``blocked`` state for human review (NOT a silent exit).
 
     This function performs NO SessionDB persistence — a worker process is
     ephemeral, so the turn budget lives in a local counter. It is fully
@@ -2204,8 +2207,8 @@ def run_kanban_goal_loop(
 
     Returns a decision dict: ``{"outcome", "turns_used", "reason"}`` where
     outcome is one of ``"completed_by_worker"``, ``"review_requested_by_worker"``,
-    ``"changes_requested_by_reviewer"``, ``"blocked_budget"``,
-    ``"blocked_by_worker"``, or ``"stopped"``.
+    ``"changes_requested_by_reviewer"``, ``"blocked_budget"``, ``"blocked_stall"``,
+    ``"blocked_timeout"``, ``"blocked_by_worker"``, or ``"stopped"``.
     """
 
     def _log(msg: str) -> None:
@@ -2219,12 +2222,26 @@ def run_kanban_goal_loop(
     if max_turns < 1:
         max_turns = DEFAULT_MAX_TURNS
 
+    start_time = time.time()
     last_response = first_response or ""
     # The first turn already consumed one unit of budget.
     turns_used = 1
     nudged_to_finalize = False
+    consecutive_stalls = 0
 
     while True:
+        # Wall-clock timeout check before continuing or spending another turn
+        if max_duration_seconds and (time.time() - start_time) >= max_duration_seconds:
+            _log(f"kanban goal loop: task {task_id} exceeded wall-clock timeout ({int(max_duration_seconds)}s); blocking")
+            try:
+                block_fn(
+                    f"Goal-mode worker exceeded wall-clock timeout "
+                    f"({int(max_duration_seconds)}s) after {turns_used} turn(s) without completing the task."
+                )
+            except Exception as exc:
+                _log(f"kanban goal loop: block_fn failed ({exc})")
+            return {"outcome": "blocked_timeout", "turns_used": turns_used, "reason": "wall-clock timeout exceeded"}
+
         # Did the worker terminate the task itself this turn?
         try:
             status = task_status_fn()
@@ -2292,13 +2309,62 @@ def run_kanban_goal_loop(
                 _log(f"kanban goal loop: block_fn failed ({exc})")
             return {"outcome": "blocked_budget", "turns_used": turns_used, "reason": "turn budget exhausted"}
 
+        if max_duration_seconds and (time.time() - start_time) >= max_duration_seconds:
+            _log(f"kanban goal loop: task {task_id} exceeded wall-clock timeout ({int(max_duration_seconds)}s); blocking")
+            try:
+                block_fn(
+                    f"Goal-mode worker exceeded wall-clock timeout "
+                    f"({int(max_duration_seconds)}s) after {turns_used} turn(s) without completing the task."
+                )
+            except Exception as exc:
+                _log(f"kanban goal loop: block_fn failed ({exc})")
+            return {"outcome": "blocked_timeout", "turns_used": turns_used, "reason": "wall-clock timeout exceeded"}
+
         # Run another turn in the same session.
         try:
-            last_response = run_turn(prompt) or ""
+            new_response = run_turn(prompt) or ""
         except Exception as exc:
             _log(f"kanban goal loop: run_turn failed ({exc}); stopping")
             return {"outcome": "stopped", "turns_used": turns_used, "reason": f"run_turn error: {type(exc).__name__}"}
         turns_used += 1
+
+        if max_duration_seconds and (time.time() - start_time) >= max_duration_seconds:
+            _log(f"kanban goal loop: task {task_id} exceeded wall-clock timeout ({int(max_duration_seconds)}s); blocking")
+            try:
+                block_fn(
+                    f"Goal-mode worker exceeded wall-clock timeout "
+                    f"({int(max_duration_seconds)}s) after {turns_used} turn(s) without completing the task."
+                )
+            except Exception as exc:
+                _log(f"kanban goal loop: block_fn failed ({exc})")
+            return {"outcome": "blocked_timeout", "turns_used": turns_used, "reason": "wall-clock timeout exceeded"}
+
+        # Stall circuit-breaker: check if the assistant repeated the identical response or error
+        clean_new = new_response.strip()
+        clean_last = last_response.strip()
+        if clean_new and clean_new == clean_last:
+            consecutive_stalls += 1
+        else:
+            consecutive_stalls = 0
+        last_response = new_response
+
+        if consecutive_stalls >= 1:
+            _log(
+                f"kanban goal loop: task {task_id} tripped stall circuit breaker "
+                f"(repeated identical response for 2 consecutive iterations); blocking"
+            )
+            try:
+                block_fn(
+                    f"Goal-mode worker stalled: repeated identical response or error for 2 "
+                    f"consecutive iterations without progress. Blocking for review."
+                )
+            except Exception as exc:
+                _log(f"kanban goal loop: block_fn failed ({exc})")
+            return {
+                "outcome": "blocked_stall",
+                "turns_used": turns_used,
+                "reason": "stall circuit breaker: repeated identical response across consecutive iterations",
+            }
 
 
 __all__ = [
@@ -2320,6 +2386,7 @@ __all__ = [
     "KANBAN_GOAL_CONTINUATION_TEMPLATE",
     "KANBAN_GOAL_FINALIZE_TEMPLATE",
     "DEFAULT_MAX_TURNS",
+    "DEFAULT_MAX_DURATION_S",
     "load_goal",
     "save_goal",
     "clear_goal",

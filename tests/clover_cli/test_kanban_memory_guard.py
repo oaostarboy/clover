@@ -86,6 +86,14 @@ def test_resolve_max_in_progress_unset_and_unknown_memory_is_uncapped(monkeypatc
     assert kb.resolve_max_in_progress(None) is None
 
 
+def test_resolve_max_in_progress_windows_defaults_to_one(monkeypatch):
+    import sys
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert kb.resolve_max_in_progress(None) == 1
+    # Explicit config still takes precedence on Windows
+    assert kb.resolve_max_in_progress(4) == 4
+
+
 # ---------------------------------------------------------------------------
 # _memory_pressure_level
 # ---------------------------------------------------------------------------
@@ -251,3 +259,17 @@ def test_dispatch_critical_pressure_still_runs_reclaim_bookkeeping(
     assert res.memory_pressure == "critical"
     assert row is not None
     assert row.status == "ready"
+
+
+def test_dispatch_once_windows_caps_concurrency_to_one(
+    kanban_home, all_assignees_spawnable, monkeypatch,
+):
+    import sys
+    monkeypatch.setattr(sys, "platform", "win32")
+    spawned = []
+    with kb.connect() as conn:
+        t1 = kb.create_task(conn, title="task 1", assignee="alice")
+        t2 = kb.create_task(conn, title="task 2", assignee="alice")
+        res = kb.dispatch_once(conn, spawn_fn=lambda t, *a, **k: spawned.append(t.id) or 100)
+    assert len(res.spawned) == 1
+    assert len(spawned) == 1

@@ -456,6 +456,11 @@ def test_router_disabled_is_skipped(can_deliver):
     assert dr.skip_reason(_root(), 'build the thing', None, settings=off) == 'disabled'
 
 
+def test_kanban_worker_is_skipped(can_deliver, monkeypatch):
+    monkeypatch.setenv("CLOVER_KANBAN_TASK", "t_task1")
+    assert dr.skip_reason(_root(), 'build the thing', None, settings=SETTINGS) == "kanban_worker"
+
+
 @pytest.mark.parametrize('agent_kw', [
     {'_delegate_depth': 1},
     {'_subagent_id': 'sa-1'},

@@ -429,7 +429,7 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
                                "rarely finishes.")
     p_create.add_argument("--goal-max-turns", type=int, default=None,
                           metavar="N", dest="goal_max_turns",
-                          help="Turn budget for --goal workers (default 20). "
+                          help="Turn budget for --goal workers (default 5). "
                                "Ignored without --goal.")
     p_create.add_argument("--initial-status",
                           choices=sorted(kb.VALID_INITIAL_STATUSES),

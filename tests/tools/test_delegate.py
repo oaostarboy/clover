@@ -1617,6 +1617,17 @@ class TestConcurrencyDefaults(unittest.TestCase):
         """Floor of 1 is enforced; zero or negative values raise to 1."""
         self.assertEqual(_get_max_concurrent_children(), 1)
 
+    @patch("tools.delegate_tool._load_config",
+           return_value={"max_concurrent_children": 10})
+    def test_kanban_worker_caps_concurrent_children(self, mock_cfg):
+        """Kanban workers cap concurrent children to at most 2, defaulting to 1."""
+        with patch.dict(os.environ, {"CLOVER_KANBAN_TASK": "t_test"}):
+            self.assertEqual(_get_max_concurrent_children(), 2)
+
+        with patch.dict(os.environ, {"CLOVER_KANBAN_TASK": "t_test"}):
+            with patch("tools.delegate_tool._load_config", return_value={}):
+                self.assertEqual(_get_max_concurrent_children(), 1)
+
 class TestAsyncCapUnified(unittest.TestCase):
     """max_async_children is deprecated: the async cap IS max_concurrent_children."""
 

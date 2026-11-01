@@ -222,7 +222,12 @@ def applies(agent: Any) -> bool:
         # --oneshot / batch_runner mark themselves noninteractive roots.
         if getattr(agent, "_delegation_checkpoint_exempt", None):
             return False
-        if os.environ.get("CLOVER_KANBAN_TASK"):
+        if (
+            os.environ.get("CLOVER_KANBAN_TASK")
+            or os.environ.get("CLOVER_KANBAN_TASK_ID")
+            or os.environ.get("CLOVER_SESSION_SOURCE") == "kanban"
+            or getattr(agent, "session_source", None) == "kanban"
+        ):
             return False
         if not _platform_in_scope(getattr(agent, "platform", None)):
             return False

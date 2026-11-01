@@ -5440,6 +5440,15 @@ class CloverCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 )
             else:
                 self.reasoning_config = _cli_reasoning
+        elif (
+            os.environ.get("CLOVER_KANBAN_TASK")
+            or os.environ.get("CLOVER_KANBAN_TASK_ID")
+            or os.environ.get("CLOVER_SESSION_SOURCE") == "kanban"
+        ):
+            # Non-interactive Kanban workers default to medium reasoning effort if unset,
+            # avoiding expensive high/ultra runaway reasoning drain (e.g. on Opus).
+            if not self.reasoning_config:
+                self.reasoning_config = _parse_reasoning_config("medium")
         self.service_tier = _parse_service_tier_config(
             CLI_CONFIG["agent"].get("service_tier", "")
         )
@@ -21457,7 +21466,11 @@ def _run_kanban_goal_loop_q(cli: "CloverCLI", first_response: str) -> None:
             logger.warning("invalid CLOVER_KANBAN_RUN_ID=%r", raw_run_id)
 
     from clover_cli import kanban_db as _kb
-    from clover_cli.goals import run_kanban_goal_loop as _run_loop, DEFAULT_MAX_TURNS as _DEF_TURNS
+    from clover_cli.goals import (
+        run_kanban_goal_loop as _run_loop,
+        DEFAULT_MAX_TURNS as _DEF_TURNS,
+        DEFAULT_MAX_DURATION_S as _DEF_DURATION_S,
+    )
 
     # Resolve goal text from the card (title + body = the acceptance
     # criteria the judge evaluates against).
@@ -21480,6 +21493,7 @@ def _run_kanban_goal_loop_q(cli: "CloverCLI", first_response: str) -> None:
         return
 
     max_turns = task.goal_max_turns or _DEF_TURNS
+    max_duration = float(task.max_runtime_seconds) if task.max_runtime_seconds is not None else _DEF_DURATION_S
 
     def _run_turn(prompt: str) -> str:
         result = cli.agent.run_conversation(
@@ -21529,6 +21543,7 @@ def _run_kanban_goal_loop_q(cli: "CloverCLI", first_response: str) -> None:
         task_status_fn=_task_status,
         block_fn=_block,
         max_turns=max_turns,
+        max_duration_seconds=max_duration,
         first_response=first_response or "",
         log=lambda m: logger.info("%s", m),
     )

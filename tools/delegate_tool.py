@@ -908,9 +908,30 @@ def _get_max_concurrent_children() -> int:
 
     Uses the same ``_load_config()`` path that the rest of ``delegate_task``
     uses, keeping config priority consistent (config.yaml > env > default).
+    Kanban workers (CLOVER_KANBAN_TASK, CLOVER_KANBAN_TASK_ID, or CLOVER_SESSION_SOURCE=kanban)
+    are non-interactive bounded workers and have concurrency capped to at most 2 (default 1)
+    to prevent runaway subagent fan-out and token drain.
     """
+    is_kanban = bool(
+        os.environ.get("CLOVER_KANBAN_TASK")
+        or os.environ.get("CLOVER_KANBAN_TASK_ID")
+        or os.environ.get("CLOVER_SESSION_SOURCE") == "kanban"
+    )
     cfg = _load_config()
     val = cfg.get("max_concurrent_children")
+    if is_kanban:
+        if val is not None:
+            try:
+                return min(2, max(1, int(val)))
+            except (TypeError, ValueError):
+                pass
+        env_val = os.getenv("DELEGATION_MAX_CONCURRENT_CHILDREN")
+        if env_val:
+            try:
+                return min(2, max(1, int(env_val)))
+            except (TypeError, ValueError):
+                pass
+        return 1
     if val is not None:
         try:
             result = max(1, int(val))

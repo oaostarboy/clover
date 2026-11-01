@@ -15,6 +15,11 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.2.5 | Clover C2.0.2.5 | 2026-11-01
+- Kanban goal loops cap at 5 turns and 10 minutes with a stall circuit breaker on repeated replies.
+- Kanban workers skip automatic subagent fan-out and default unset reasoning effort to medium.
+- Windows defaults Kanban to one active worker at a time to keep the PC responsive.
+
 ## 2.0.2.4 | Clover C2.0.2.4 | 2026-10-31
 - Desktop animations use less CPU by reusing drawing buffers and cached calculations.
 - Desktop animation appearance and frame rate are preserved.

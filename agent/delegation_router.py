@@ -970,6 +970,13 @@ def skip_reason(
         # An explicit helper / do-it-yourself request is never small talk.
         if is_small_talk(user_message) and explicit_override(user_message) is None:
             return "small_talk"
+    if (
+        os.environ.get("CLOVER_KANBAN_TASK")
+        or os.environ.get("CLOVER_KANBAN_TASK_ID")
+        or os.environ.get("CLOVER_SESSION_SOURCE") == "kanban"
+        or getattr(agent, "session_source", None) == "kanban"
+    ):
+        return "kanban_worker"
     from agent import foreground_time_limit as fl
 
     # The same scope as the foreground time limit: root conversational agents

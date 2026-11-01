@@ -13,6 +13,7 @@ Covers three layers:
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
@@ -130,6 +131,83 @@ def test_loop_stops_when_worker_already_completed(monkeypatch):
 
 
 
+
+
+def test_create_task_defaults_goal_mode_to_false(kanban_home):
+    with kb.connect() as conn:
+        tid1 = kb.create_task(conn, title="Normal task")
+        t1 = kb.get_task(conn, tid1)
+        assert t1.goal_mode is False
+        assert t1.goal_max_turns is None
+
+        tid2 = kb.create_task(conn, title="Goal task", goal_mode=True, goal_max_turns=3)
+        t2 = kb.get_task(conn, tid2)
+        assert t2.goal_mode is True
+        assert t2.goal_max_turns == 3
+
+
+def test_goal_loop_defaults_max_turns_to_five(monkeypatch):
+    assert goals.DEFAULT_MAX_TURNS == 5
+    assert goals.DEFAULT_MAX_DURATION_S == 600.0
+
+    _patch_judge(monkeypatch, ["continue"] * 10)
+    blocked_reasons = []
+    turns = []
+
+    res = goals.run_kanban_goal_loop(
+        task_id="t_budget",
+        goal_text="long objective",
+        run_turn=lambda p: f"progress {len(turns) + 1}" if not turns.append(p) else "",
+        task_status_fn=lambda: "running",
+        block_fn=lambda r: blocked_reasons.append(r),
+        first_response="first turn done",
+    )
+    assert res["outcome"] == "blocked_budget"
+    assert res["turns_used"] == 5
+    assert len(blocked_reasons) == 1
+    assert "exhausted its turn budget (5/5)" in blocked_reasons[0]
+
+
+def test_goal_loop_stall_circuit_breaker_trips_on_repeated_response(monkeypatch):
+    _patch_judge(monkeypatch, ["continue"] * 10)
+    blocked_reasons = []
+
+    # Worker repeats the exact same error / text as the first turn
+    res = goals.run_kanban_goal_loop(
+        task_id="t_stall",
+        goal_text="solve complex problem",
+        run_turn=lambda p: "Error: cannot proceed with this approach",
+        task_status_fn=lambda: "running",
+        block_fn=lambda r: blocked_reasons.append(r),
+        first_response="Error: cannot proceed with this approach",
+        max_turns=5,
+    )
+    assert res["outcome"] == "blocked_stall"
+    assert res["turns_used"] == 2  # Tripped after turn 2 without burning remaining 3 turns!
+    assert len(blocked_reasons) == 1
+    assert "stalled: repeated identical response or error" in blocked_reasons[0]
+
+
+def test_goal_loop_wall_clock_timeout(monkeypatch):
+    _patch_judge(monkeypatch, ["continue"] * 10)
+    blocked_reasons = []
+
+    def _slow_turn(p):
+        time.sleep(0.005)
+        return f"turn {time.time()}"
+
+    res = goals.run_kanban_goal_loop(
+        task_id="t_timeout",
+        goal_text="infinite loop objective",
+        run_turn=_slow_turn,
+        task_status_fn=lambda: "running",
+        block_fn=lambda r: blocked_reasons.append(r),
+        first_response="started",
+        max_duration_seconds=0.001,
+    )
+    assert res["outcome"] == "blocked_timeout"
+    assert len(blocked_reasons) == 1
+    assert "exceeded wall-clock timeout" in blocked_reasons[0]
 
 
 # ---------------------------------------------------------------------------

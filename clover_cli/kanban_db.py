@@ -9708,11 +9708,16 @@ def resolve_max_in_progress(configured: Optional[int]) -> Optional[int]:
 
     An explicit operator-configured value always wins. When unset, fall back
     to the memory-derived default (see :func:`derive_default_max_in_progress`).
+    On Windows (sys.platform == "win32" or os.name == "nt"), default to 1
+    (serializing active cards unless explicitly configured higher) to prevent
+    parallel worktree subprocesses from saturating the machine.
     Callers that parse config (gateway dispatcher, ``clover kanban dispatch``)
     should route through this so both paths agree.
     """
     if configured is not None:
         return configured
+    if sys.platform == "win32" or os.name == "nt":
+        return 1
     return derive_default_max_in_progress()
 
 
@@ -10000,6 +10005,9 @@ def _dispatch_once_locked(
     # board, since "running" tasks aren't reclaimed by completion alone —
     # they sit in status='running' until the worker calls
     # kanban_complete/kanban_block (or the dispatcher TTL-reclaims them).
+    if max_in_progress is None and (sys.platform == "win32" or os.name == "nt"):
+        max_in_progress = 1
+
     running_count = 0
     spawn_budget: Optional[int] = None
     if max_spawn is not None or max_in_progress is not None:
