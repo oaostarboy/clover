@@ -5,11 +5,11 @@
 <h1 align="center">Clover 🍀</h1>
 
 <p align="center">
-  <a href="https://github.com/oaostarboy/clover-c1/tree/main/docs"><img src="https://img.shields.io/badge/Docs-read%20them-93d4ac?style=flat-square&labelColor=080e10" alt="Documentation"></a>
-  <a href="https://github.com/oaostarboy/clover-c1/releases"><img src="https://img.shields.io/github/v/release/oaostarboy/clover-c1?style=flat-square&color=93d4ac&labelColor=080e10" alt="Release"></a>
-  <a href="https://github.com/oaostarboy/clover-c1/stargazers"><img src="https://img.shields.io/github/stars/oaostarboy/clover-c1?style=flat-square&color=93d4ac&labelColor=080e10" alt="Stars"></a>
-  <a href="https://github.com/oaostarboy/clover-c1/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-93d4ac?style=flat-square&labelColor=080e10" alt="License: MIT"></a>
-  <a href="https://github.com/oaostarboy/clover-c1"><img src="https://img.shields.io/badge/Built%20by-Anthony%20Nguyen-93d4ac?style=flat-square&labelColor=080e10" alt="Built by Anthony Nguyen"></a>
+  <a href="https://github.com/oaostarboy/clover/tree/main/docs"><img src="https://img.shields.io/badge/Docs-read%20them-93d4ac?style=flat-square&labelColor=080e10" alt="Documentation"></a>
+  <a href="https://github.com/oaostarboy/clover/releases"><img src="https://img.shields.io/github/v/release/oaostarboy/clover?style=flat-square&color=93d4ac&labelColor=080e10" alt="Release"></a>
+  <a href="https://github.com/oaostarboy/clover/stargazers"><img src="https://img.shields.io/github/stars/oaostarboy/clover?style=flat-square&color=93d4ac&labelColor=080e10" alt="Stars"></a>
+  <a href="https://github.com/oaostarboy/clover/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-93d4ac?style=flat-square&labelColor=080e10" alt="License: MIT"></a>
+  <a href="https://github.com/oaostarboy/clover"><img src="https://img.shields.io/badge/Built%20by-Anthony%20Nguyen-93d4ac?style=flat-square&labelColor=080e10" alt="Built by Anthony Nguyen"></a>
   <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/Lang-中文-93d4ac?style=flat-square&labelColor=080e10" alt="中文"></a>
   <a href="README.ur-pk.md"><img src="https://img.shields.io/badge/Lang-اردو-93d4ac?style=flat-square&labelColor=080e10" alt="اردو"></a>
   <a href="README.es.md"><img src="https://img.shields.io/badge/Lang-Español-93d4ac?style=flat-square&labelColor=080e10" alt="Español"></a>
@@ -54,13 +54,13 @@ clover → 60 days written notice, either side, no penalty. page 4, section 9.2.
 **Linux, macOS, WSL2, Termux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/oaostarboy/clover-c1/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/oaostarboy/clover/main/scripts/install.sh | bash
 ```
 
 **Windows** (PowerShell, no WSL needed)
 
 ```powershell
-iex (irm https://raw.githubusercontent.com/oaostarboy/clover-c1/main/scripts/install.ps1)
+iex (irm https://raw.githubusercontent.com/oaostarboy/clover/main/scripts/install.ps1)
 ```
 
 The installer brings its own everything: uv, Python 3.11, Node.js, ripgrep, ffmpeg, and a
@@ -177,8 +177,8 @@ clover doctor              # checks the install and tells you what is wrong
 | [`docs/`](docs/) | Architecture notes, design records, security write-ups |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Repo layout, how to add a skill or a plugin |
 | [`plugins/`](plugins/) | Every bundled plugin, each with its own README |
-| [Discussions](https://github.com/oaostarboy/clover-c1/discussions) | Questions, ideas, showing what you built |
-| [Issues](https://github.com/oaostarboy/clover-c1/issues) | Bugs, and things that should work better |
+| [Discussions](https://github.com/oaostarboy/clover/discussions) | Questions, ideas, showing what you built |
+| [Issues](https://github.com/oaostarboy/clover/issues) | Bugs, and things that should work better |
 
 ---
 
