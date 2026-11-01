@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/banner.png" alt="Clover Cognition" width="100%">
+  <img src="assets/banner.png" alt="Clover" width="100%">
 </p>
 
-# Clover Cognition 🍀
+# Clover 🍀
 <p align="center">
   <a href="https://github.com/oaostarboy/clover-c1">Clover Cognition</a> | <a href="https://github.com/oaostarboy/clover-c1">Clover Desktop</a>
 </p>

@@ -1,10 +1,10 @@
 <div dir="rtl">
 
 <p align="center">
-  <img src="assets/banner.png" alt="Clover Cognition" width="100%">
+  <img src="assets/banner.png" alt="Clover" width="100%">
 </p>
 
-# کلوور 🍀 (Clover Cognition)
+# Clover 🍀
 
 <p align="center">
   <a href="docs/"><img src="https://img.shields.io/badge/Docs-clover--agent.-00D97E?style=for-the-badge" alt="Documentation"></a>
