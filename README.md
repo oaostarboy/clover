@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/oaostarboy/clover/tree/main/docs"><img src="https://img.shields.io/badge/Docs-read%20them-93d4ac?style=flat-square&labelColor=080e10" alt="Documentation"></a>
   <a href="https://github.com/oaostarboy/clover/releases"><img src="https://img.shields.io/github/v/release/oaostarboy/clover?style=flat-square&color=93d4ac&labelColor=080e10" alt="Release"></a>
-  <a href="https://github.com/oaostarboy/clover/stargazers"><img src="https://img.shields.io/github/stars/oaostarboy/clover?style=flat-square&color=93d4ac&labelColor=080e10" alt="Stars"></a>
+  <a href="https://github.com/oaostarboy/clover"><img src="https://img.shields.io/github/stars/oaostarboy/clover?style=flat-square&color=93d4ac&labelColor=080e10" alt="Stars"></a>
   <a href="https://github.com/oaostarboy/clover/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-93d4ac?style=flat-square&labelColor=080e10" alt="License: MIT"></a>
   <a href="https://github.com/oaostarboy/clover"><img src="https://img.shields.io/badge/Built%20by-Anthony%20Nguyen-93d4ac?style=flat-square&labelColor=080e10" alt="Built by Anthony Nguyen"></a>
   <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/Lang-中文-93d4ac?style=flat-square&labelColor=080e10" alt="中文"></a>
