@@ -1,21 +1,21 @@
 <p align="center">
-  <img src="assets/banner.png" alt="Clover Cognition" width="100%">
+  <img src="assets/banner.png" alt="Clover" width="100%">
 </p>
 
-# Clover Cognition 🍀
+# Clover 🍀
 <p align="center">
-  <a href="https://github.com/oaostarboy/clover-c1">Clover Cognition</a> | <a href="https://github.com/oaostarboy/clover-c1">Clover Desktop</a>
+  <a href="https://github.com/oaostarboy/clover">Clover Cognition</a> | <a href="https://github.com/oaostarboy/clover">Clover Desktop</a>
 </p>
 <p align="center">
   <a href="docs/"><img src="https://img.shields.io/badge/Docs-clover--agent.-00D97E?style=for-the-badge" alt="Documentación"></a>
-  <a href="https://github.com/oaostarboy/clover-c1"><img src="https://img.shields.io/badge/Licencia-MIT-green?style=for-the-badge" alt="Licencia: MIT"></a>
-  <a href="https://github.com/oaostarboy/clover-c1"><img src="https://img.shields.io/badge/Creado%20por-Anthony%20Nguyen-blueviolet?style=for-the-badge" alt="Creado por Anthony Nguyen"></a>
+  <a href="https://github.com/oaostarboy/clover"><img src="https://img.shields.io/badge/Licencia-MIT-green?style=for-the-badge" alt="Licencia: MIT"></a>
+  <a href="https://github.com/oaostarboy/clover"><img src="https://img.shields.io/badge/Creado%20por-Anthony%20Nguyen-blueviolet?style=for-the-badge" alt="Creado por Anthony Nguyen"></a>
   <a href="README.md"><img src="https://img.shields.io/badge/Lang-English-blue?style=for-the-badge" alt="English"></a>
   <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/Lang-中文-red?style=for-the-badge" alt="中文"></a>
   <a href="README.ur-pk.md"><img src="https://img.shields.io/badge/Lang-اردو-green?style=for-the-badge" alt="اردو"></a>
 </p>
 
-**El agente de IA con mejora continua creado por [Clover Cognition](https://github.com/oaostarboy/clover-c1).** Es el único agente con un bucle de aprendizaje integrado: crea habilidades a partir de la experiencia, las mejora durante el uso, se impulsa a sí mismo a persistir el conocimiento, busca en sus propias conversaciones pasadas y construye un modelo cada vez más profundo de quién eres a lo largo de las sesiones. Ejecútalo en un VPS de $5, un clúster de GPUs o infraestructura sin servidor que cuesta casi nada cuando está inactivo. No está atado a tu laptop — habla con él desde Telegram mientras trabaja en una VM en la nube.
+**El agente de IA con mejora continua creado por [Clover Cognition](https://github.com/oaostarboy/clover).** Es el único agente con un bucle de aprendizaje integrado: crea habilidades a partir de la experiencia, las mejora durante el uso, se impulsa a sí mismo a persistir el conocimiento, busca en sus propias conversaciones pasadas y construye un modelo cada vez más profundo de quién eres a lo largo de las sesiones. Ejecútalo en un VPS de $5, un clúster de GPUs o infraestructura sin servidor que cuesta casi nada cuando está inactivo. No está atado a tu laptop — habla con él desde Telegram mientras trabaja en una VM en la nube.
 
 Usa cualquier modelo que quieras — [OpenRouter](https://openrouter.ai) (más de 200 modelos), [NovitaAI](https://novita.ai), [NVIDIA NIM](https://build.nvidia.com) (Nemotron), [Xiaomi MiMo](https://platform.xiaomimimo.com), [z.ai/GLM](https://z.ai), [Kimi/Moonshot](https://platform.moonshot.ai), [MiniMax](https://www.minimax.io), [Hugging Face](https://huggingface.co), OpenAI, o tu propio endpoint. Cambia con `clover model` — sin cambios de código, sin dependencias.
 
@@ -36,17 +36,17 @@ Usa cualquier modelo que quieras — [OpenRouter](https://openrouter.ai) (más d
 ### Linux, macOS, WSL2, Termux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/oaostarboy/clover-c1/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/oaostarboy/clover/main/scripts/install.sh | bash
 ```
 
 ### Windows (nativo, PowerShell)
 
-> **Nota:** En Windows nativo, Clover funciona sin WSL — la CLI, el gateway, la TUI y las herramientas funcionan de forma nativa. Si prefieres usar WSL2, el comando de Linux/macOS de arriba también funciona allí. ¿Encontraste un error? Por favor [crea un issue](https://github.com/oaostarboy/clover-c1).
+> **Nota:** En Windows nativo, Clover funciona sin WSL — la CLI, el gateway, la TUI y las herramientas funcionan de forma nativa. Si prefieres usar WSL2, el comando de Linux/macOS de arriba también funciona allí. ¿Encontraste un error? Por favor [crea un issue](https://github.com/oaostarboy/clover).
 
 Ejecuta esto en PowerShell:
 
 ```powershell
-iex (irm https://raw.githubusercontent.com/oaostarboy/clover-c1/main/scripts/install.ps1)
+iex (irm https://raw.githubusercontent.com/oaostarboy/clover/main/scripts/install.ps1)
 ```
 
 El instalador se encarga de todo: uv, Python 3.11, Node.js, ripgrep, ffmpeg, **y un Git Bash portátil** (MinGit, descomprimido en `%LOCALAPPDATA%\clover\git` — no requiere administrador, completamente aislado de cualquier instalación de Git del sistema). Clover usa este Git Bash incluido para ejecutar comandos de shell.
@@ -188,4 +188,4 @@ scripts/run_tests.sh
 
 MIT — ver [LICENSE](LICENSE).
 
-Creado por [Clover Cognition](https://github.com/oaostarboy/clover-c1).
+Creado por [Clover Cognition](https://github.com/oaostarboy/clover).

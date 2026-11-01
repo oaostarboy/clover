@@ -1,13 +1,13 @@
 <p align="center">
-  <img src="assets/banner.png" alt="Clover Cognition" width="100%">
+  <img src="assets/banner.png" alt="Clover" width="100%">
 </p>
 
-# Clover Cognition 🍀
+# Clover 🍀
 
 <p align="center">
   <a href="docs/"><img src="https://img.shields.io/badge/Docs-clover--agent.-00D97E?style=for-the-badge" alt="Documentation"></a>
-  <a href="https://github.com/oaostarboy/clover-c1"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
-  <a href="https://github.com/oaostarboy/clover-c1"><img src="https://img.shields.io/badge/Built%20by-Anthony%20Nguyen-blueviolet?style=for-the-badge" alt="Built by Anthony Nguyen"></a>
+  <a href="https://github.com/oaostarboy/clover"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
+  <a href="https://github.com/oaostarboy/clover"><img src="https://img.shields.io/badge/Built%20by-Anthony%20Nguyen-blueviolet?style=for-the-badge" alt="Built by Anthony Nguyen"></a>
   <a href="README.md"><img src="https://img.shields.io/badge/Lang-English-lightgrey?style=for-the-badge" alt="English"></a>
   <a href="README.ur-pk.md"><img src="https://img.shields.io/badge/Lang-اردو-green?style=for-the-badge" alt="اردو"></a>
 </p>
@@ -31,7 +31,7 @@
 ## 快速安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/oaostarboy/clover-c1/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/oaostarboy/clover/main/scripts/install.sh | bash
 ```
 
 支持 Linux、macOS、WSL2 和 Android (Termux)。安装程序会自动处理平台特定的配置。
@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/oaostarboy/clover-c1/main/scripts/i
 >
 > **Windows：** 在 PowerShell 中运行：
 > ```powershell
-> iex (irm https://raw.githubusercontent.com/oaostarboy/clover-c1/main/scripts/install.ps1)
+> iex (irm https://raw.githubusercontent.com/oaostarboy/clover/main/scripts/install.ps1)
 > ```
 > 安装完成后，可能需要重启终端，然后运行 `clover` 开始对话。
 
@@ -153,7 +153,7 @@ clover claw migrate --overwrite  # 覆盖已有冲突
 `clover update`、托管 venv、lazy dependencies、gateway 和 docs tooling 使用的布局。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/oaostarboy/clover-c1/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/oaostarboy/clover/main/scripts/install.sh | bash
 cd "${CLOVER_HOME:-$HOME/.clover}/clover-c1"
 uv pip install -e ".[all,dev]"
 scripts/run_tests.sh
