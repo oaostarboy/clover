@@ -19,6 +19,7 @@ HOW TO EDIT (by hand, at release time)
 - Kanban goal loops cap at 5 turns and 10 minutes with a stall circuit breaker on repeated replies.
 - Kanban workers skip automatic subagent fan-out and default unset reasoning effort to medium.
 - Windows defaults Kanban to one active worker at a time to keep the PC responsive.
+- Built-in mobile desktop preview and remote input endpoints (/api/computer/screenshot and /api/computer/input) work out of the box.
 
 ## 2.0.2.4 | Clover C2.0.2.4 | 2026-10-31
 - Desktop animations use less CPU by reusing drawing buffers and cached calculations.

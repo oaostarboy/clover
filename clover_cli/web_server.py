@@ -5207,6 +5207,165 @@ async def check_clover_update(force: bool = False):
     return payload
 
 
+class ComputerInputRequest(BaseModel):
+    type: str
+    x: Optional[int] = None
+    y: Optional[int] = None
+    text: Optional[str] = None
+    key: Optional[str] = None
+    amount: Optional[int] = None
+
+
+def _computer_screenshot_sync():
+    """Grab the live desktop across macOS, Windows, and Linux and return (jpeg_bytes, width, height)."""
+    import io as _io
+    import tempfile as _tempfile
+    from PIL import Image, ImageGrab
+
+    if sys.platform.startswith("linux"):
+        os.environ.setdefault("DISPLAY", ":0")
+
+    img = None
+    try:
+        img = ImageGrab.grab()
+    except Exception:
+        if sys.platform == "darwin":
+            with _tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+                tmp_path = tf.name
+            try:
+                subprocess.run(["screencapture", "-x", "-t", "png", tmp_path], check=True, timeout=5)
+                img = Image.open(tmp_path)
+                img.load()
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        else:
+            raise
+
+    width, height = img.size
+    max_width = 1280
+    if width > max_width:
+        scale = max_width / float(width)
+        img = img.resize((max_width, max(1, int(height * scale))), Image.LANCZOS)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    buf = _io.BytesIO()
+    img.save(buf, format="JPEG", quality=70)
+    return buf.getvalue(), img.size[0], img.size[1]
+
+
+def _active_window_title():
+    try:
+        if sys.platform == "darwin":
+            out = subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    'tell application "System Events" to get name of first application process whose frontmost is true',
+                ],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            return (out.stdout or "").strip() or "Clover Desktop"
+        if sys.platform == "win32":
+            import ctypes
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            buff = ctypes.create_unicode_buffer(length + 1)
+            ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
+            return buff.value.strip() or "Clover Desktop"
+        out = subprocess.run(
+            ["xdotool", "getactivewindow", "getwindowname"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        title = (out.stdout or "").strip()
+        return title or "Clover Desktop"
+    except Exception:
+        return "Clover Desktop"
+
+
+@app.get("/api/computer/screenshot")
+async def computer_screenshot():
+    """Live desktop screenshot for the iOS Control tab."""
+    try:
+        loop = asyncio.get_running_loop()
+        jpeg_bytes, width, height = await loop.run_in_executor(
+            None, _computer_screenshot_sync
+        )
+        active_title = await loop.run_in_executor(None, _active_window_title)
+    except Exception as exc:
+        _log.exception("Computer screenshot capture failed")
+        raise HTTPException(status_code=500, detail=f"Screenshot failed: {exc}")
+
+    return {
+        "screenshot_base64": base64.b64encode(jpeg_bytes).decode("ascii"),
+        "width": width,
+        "height": height,
+        "active_window": active_title,
+    }
+
+
+def _computer_input_sync(payload: "ComputerInputRequest"):
+    os.environ.setdefault("DISPLAY", ":0")
+    kind = (payload.type or "").strip().lower()
+    if kind == "click":
+        if payload.x is None or payload.y is None:
+            raise HTTPException(status_code=400, detail="click requires x and y")
+        subprocess.run(
+            ["xdotool", "mousemove", str(payload.x), str(payload.y), "click", "1"],
+            check=True,
+            timeout=5,
+        )
+    elif kind == "type":
+        if not payload.text:
+            raise HTTPException(status_code=400, detail="type requires text")
+        subprocess.run(
+            ["xdotool", "type", "--clearmodifiers", "--", payload.text],
+            check=True,
+            timeout=10,
+        )
+    elif kind == "key":
+        if not payload.key:
+            raise HTTPException(status_code=400, detail="key requires key")
+        subprocess.run(
+            ["xdotool", "key", "--clearmodifiers", payload.key],
+            check=True,
+            timeout=5,
+        )
+    elif kind == "scroll":
+        amount = payload.amount or 3
+        button = "5" if amount > 0 else "4"
+        subprocess.run(
+            ["xdotool", "click", "--repeat", str(abs(amount)), button],
+            check=True,
+            timeout=5,
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown input type: {kind!r}")
+
+
+@app.post("/api/computer/input")
+async def computer_input(payload: ComputerInputRequest):
+    """Drive the live desktop from the iOS Control tab (click/type/key/scroll)."""
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _computer_input_sync, payload)
+    except HTTPException:
+        raise
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(status_code=500, detail=f"Input failed: {exc}")
+    except Exception as exc:
+        _log.exception("Computer input failed")
+        raise HTTPException(status_code=500, detail=f"Input failed: {exc}")
+
+    return {"ok": True}
+
+
 @app.post("/api/audio/transcribe")
 async def transcribe_audio_upload(
     payload: AudioTranscriptionRequest, profile: Optional[str] = None
