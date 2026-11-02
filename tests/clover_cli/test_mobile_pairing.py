@@ -160,3 +160,27 @@ async def test_gateway_accepts_master_and_device_token_but_not_revoked(isolated_
         assert (await client.get("/v1/models", headers=h(KEY))).status == 200
     finally:
         await client.close()
+
+
+def test_origin_resolution_order(monkeypatch):
+    from clover_cli.mobile_pairing import resolve_origin
+
+    monkeypatch.delenv("CLOVER_DASHBOARD_PUBLIC_URL", raising=False)
+    monkeypatch.delenv("API_SERVER_CORS_ORIGINS", raising=False)
+    api = {"platforms": {"api_server": {"extra": {"public_url": "https://api.example.com"}}}}
+    dash = {"dashboard": {"public_url": "https://dash.example.com/"}}
+    cors = {"platforms": {"api_server": {"extra": {"cors_origins": ["http://lan.local", "https://localhost", "https://tunnel.example.com"]}}}}
+    mobile = {"mobile": {"public_url": "https://phone.example.com"}}
+    # a beats b
+    assert resolve_origin({**mobile, **api, **dash}) == "https://phone.example.com"
+    # b: api_server public_url > dashboard > cors
+    both = {"platforms": {"api_server": {"extra": {"public_url": "https://api.example.com", "cors_origins": ["https://tunnel.example.com"]}}}}
+    assert resolve_origin({**both, **dash}) == "https://api.example.com"
+    assert resolve_origin({**dash, **cors}) == "https://dash.example.com"
+    assert resolve_origin(cors) == "https://tunnel.example.com"
+    # c: nothing usable, including http-only and LAN
+    assert resolve_origin({}) is None
+    assert resolve_origin({"mobile": {"public_url": "http://192.168.1.5:8642"},
+                           "dashboard": {"public_url": "http://x.example.com"}}) is None
+    assert pairing_status({}, KEY)["configured"] is False
+    assert pairing_status(api, KEY)["origin"] == "https://api.example.com"

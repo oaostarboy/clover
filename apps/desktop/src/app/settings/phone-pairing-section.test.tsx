@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import QRCode from 'qrcode'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -122,11 +122,65 @@ describe('PhonePairingSection', () => {
     await waitFor(() => expect(screen.queryByText('Remove')).toBeNull())
   })
 
-  it('explains the not-set-up state with the fix command and mints nothing', async () => {
+  it('has no repeated step copy and no shell command', async () => {
+    backend(() => [])
+    const { container } = render(<PhonePairingSection />)
+    await screen.findByTestId('phone-pairing-qr')
+    const text = container.textContent ?? ''
+    expect(text.match(/Open Clover/g)?.length).toBe(1)
+    expect(text).not.toMatch(/clover config/)
+  })
+
+  it('not-set-up: shows an inline https field, no command, and mints nothing', async () => {
     api.mockResolvedValue({ configured: false, origin: null, reason: 'no_public_https_url' })
-    render(<PhonePairingSection />)
-    expect(await screen.findByText(/clover config set mobile.public_url/)).toBeTruthy()
+    const { container } = render(<PhonePairingSection />)
+    expect(await screen.findByLabelText("Your gateway's https address")).toBeTruthy()
+    expect(container.textContent).not.toMatch(/clover config|mobile\.public_url/)
     expect(screen.queryByTestId('phone-pairing-qr')).toBeNull()
     expect(api).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('rejects http and saves https through PUT /api/config, then reloads', async () => {
+    let saved = false
+    api.mockImplementation(async (req: { method?: string; path: string }) => {
+      if (req.method === 'PUT') {
+        saved = true
+
+        return { ok: true }
+      }
+
+      if (req.path === '/api/mobile/pairing' && !req.method) {
+        return saved ? CONFIGURED : { configured: false, origin: null, reason: 'no_public_https_url' }
+      }
+
+      if (req.path === '/api/mobile/pairing') {
+        return {
+          ...CONFIGURED,
+          device: phone({ connected: false, id: 'p', last_seen_at: null }),
+          expires_in: 600,
+          uri: URI
+        }
+      }
+
+      return { devices: [] }
+    })
+    render(<PhonePairingSection />)
+    const input = await screen.findByLabelText("Your gateway's https address")
+
+    fireEvent.change(input, { target: { value: 'http://192.168.1.5:8642' } })
+    fireEvent.click(screen.getByText('Save'))
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(api).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'PUT' }))
+
+    fireEvent.change(input, { target: { value: 'https://gateway.example.com/' } })
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith({
+        body: { config: { mobile: { public_url: 'https://gateway.example.com' } } },
+        method: 'PUT',
+        path: '/api/config'
+      })
+    )
+    expect(await screen.findByTestId('phone-pairing-qr')).toBeTruthy()
   })
 })

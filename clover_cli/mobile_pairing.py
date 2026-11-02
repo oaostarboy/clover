@@ -180,10 +180,49 @@ def get_device_store() -> DeviceStore:
     return _default_store
 
 
+def _cors_https_origins(value: Any) -> List[str]:
+    if isinstance(value, str):
+        value = value.split(",")
+    return [v for v in (value if isinstance(value, (list, tuple)) else []) if isinstance(v, str)]
+
+
+def resolve_origin(config: Dict[str, Any]) -> Optional[str]:
+    """Phone-reachable https origin, never http/LAN. Order:
+
+    a. ``mobile.public_url``
+    b. an already-configured public URL for this gateway: the API server's
+       ``platforms.api_server.extra.public_url``, then the dashboard's
+       ``CLOVER_DASHBOARD_PUBLIC_URL`` / ``dashboard.public_url``, then the first
+       https, non-loopback entry of the API server's CORS origins (what a
+       Cloudflare tunnel hostname is typically allow-listed as)
+    c. None (the desktop shows an inline field)
+    """
+    cfg = config if isinstance(config, dict) else {}
+    mobile = cfg.get("mobile")
+    found = strict_https_origin(mobile.get("public_url") if isinstance(mobile, dict) else None)
+    if found:
+        return found
+    platforms = cfg.get("platforms")
+    api = platforms.get("api_server") if isinstance(platforms, dict) else None
+    extra = api.get("extra") if isinstance(api, dict) else None
+    extra = extra if isinstance(extra, dict) else {}
+    dashboard = cfg.get("dashboard")
+    candidates = [
+        extra.get("public_url"),
+        os.environ.get("CLOVER_DASHBOARD_PUBLIC_URL"),
+        dashboard.get("public_url") if isinstance(dashboard, dict) else None,
+    ]
+    candidates += _cors_https_origins(extra.get("cors_origins", os.environ.get("API_SERVER_CORS_ORIGINS", "")))
+    for c in candidates:
+        origin = strict_https_origin(c)
+        if origin and urlparse(origin).hostname not in ("localhost", "127.0.0.1", "::1"):
+            return origin
+    return None
+
+
 def pairing_status(config: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any]:
     """Setup state only. Never returns a credential."""
-    mobile = config.get("mobile") if isinstance(config, dict) else None
-    origin = strict_https_origin(mobile.get("public_url") if isinstance(mobile, dict) else None)
+    origin = resolve_origin(config)
     if not origin:
         return {"configured": False, "reason": "no_public_https_url", "origin": None}
     if len((api_key or "").strip()) < 6:

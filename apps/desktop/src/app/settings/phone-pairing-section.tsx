@@ -22,9 +22,9 @@ const LOGO_FRACTION = 0.22
 const assetPath = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`
 
 const STEPS = [
-  { icon: Smartphone, text: 'Open Clover on your iPhone' },
-  { icon: Scan, text: 'Tap Scan' },
-  { icon: QrCode, text: 'Point the camera at this code' }
+  { icon: Scan, text: 'Tap Scan in the app' },
+  { icon: Smartphone, text: 'Allow the camera if asked' },
+  { icon: QrCode, text: 'Hold your phone over the code' }
 ]
 
 // A phone camera needs dark-on-light in both themes, so the tile colors are fixed, not themed.
@@ -96,6 +96,82 @@ function DeviceRow({ device, onRemove }: { device: PairedDevice; onRemove: (d: P
         Remove
       </Button>
     </li>
+  )
+}
+
+/** No phone-reachable address found: ask for it here and save it through the authenticated config API. */
+function GatewayAddressForm({ onSaved }: { onSaved: () => void }) {
+  const [value, setValue] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    const url = value.trim()
+    let ok = false
+
+    try {
+      const u = new URL(url)
+
+      ok = u.protocol === 'https:' && !u.username && !u.password && !u.search && !u.hash && u.pathname === '/'
+    } catch {
+      ok = false
+    }
+
+    if (!ok) {
+      setError('Enter a secure address that starts with https://, like https://gateway.example.com')
+
+      return
+    }
+
+    setError('')
+    setSaving(true)
+
+    try {
+      await cloverApi({
+        body: { config: { mobile: { public_url: url.replace(/\/$/, '') } } },
+        method: 'PUT',
+        path: '/api/config'
+      })
+      onSaved()
+    } catch (err) {
+      notifyError(err, 'Could not save that address')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <form
+      className="rounded-2xl bg-(--ui-bg-quaternary) px-6 py-6"
+      onSubmit={e => {
+        e.preventDefault()
+        void save()
+      }}
+    >
+      <h3 className="text-xl font-semibold tracking-tight text-foreground">Connect your iPhone</h3>
+      <p className="mt-1.5 text-[length:var(--conversation-text-font-size)] text-(--ui-text-secondary)">
+        Your iPhone needs a secure address to reach this computer.
+      </p>
+      <div className="mt-4 flex items-center gap-2">
+        <input
+          aria-label="Your gateway's https address"
+          className="h-9 min-w-0 flex-1 rounded-lg bg-(--ui-bg-tertiary) px-3 text-[length:var(--conversation-text-font-size)] text-foreground outline-none placeholder:text-(--ui-text-tertiary)"
+          onChange={e => setValue(e.target.value)}
+          placeholder="Your gateway's https address"
+          spellCheck={false}
+          type="url"
+          value={value}
+        />
+        <Button disabled={saving || !value.trim()} type="submit">
+          Save
+        </Button>
+      </div>
+      {error ? (
+        <p className="mt-2 text-[length:var(--conversation-caption-font-size)] text-destructive" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </form>
   )
 }
 
@@ -224,18 +300,7 @@ export function PhonePairingSection() {
           </Button>
         </div>
       ) : !status ? null : !status.configured ? (
-        <div className="rounded-2xl bg-(--ui-bg-quaternary) px-6 py-6">
-          <h3 className="text-xl font-semibold tracking-tight text-foreground">Connect your iPhone</h3>
-          <p className="mt-1.5 text-[length:var(--conversation-text-font-size)] text-(--ui-text-secondary)">
-            One quick step first: give your iPhone a secure address to reach this computer.
-          </p>
-          <code className="mt-4 block font-mono text-[length:var(--conversation-caption-font-size)] break-all text-(--ui-text-secondary)">
-            clover config set mobile.public_url https://your-gateway.example.com
-          </code>
-          <p className="mt-3 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
-            Run that, then come back for your code.
-          </p>
-        </div>
+        <GatewayAddressForm onSaved={load} />
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-x-12 gap-y-8 rounded-2xl bg-(--ui-bg-quaternary) px-10 py-10">
