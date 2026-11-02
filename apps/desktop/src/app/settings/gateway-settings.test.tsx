@@ -9,6 +9,7 @@ const saveConnectionConfig = vi.fn()
 // (store/managed-updates.test.ts); keep its store subscriptions out of this
 // single-purpose test.
 vi.mock('./managed-updates-section', () => ({ ManagedUpdatesSection: () => null }))
+vi.mock('./phone-pairing-section', () => ({ PhonePairingSection: () => null }))
 
 const localConnection = {
   cloudOrg: '',

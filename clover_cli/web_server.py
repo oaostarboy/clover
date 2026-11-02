@@ -7345,6 +7345,15 @@ async def update_memory_provider_config(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@app.get("/api/mobile/pairing")
+async def get_mobile_pairing():
+    """Phone pairing info (authenticated; not in PUBLIC_API_PATHS). Never logged."""
+    from clover_cli.mobile_pairing import pairing_info
+    from clover_cli.config import get_env_value
+
+    return pairing_info(load_config(), get_env_value("API_SERVER_KEY"))
+
+
 @app.get("/api/config")
 async def get_config(profile: Optional[str] = None):
     # _profile_scope blocks on the process-wide _SKILLS_PROFILE_LOCK and
