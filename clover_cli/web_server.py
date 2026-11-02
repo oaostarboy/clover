@@ -7347,11 +7347,38 @@ async def update_memory_provider_config(
 
 @app.get("/api/mobile/pairing")
 async def get_mobile_pairing():
-    """Phone pairing info (authenticated; not in PUBLIC_API_PATHS). Never logged."""
-    from clover_cli.mobile_pairing import pairing_info
+    """Pairing setup state only (authenticated). Never returns a credential."""
+    from clover_cli.mobile_pairing import pairing_status
     from clover_cli.config import get_env_value
 
-    return pairing_info(load_config(), get_env_value("API_SERVER_KEY"))
+    return pairing_status(load_config(), get_env_value("API_SERVER_KEY"))
+
+
+@app.post("/api/mobile/pairing")
+async def create_mobile_pairing():
+    """Mint a new per-phone device token; the clover:// link is returned once."""
+    from clover_cli.mobile_pairing import create_pairing, get_device_store
+    from clover_cli.config import get_env_value
+
+    return await asyncio.to_thread(
+        create_pairing, load_config(), get_env_value("API_SERVER_KEY"), get_device_store()
+    )
+
+
+@app.get("/api/mobile/devices")
+async def list_mobile_devices():
+    from clover_cli.mobile_pairing import get_device_store
+
+    return {"devices": await asyncio.to_thread(get_device_store().list)}
+
+
+@app.delete("/api/mobile/devices/{device_id}")
+async def delete_mobile_device(device_id: str):
+    from clover_cli.mobile_pairing import get_device_store
+
+    if not await asyncio.to_thread(get_device_store().revoke, device_id):
+        raise HTTPException(status_code=404, detail="Unknown device")
+    return {"ok": True}
 
 
 @app.get("/api/config")

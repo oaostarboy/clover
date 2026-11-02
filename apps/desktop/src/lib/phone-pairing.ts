@@ -1,52 +1,53 @@
-// Builds the `clover://pair` link the Clover iPhone app scans. Rules mirror the
-// iOS parser (clover-ios-chat src/lib/qr-pairing.ts): strict https origin with
-// no credentials/path/query/fragment, token must be >= 6 chars, both values
-// URL-encoded.
+// Types + display helpers for iPhone pairing. The gateway builds the clover://pair
+// link itself (per-phone device token); the desktop never sees the master key.
 
-export interface PhonePairingInfo {
+/** Setup state from GET /api/mobile/pairing. Never carries a credential. */
+import { relativeTime } from '@/lib/time'
+
+export interface PhonePairingStatus {
   configured: boolean
   origin: null | string
   reason?: null | string
-  token: null | string
 }
 
-export function strictHttpsOrigin(input: string): string {
-  let parsed: URL
-
-  try {
-    parsed = new URL(input.trim())
-  } catch {
-    throw new Error('That is not a valid gateway address.')
-  }
-
-  if (parsed.protocol !== 'https:') {
-    throw new Error('Pairing needs an https:// gateway address.')
-  }
-
-  if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
-    throw new Error('Gateway address must be a plain https origin.')
-  }
-
-  return parsed.origin
+/** A freshly minted pairing code from POST /api/mobile/pairing (the only time the link exists). */
+export interface PhonePairingCode extends PhonePairingStatus {
+  device?: PairedDevice
+  expires_in?: number
+  uri?: string
 }
 
-export function buildPairingUri(origin: string, token: string): string {
-  if (token.length < 6) {
-    throw new Error('The pairing token is too short.')
-  }
-
-  return `clover://pair?origin=${encodeURIComponent(strictHttpsOrigin(origin))}&token=${encodeURIComponent(token)}`
+export interface PairedDevice {
+  connected: boolean
+  created_at: number
+  id: string
+  last_seen_at: null | number
+  name: string
 }
 
-/** Link for the QR, or null in the "not set up" state (never an http/LAN fallback). */
-export function pairingUriFor(info: null | PhonePairingInfo | undefined): null | string {
-  if (!info?.configured || !info.origin || !info.token) {
-    return null
+/** "9:42" for a remaining-seconds count; never negative. */
+export function formatCountdown(seconds: number): string {
+  const s = Math.max(0, Math.ceil(seconds))
+
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+/** "Last active 2 min ago", or "Not connected yet" for a device that never reached the gateway. */
+export function lastActiveLabel(device: Pick<PairedDevice, 'last_seen_at'>, nowMs = Date.now()): string {
+  if (device.last_seen_at == null) {
+    return 'Not connected yet'
   }
 
-  try {
-    return buildPairingUri(info.origin, info.token)
-  } catch {
-    return null
+  const diff = Math.max(0, nowMs - device.last_seen_at * 1000)
+
+  if (diff < 60_000) {
+    return 'Active just now'
   }
+
+  return `Last active ${relativeTime(device.last_seen_at * 1000, nowMs)}`
+}
+
+/** True once the device minted for the shown code has reached the gateway, i.e. the phone scanned it. */
+export function newlyConnected(devices: PairedDevice[], deviceId: string): boolean {
+  return devices.some(d => d.id === deviceId && d.connected)
 }

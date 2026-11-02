@@ -1974,6 +1974,14 @@ class APIServerAdapter(BasePlatformAdapter):
             # matches web_server.py's dashboard-token check.
             if hmac.compare_digest(token.encode(), expected_key.encode()):
                 return None  # Auth OK
+            # A per-phone device token (hash-stored, revocable, expiring if unused).
+            try:
+                from clover_cli.mobile_pairing import get_device_store
+
+                if get_device_store().verify(token):
+                    return None
+            except Exception as exc:
+                logger.warning("Device token check failed: %s", type(exc).__name__)
 
         logger.warning(
             "API server rejected invalid API key: %s",
