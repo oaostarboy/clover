@@ -15,6 +15,12 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.2.6 | Clover C2.0.2.6 | 2026-11-02
+- Optional live desktop view and remote control from the iPhone Control tab, built into the Clover server.
+- Off by default; turn it on with desktop_control.enabled in config.yaml, with view-only and no-input modes.
+- Only one phone controls at a time. Control ends on disconnect, and an on-screen notice shows when it starts.
+- Works on Linux (X11) now; macOS and Windows support is included but not yet tested.
+
 ## 2.0.2.5 | Clover C2.0.2.5 | 2026-11-01
 - Kanban goal loops cap at 5 turns and 10 minutes with a stall circuit breaker on repeated replies.
 - Kanban workers skip automatic subagent fan-out and default unset reasoning effort to medium.

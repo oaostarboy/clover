@@ -18460,6 +18460,61 @@ _mount_plugin_api_routes()
 from clover_cli.dashboard_auth.routes import router as _dashboard_auth_router  # noqa: E402
 app.include_router(_dashboard_auth_router)
 
+def _desk_ws_auth(ws: "WebSocket") -> bool:
+    """Auth for ``WS /desk/stream``: Authorization header or ticket subprotocol.
+
+    Never reads a credential from the URL.  Loopback mode accepts the dashboard
+    session token (Bearer or X-Clover-Session-Token); gated mode verifies the
+    Bearer access token through the session-provider stack, or a single-use
+    ``clover-gateway-ticket.<ticket>`` subprotocol.
+    """
+    headers = ws.headers
+    auth = str(headers.get("authorization", "") or "")
+    parts = auth.split(" ", 1)
+    bearer = parts[1].strip() if len(parts) == 2 and parts[0].strip().lower() == "bearer" else ""
+    if not getattr(app.state, "auth_required", False):
+        for cand in (bearer, str(headers.get(_SESSION_HEADER_NAME, "") or "")):
+            if cand and hmac.compare_digest(cand.encode(), _SESSION_TOKEN.encode()):
+                return True
+        return False
+    if bearer:
+        from clover_cli.dashboard_auth import list_session_providers
+
+        for provider in list_session_providers():
+            try:
+                if provider.verify_session(access_token=bearer) is not None:
+                    return True
+            except Exception:  # noqa: BLE001 - unreachable/buggy provider == not verified
+                continue
+        return False
+    ticket, reason = _gateway_ws_ticket_from_subprotocol(ws)
+    if reason == "ok":
+        from clover_cli.dashboard_auth.ws_tickets import TicketInvalid, consume_ticket
+
+        try:
+            consume_ticket(ticket)
+        except TicketInvalid:
+            return False
+        ws._clover_ws_subprotocol = _GATEWAY_WS_PROTOCOL
+        return True
+    return False
+
+
+def _mount_desktop_control(application: FastAPI) -> None:
+    """Mount the opt-in /desk/ live-screen + remote-control API."""
+    from clover_cli.desktop_control import build_router
+
+    application.include_router(
+        build_router(
+            http_auth=_require_token,
+            ws_auth=_desk_ws_auth,
+            ws_origin_ok=_ws_request_is_allowed,
+        )
+    )
+
+
+_mount_desktop_control(app)
+
 mount_spa(app)
 
 

@@ -141,7 +141,7 @@ def _unauth_response(request: Request, *, reason: str) -> Response:
         else f"{prefix}/login"
     )
 
-    if path.startswith("/api/"):
+    if path.startswith("/api/") or path.startswith("/desk/"):
         # API routes never get redirects: the browser fetch() API would
         # follow a 302 into the cross-origin OAuth dance opaquely. Return
         # 401 with a structured envelope so the SPA can full-page-navigate

@@ -4118,6 +4118,17 @@ DEFAULT_CONFIG = {
         "region": "global",
     },
 
+    # Live desktop screen stream + remote control for the mobile Control tab
+    # (/desk/ API on the web server). OFF by default: remote control of the
+    # desktop is powerful. view_only streams the screen but never accepts input.
+    "desktop_control": {
+        "enabled": False,
+        "view_only": False,
+        "allow_input": True,
+        "fps": 8,
+        "width": 1280,
+    },
+
     # Config schema version - bump this when adding new required fields
     "_config_version": 42,
 }
