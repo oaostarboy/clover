@@ -703,7 +703,12 @@ class TestImageApiSurface:
         from plugins.image_gen.openrouter import _IMAGE_API_MODELS, _build_providers
 
         by_name = {p.name: p for p in _build_providers()}
-        openrouter_ids = {m["id"] for m in by_name["openrouter"].list_models()}
+        # Hermetic: the live OpenRouter catalog changes under us (a model can
+        # be retired upstream); this contract is about the offline snapshot.
+        provider = by_name["openrouter"]
+        provider._image_api_live_models = lambda: []
+        provider._live_models = lambda: []
+        openrouter_ids = {m["id"] for m in provider.list_models()}
         assert "openai/gpt-image-2" in openrouter_ids
         assert set(_IMAGE_API_MODELS) <= openrouter_ids
 

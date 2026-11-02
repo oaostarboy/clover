@@ -5233,7 +5233,7 @@ def _computer_screenshot_sync():
             with _tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
                 tmp_path = tf.name
             try:
-                subprocess.run(["screencapture", "-x", "-t", "png", tmp_path], check=True, timeout=5)
+                subprocess.run(["screencapture", "-x", "-t", "png", tmp_path], check=True, timeout=5, stdin=subprocess.DEVNULL)
                 img = Image.open(tmp_path)
                 img.load()
             finally:
@@ -5267,8 +5267,7 @@ def _active_window_title():
                 ],
                 capture_output=True,
                 text=True,
-                timeout=2,
-            )
+                timeout=2, stdin=subprocess.DEVNULL)
             return (out.stdout or "").strip() or "Clover Desktop"
         if sys.platform == "win32":
             import ctypes
@@ -5281,8 +5280,7 @@ def _active_window_title():
             ["xdotool", "getactivewindow", "getwindowname"],
             capture_output=True,
             text=True,
-            timeout=2,
-        )
+            timeout=2, stdin=subprocess.DEVNULL)
         title = (out.stdout or "").strip()
         return title or "Clover Desktop"
     except Exception:
@@ -5319,32 +5317,28 @@ def _computer_input_sync(payload: "ComputerInputRequest"):
         subprocess.run(
             ["xdotool", "mousemove", str(payload.x), str(payload.y), "click", "1"],
             check=True,
-            timeout=5,
-        )
+            timeout=5, stdin=subprocess.DEVNULL)
     elif kind == "type":
         if not payload.text:
             raise HTTPException(status_code=400, detail="type requires text")
         subprocess.run(
             ["xdotool", "type", "--clearmodifiers", "--", payload.text],
             check=True,
-            timeout=10,
-        )
+            timeout=10, stdin=subprocess.DEVNULL)
     elif kind == "key":
         if not payload.key:
             raise HTTPException(status_code=400, detail="key requires key")
         subprocess.run(
             ["xdotool", "key", "--clearmodifiers", payload.key],
             check=True,
-            timeout=5,
-        )
+            timeout=5, stdin=subprocess.DEVNULL)
     elif kind == "scroll":
         amount = payload.amount or 3
         button = "5" if amount > 0 else "4"
         subprocess.run(
             ["xdotool", "click", "--repeat", str(abs(amount)), button],
             check=True,
-            timeout=5,
-        )
+            timeout=5, stdin=subprocess.DEVNULL)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown input type: {kind!r}")
 

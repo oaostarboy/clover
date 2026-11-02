@@ -187,7 +187,8 @@ def _run(args: List[str], *, env: Optional[dict] = None, timeout: float = 10) ->
     """Run an argument list (never a shell string)."""
     return subprocess.run(
         [str(a) for a in args], env=env, timeout=timeout, check=True,
-        capture_output=True, text=True,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        stdin=subprocess.DEVNULL,
     )
 
 
@@ -336,7 +337,7 @@ class LinuxX11Backend(Backend):
             return _log.info("notice: %s", message)
         subprocess.Popen(["notify-send", "-a", "Clover Desktop Control", "-t", "4000",
                           "Clover Desktop Control", message], env=self.env,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 _MAC_KEYS = {
@@ -424,7 +425,7 @@ class MacBackend(Backend):
         subprocess.Popen(["osascript", "-e", "on run argv", "-e",
                           'display notification (item 1 of argv) with title "Clover Desktop Control"',
                           "-e", "end run", message],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 class WindowsBackend(Backend):
@@ -603,7 +604,7 @@ class Capture:
             self.proc = await asyncio.create_subprocess_exec(
                 *self.backend.capture_cmd(self.d, self.fps, None),
                 env=self.backend.capture_env(),
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+                stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
                 **self.backend.popen_kwargs(),
             )
         except Exception as exc:  # noqa: BLE001
@@ -737,7 +738,7 @@ class DesktopController:
     async def snapshot(self, d: dict) -> bytes:
         proc = await asyncio.create_subprocess_exec(
             *self.backend.capture_cmd(d, 0, 1), env=self.backend.capture_env(),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
             **self.backend.popen_kwargs(),
         )
         try:
