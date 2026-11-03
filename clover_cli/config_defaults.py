@@ -1730,6 +1730,9 @@ DEFAULT_CONFIG = {
         # Seconds a disconnected session keeps its running turn (detached) and
         # buffered reply before being reaped. 0 = legacy interrupt-after-grace.
         "ws_detached_ttl_s": 1800.0,
+        # Max wall-clock a turn may keep running detached before the legacy
+        # interrupt + force-reap takes over. 0 = no cap.
+        "ws_detached_turn_max_s": 3600.0,
         # Startup sweep of session rows orphaned by a dead gateway process
         # (#65194).  The ws-orphan grace timer above is in-process, so a
         # gateway restart (update, crash, systemd) leaves disconnected

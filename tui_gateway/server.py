@@ -232,6 +232,30 @@ def _resolve_ws_detached_ttl() -> float:
 
 
 _WS_DETACHED_TTL_S = _resolve_ws_detached_ttl()
+
+
+def _resolve_ws_detached_turn_max() -> float:
+    """Max wall-clock seconds a turn may keep running detached (default 3600).
+
+    Past this the legacy interrupt + force-reap path takes over so a hung
+    detached turn cannot hold a live-session slot forever.
+    ``dashboard.ws_detached_turn_max_s``; ``0`` disables the cap.
+    """
+    raw = None
+    try:
+        from clover_cli.config import load_config
+
+        raw = (load_config().get("dashboard") or {}).get("ws_detached_turn_max_s")
+    except Exception:
+        raw = None
+    try:
+        v = float(raw) if raw is not None else 3600.0
+    except (ValueError, TypeError):
+        v = 3600.0
+    return max(0.0, v)
+
+
+_WS_DETACHED_TURN_MAX_S = _resolve_ws_detached_turn_max()
 _WS_ORPHAN_INTERRUPT_REAP_POLL_S = 1.0
 # Total budget for the interrupt-then-reap poll chain. If an interrupted turn
 # never settles (agent thread hung in a syscall, supervisor lost), each 1s poll
@@ -1165,6 +1189,11 @@ def _pop_session_by_id(sid: str) -> dict | None:
     return session
 
 
+def _clear_detached_markers(session: dict) -> None:
+    for k in ("_detached_idle_since", "_detached_since", "_detached_turn_seen"):
+        session.pop(k, None)
+
+
 def _teardown_popped_session(
     session: dict | None, *, end_reason: str = "tui_close"
 ) -> bool:
@@ -1188,6 +1217,14 @@ def _teardown_popped_session(
         except Exception:
             logger.debug("failed waiting for session turn thread", exc_info=True)
     _teardown_session(session, end_reason=end_reason)
+    sid = session.get("_sid")
+    if sid:
+        try:
+            from tui_gateway import event_replay
+
+            event_replay.forget(sid)
+        except Exception:
+            logger.debug("event_replay.forget failed", exc_info=True)
     return True
 
 
@@ -1429,15 +1466,39 @@ def _schedule_ws_orphan_reap(sid: str, *, delay_s: float | None = None) -> None:
             current = _sessions.get(sid)
             if current is None or not _ws_session_is_detached(current):
                 return
+            detached_over_max = False
+            if _WS_DETACHED_TTL_S > 0 and current.get("running"):
+                _now = time.time()
+                _since = current.setdefault("_detached_since", _now)
+                if (
+                    _WS_DETACHED_TURN_MAX_S > 0
+                    and _now - _since > _WS_DETACHED_TURN_MAX_S
+                ):
+                    detached_over_max = True
+                    logger.error(
+                        "client_gone sid=%s: detached turn exceeded max "
+                        "wall-clock (%.0fs > %.0fs) — interrupting and "
+                        "force-reaping",
+                        sid, _now - _since, _WS_DETACHED_TURN_MAX_S,
+                    )
             if _session_has_active_delegations(sid, current):
                 reschedule_delay = _WS_ORPHAN_REAP_GRACE_S
-            elif _WS_DETACHED_TTL_S > 0 and current.get("running"):
+            elif (
+                _WS_DETACHED_TTL_S > 0
+                and current.get("running")
+                and not detached_over_max
+            ):
                 # Detached-continue: a dropped socket must not kill the work.
                 # Keep polling; the turn finalizes normally and its events
                 # (incl. the final reply) sit in the replay ring for resume.
                 current.pop("_detached_idle_since", None)
+                current["_detached_turn_seen"] = True
                 reschedule_delay = _WS_ORPHAN_REAP_GRACE_S
-            elif _WS_DETACHED_TTL_S > 0:
+            elif (
+                _WS_DETACHED_TTL_S > 0
+                and current.get("_detached_turn_seen")
+                and not current.get("running")
+            ):
                 idle_since = current.setdefault(
                     "_detached_idle_since", time.time()
                 )
@@ -1593,7 +1654,7 @@ def _close_sessions_for_transport(
                     else:
                         current["transport"] = _detached_ws_transport
                         current.pop("_client_gone_interrupt_requested", None)
-                        current.pop("_detached_idle_since", None)
+                        _clear_detached_markers(current)
                         should_schedule_reap = True
         if claimed_for_teardown is not None:
             if _teardown_popped_session(claimed_for_teardown, end_reason=end_reason):
@@ -10930,7 +10991,7 @@ def _live_session_payload(
         if transport is not None:
             session["transport"] = transport
             if transport is not _detached_ws_transport:
-                session.pop("_detached_idle_since", None)
+                _clear_detached_markers(session)
             # Track every transport that has shown this session (multi-window:
             # pop-out windows each resume the same sid). The last viewer
             # becomes the transport on the disconnect path so closing a

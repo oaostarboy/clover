@@ -22,3 +22,10 @@ Known caveats: a genuinely hung turn now lives until it ends on its own (no 60s 
 turn-wall-clock. Replay ring is in-memory only: gateway restart loses the buffer (DB transcript still holds
 persisted history). Existing orphan-reap tests in tests/test_tui_gateway_server.py pin TTL=0 via an autouse fixture.
 Pre-existing failures on baseline (5): test_gui_surface_toolsets, 2x test_projects_rpc, 2x test_tui_gateway_server (state_db/custom_row).
+
+## Review follow-up (SHIP WITH FIXES) — resolved
+- **M1** `dashboard.ws_detached_turn_max_s` (default 3600, 0 = no cap; config_defaults.py). First detached running poll records `_detached_since`; past the max the reap logs ERROR (sid, elapsed) and falls through to the legacy interrupt + 60-poll force-reap. Test: test_detached_turn_past_max_is_interrupted_and_force_reaped.
+- **M2** Running branch sets `_detached_turn_seen`; the 30-min TTL applies only when it is set and the turn is idle. A session idle at disconnect takes the legacy immediate pop (~20s). Tests: ..._idle_at_disconnect_is_popped_on_first_poll, ..._ran_detached_turn_waits_for_ttl.
+- Markers (`_detached_idle_since/_detached_since/_detached_turn_seen`) cleared via `_clear_detached_markers` on transport rebind, session.resume fast path and unpersisted-live path.
+- `event_replay.forget(sid)` called from `_teardown_popped_session` (actual reap only). Test: test_forget_drops_ring_and_pinned_final_on_reap.
+- Default-TTL disconnect-while-running test added in tests/test_tui_gateway_server.py.

@@ -163,3 +163,80 @@ def test_buffer_cap_holds_and_final_result_survives_eviction():
     finals = [e for e in got if e["type"] == "message.complete"]
     assert len(finals) == 1 and finals[0]["payload"]["text"] == "FINAL"
     assert [e["seq"] for e in got] == sorted(e["seq"] for e in got)
+
+
+def test_detached_turn_past_max_is_interrupted_and_force_reaped(monkeypatch, timers, caplog):
+    import logging
+
+    monkeypatch.setattr(server, "_WS_DETACHED_TURN_MAX_S", 100.0)
+    interrupts, torn = [], []
+    monkeypatch.setattr(server, "_interrupt_session_turn", lambda *a, **k: interrupts.append(a) or False)
+    monkeypatch.setattr(server, "_teardown_popped_session", lambda s, **k: torn.append(s))
+    clock = [5000.0]
+    monkeypatch.setattr(server.time, "time", lambda: clock[0])
+    server._sessions["dt-max"] = _sess(running=True)
+    server._schedule_ws_orphan_reap("dt-max")
+    _fire(timers)
+    assert interrupts == []
+    clock[0] += 101
+    with caplog.at_level(logging.ERROR, logger=server.logger.name):
+        _fire(timers)
+    assert len(interrupts) == 1
+    assert any(r.levelno == logging.ERROR and "dt-max" in r.getMessage() for r in caplog.records)
+    for _ in range(server._WS_ORPHAN_INTERRUPT_REAP_MAX_POLLS + 2):
+        if torn or not timers:
+            break
+        _fire(timers)
+    assert len(torn) == 1
+    assert "dt-max" not in server._sessions
+
+
+def test_session_idle_at_disconnect_is_popped_on_first_poll(monkeypatch, timers):
+    torn = []
+    monkeypatch.setattr(server, "_teardown_popped_session", lambda s, **k: torn.append(s))
+    server._sessions["dt-idle"] = _sess(running=False)
+    server._schedule_ws_orphan_reap("dt-idle")
+    _fire(timers)
+    assert len(torn) == 1 and "dt-idle" not in server._sessions
+
+
+def test_session_that_ran_detached_turn_waits_for_ttl(monkeypatch, timers):
+    torn = []
+    monkeypatch.setattr(server, "_teardown_popped_session", lambda s, **k: torn.append(s))
+    live = _sess(running=True)
+    server._sessions["dt-ran"] = live
+    server._schedule_ws_orphan_reap("dt-ran")
+    _fire(timers)
+    assert live["_detached_turn_seen"] is True
+    live["running"] = False
+    _fire(timers)
+    assert torn == [] and "dt-ran" in server._sessions
+
+
+def test_resume_fast_path_clears_detached_markers(monkeypatch):
+    from tui_gateway import methods_session  # noqa: F401  (handlers installed)
+
+    live = _sess(
+        running=False,
+        _detached_idle_since=1.0,
+        _detached_since=1.0,
+        _detached_turn_seen=True,
+    )
+    server._clear_detached_markers(live)
+    assert not any(
+        k in live for k in ("_detached_idle_since", "_detached_since", "_detached_turn_seen")
+    )
+
+
+def test_forget_drops_ring_and_pinned_final_on_reap(monkeypatch):
+    sid = "dt-forget"
+    server._emit("message.delta", sid, {"text": "a"})
+    server._emit("message.complete", sid, {"text": "a", "status": "complete"})
+    assert event_replay.events_since(sid, 0)
+    sess = _sess()
+    sess["_sid"] = sid
+    monkeypatch.setattr(server, "_teardown_session", lambda *a, **k: None)
+    assert server._teardown_popped_session(sess, end_reason="ws_orphan_reap")
+    assert event_replay.events_since(sid, 0) == []
+    assert sid not in event_replay._replay_final
+    assert event_replay.latest_seq(sid) == 0

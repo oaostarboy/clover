@@ -477,6 +477,7 @@ def _(rid, params: dict) -> dict:
                             live["transport"] = transport
                             live.setdefault("viewers", {})[transport] = time.time()
                     _cancel_ws_orphan_reap(live_sid)
+                    _clear_detached_markers(live)
                     history = live.get("history") or []
                     return _ok(
                         rid,
@@ -650,6 +651,7 @@ def _(rid, params: dict) -> dict:
                 # but only when a transport is passed; cancel unconditionally
                 # here so the fast path can never race the reap Timer).
                 _cancel_ws_orphan_reap(sid)
+                _clear_detached_markers(session)
                 return _ok(rid, _reuse_live_payload(sid, session))
 
         # Fast path: if the session is already live, reuse it under the lock.

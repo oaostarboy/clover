@@ -121,6 +121,14 @@ def latest_seq(sid: str) -> int:
         return _replay_next_seq.get(sid or "", 0)
 
 
+def forget(sid: str) -> None:
+    """Drop the ring, seq counter and pinned final for a reaped session."""
+    with _replay_lock:
+        _replay_buffers.pop(sid, None)
+        _replay_next_seq.pop(sid, None)
+        _replay_final.pop(sid, None)
+
+
 def reset_replay_state() -> None:
     """Test hook."""
     with _replay_lock:
