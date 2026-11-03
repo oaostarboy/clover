@@ -8985,6 +8985,8 @@ def _make_agent(
     reasoning_config_override: dict | None = None,
     service_tier_override: str | None = None,
     platform_override: str | None = None,
+    enabled_toolsets_override: list[str] | None = None,
+    max_iterations_override: int | None = None,
 ):
     # AC-4 test seam: dead unless explicitly armed by the isolated certify
     # harness. Both inline and compute-host paths construct through _make_agent,
@@ -9116,7 +9118,11 @@ def _make_agent(
     _pr = _load_provider_routing()
     return AIAgent(
         model=model,
-        max_iterations=_cfg_max_turns(cfg, 500),
+        max_iterations=(
+            int(max_iterations_override)
+            if max_iterations_override
+            else _cfg_max_turns(cfg, 500)
+        ),
         provider=runtime.get("provider"),
         base_url=runtime.get("base_url"),
         api_key=runtime.get("api_key"),
@@ -9140,7 +9146,13 @@ def _make_agent(
             if service_tier_override is not None
             else _load_service_tier()
         ),
-        enabled_toolsets=_load_enabled_toolsets(_resolve_agent_platform(platform_override)),
+        # An explicit override (proactive to-do runs) replaces the configured
+        # toolsets entirely: no terminal/file/browser/send/cron/MCP tools.
+        enabled_toolsets=(
+            list(enabled_toolsets_override)
+            if enabled_toolsets_override is not None
+            else _load_enabled_toolsets(_resolve_agent_platform(platform_override))
+        ),
         # OpenRouter provider-routing prefs (config.yaml `provider_routing`).
         # Mirrors the messaging gateway + CLI so the desktop/TUI honors the same
         # routing instead of letting OpenRouter pick providers at random.

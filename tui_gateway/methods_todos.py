@@ -16,9 +16,14 @@ method = _registry.method
 
 @method("todos.list")
 def _(rid, params: dict) -> dict:
-    from tui_gateway import todo_store
+    from tui_gateway import todo_runtime, todo_store
 
-    return _ok(rid, todo_store.listing(get_clover_home()))
+    home = get_clover_home()
+    try:
+        todo_runtime.reconcile_interrupted(home)  # runs whose thread died with a restart -> failed
+    except Exception:
+        pass
+    return _ok(rid, todo_store.listing(home))
 
 
 @method("todos.add")
@@ -83,7 +88,9 @@ def _(rid, params: dict) -> dict:
     data = todo_store.load(home)
     s = data.setdefault("settings", {})
     if "auto_start" in params:
-        want = bool(params["auto_start"])
+        if not isinstance(params["auto_start"], bool):
+            return _err(rid, 4002, "auto_start must be true or false")
+        want = params["auto_start"]
         if want and not s.get("auto_start", True):
             s["enabled_at"] = time.time()
         s["auto_start"] = want

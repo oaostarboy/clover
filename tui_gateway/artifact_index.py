@@ -39,8 +39,24 @@ _MEDIA_RE = re.compile(r"[`\"'*_]*MEDIA:\s*(`[^`\n]+`|\"[^\"\n]+\"|'[^'\n]+'|\S+
 _MD_REF_RE = re.compile(r"!?\[([^\]\n]*)\]\((<[^>\n]+>|[^)\s]+)(?:\s+\"[^\"]*\")?\)")
 
 _MAX_FILE_BYTES = 200 * 1024 * 1024
-_SENSITIVE_PARTS = {".ssh", ".gnupg", ".aws", ".config/gcloud"}
-_SENSITIVE_NAMES = {".env", "id_rsa", "id_ed25519", "auth.json", "credentials", "credentials.json"}
+_SENSITIVE_PARTS = {
+    ".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".config/gcloud", ".config/gh", ".password-store",
+    "mcp-tokens", "pairing", "secrets", "keychains", "cookies",
+}
+_SENSITIVE_NAMES = {
+    ".env", ".envrc", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "auth.json", "auth.lock", "credentials",
+    "credentials.json", "config.yaml", ".git-credentials", ".netrc", ".npmrc", ".pypirc", ".pgpass", ".my.cnf",
+    ".anthropic_oauth.json", "google_token.json", "google_oauth.json", "google_oauth_pending.json",
+    "webhook_subscriptions.json", "bws_cache.json", "bws_cache.enc.json", "todos.json", "known_hosts",
+    "authorized_keys", "shadow", "passwd", "sudoers", "cookies.sqlite", "login data", "state.db",
+}
+_SENSITIVE_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".kdbx", ".keystore", ".jks", ".asc", ".gpg", ".ppk",
+                       ".db", ".sqlite", ".sqlite3", ".db-wal", ".db-shm", ".env")
+# System trees that are never "something Clover made for the owner".
+_DENY_ROOTS = ("/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/lib", "/var/log", "/usr/lib",
+               "/private/etc", "/System", "/Library")
+# Files the phone uploaded (or the gateway cached from a chat) are NOT things Clover made.
+_UPLOAD_PREFIXES = ("upload_", "clipboard_", "pdf_p", "paste_")
 
 
 def ext_of(path: str) -> str:
@@ -114,12 +130,74 @@ def extract_refs(text: str) -> List[Tuple[str, str]]:
     return list(seen.items())
 
 
-def is_sensitive(path: str) -> bool:
+def _clover_home_str() -> str:
+    try:
+        from clover_constants import get_clover_home
+
+        return os.path.realpath(str(get_clover_home()))
+    except Exception:
+        return ""
+
+
+def _is_sensitive_one(path: str, home: str) -> bool:
     p = Path(path)
-    if p.name.lower() in _SENSITIVE_NAMES or p.name.startswith(".env"):
+    low = p.name.lower()
+    if low in _SENSITIVE_NAMES or low.startswith(".env") or low.endswith(_SENSITIVE_SUFFIXES):
         return True
-    s = str(p)
-    return any(f"/{part}/" in s or s.endswith(f"/{part}") for part in _SENSITIVE_PARTS)
+    s = path.replace("\\", "/").lower()
+    if any(f"/{part}/" in s or s.endswith(f"/{part}") for part in _SENSITIVE_PARTS):
+        return True
+    if any(s == r.lower() or s.startswith(r.lower() + "/") for r in _DENY_ROOTS):
+        return True
+    # Hidden directories under the user's home (.config, .local, .mozilla, ...) hold app state and
+    # keyrings, not creations. CLOVER_HOME (~/.clover) is the one hidden tree Clover writes into.
+    try:
+        uh = os.path.expanduser("~").replace("\\", "/").lower().rstrip("/")
+    except Exception:
+        uh = ""
+    ch = home.replace("\\", "/").lower().rstrip("/") if home else ""
+    if uh and s.startswith(uh + "/") and not (ch and (s == ch or s.startswith(ch + "/"))):
+        if any(part.startswith(".") for part in s[len(uh) + 1:].split("/")[:-1]):
+            return True
+    if home:
+        h = home.replace("\\", "/").lower().rstrip("/")
+        # Files sitting directly in CLOVER_HOME are config/state/credentials, never creations.
+        if os.path.dirname(s) == h:
+            return True
+        # Per-profile homes keep the same credential files.
+        if s.startswith(h + "/profiles/") and s.count("/") == h.count("/") + 3:
+            return True
+    return False
+
+
+def is_sensitive(path: str, *, home: Optional[str] = None) -> bool:
+    """True when ``path`` or the file it really resolves to is credentials/state/system data.
+
+    Both the lexical path and its symlink-resolved target are screened, so a
+    link named ``photo.png`` that points at ``~/.ssh/id_rsa`` is rejected.
+    """
+    home = _clover_home_str() if home is None else home
+    if _is_sensitive_one(path, home):
+        return True
+    try:
+        real = os.path.realpath(path)
+    except (OSError, ValueError):
+        return True
+    return real != path and _is_sensitive_one(real, home)
+
+
+def origin_of(path: str, home: Optional[str] = None) -> str:
+    """``uploaded`` for files the owner sent in (phone/clipboard/PDF pages), else ``generated``."""
+    home = _clover_home_str() if home is None else home
+    name = os.path.basename(path)
+    if name.startswith(_UPLOAD_PREFIXES):
+        return "uploaded"
+    if home:
+        real = os.path.realpath(path).replace("\\", "/").lower()
+        h = home.replace("\\", "/").lower().rstrip("/")
+        if real.startswith(h + "/images/") or "/cache/images/" in real or real.startswith(h + "/cache/documents/"):
+            return "uploaded"
+    return "generated"
 
 
 def _flatten_content(content: Any) -> str:
@@ -142,6 +220,7 @@ def build_artifacts(rows: Iterable[Dict[str, Any]], *, stat=os.stat) -> List[Dic
     Returns artifacts newest first, one per path (the newest mention wins),
     only for files that exist, are regular files, not sensitive and not huge.
     """
+    home = _clover_home_str()
     best: Dict[str, Dict[str, Any]] = {}
     for row in rows:
         text = _flatten_content(row.get("content"))
@@ -156,7 +235,7 @@ def build_artifacts(rows: Iterable[Dict[str, Any]], *, stat=os.stat) -> List[Dic
             }
     out: List[Dict[str, Any]] = []
     for path, meta in best.items():
-        if is_sensitive(path):
+        if is_sensitive(path, home=home):
             continue
         try:
             st = stat(path)
@@ -173,6 +252,7 @@ def build_artifacts(rows: Iterable[Dict[str, Any]], *, stat=os.stat) -> List[Dic
         out.append({
             "id": artifact_id(path), "kind": kind, "title": title, "name": name, "path": path,
             "mime": mime_of(path), "size": int(st.st_size), "created_at": meta["created_at"],
+            "origin": origin_of(path, home),
             "session_id": meta["session_id"], "message_id": meta["message_id"],
             "session_title": meta["session_title"],
             "thumb_url": f"/api/artifacts/thumb?id={artifact_id(path)}" if kind in ("image", "video") else None,
@@ -182,10 +262,12 @@ def build_artifacts(rows: Iterable[Dict[str, Any]], *, stat=os.stat) -> List[Dic
 
 
 def page(items: List[Dict[str, Any]], *, cursor: Optional[str] = None, limit: int = 60,
-         kind: Optional[str] = None) -> Dict[str, Any]:
+         kind: Optional[str] = None, include_uploads: bool = False) -> Dict[str, Any]:
     """Keyset page over newest-first ``items``. ``cursor`` is ``<created_at>:<id>`` of the last item seen."""
     limit = max(1, min(int(limit or 60), 200))
     kind = (kind or "all").lower()
+    if not include_uploads:  # the Library lists what Clover made, not what the owner sent in
+        items = [a for a in items if a.get("origin") != "uploaded"]
     groups = {"images": ("image",), "video": ("video",), "audio": ("audio",), "docs": ("doc", "html", "file"), "code": ("code",)}
     if kind in KINDS:
         wanted: Optional[Tuple[str, ...]] = (kind,)
@@ -236,7 +318,7 @@ def lookup(home: Path, aid: str) -> Optional[str]:
         return None
     if not os.path.isfile(path):
         return None
-    return path
+    return os.path.realpath(path)
 
 
 def thumbnail(home: Path, path: str, size: int = 480) -> Optional[Path]:

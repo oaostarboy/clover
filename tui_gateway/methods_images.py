@@ -152,6 +152,7 @@ def _(rid, params: dict) -> dict:
                 cursor=params.get("cursor"),
                 limit=params.get("limit") or 60,
                 kind=params.get("kind"),
+                include_uploads=bool(params.get("include_uploads")),
             ),
         )
     except Exception as e:

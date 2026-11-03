@@ -1226,6 +1226,16 @@ DEFAULT_CONFIG = {
         # the root starts. Small JSON reply, 8 s budget, so ``auto`` resolves to
         # the provider's small fast model (same default as title_generation);
         # ``prefer_fast_model: false`` or a pinned provider/model opts out.
+        # Owner to-do list triage (todos.*): one small JSON classification call per batch.
+        "todo_triage": {
+            "provider": "auto",
+            "model": "",
+            "prefer_fast_model": True,
+            "base_url": "",
+            "api_key": "",
+            "timeout": 45,
+            "extra_body": {},
+        },
         "delegation_router": {
             "provider": "auto",
             "model": "auto",
@@ -2708,6 +2718,11 @@ DEFAULT_CONFIG = {
     # Messaging approvals arrive as a push notification the user may not see
     # immediately — 60s proved too tight on Telegram/Discord (the prompt
     # expired before the user reached their phone), so the default is 300.
+    # Owner to-do list (todos.* RPCs). ``auto_start: false`` is a global kill switch for
+    # Clover starting low-risk internal to-do items on her own (the phone toggle is per-owner).
+    "todos": {
+        "auto_start": True,
+    },
     "approvals": {
         "mode": "smart",
         "timeout": 300,

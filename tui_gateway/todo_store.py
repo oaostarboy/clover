@@ -21,6 +21,7 @@ OWNERS = ("clover", "you", "together")
 RISKS = ("low", "medium", "high")
 STATUSES = ("", "queued", "working", "needs_you", "done", "failed")
 MAX_ITEMS = 500
+MAX_ADD_AT_ONCE = 50
 MAX_TEXT = 300
 
 _lock = threading.RLock()
@@ -40,8 +41,13 @@ def load(home: Path) -> Dict[str, Any]:
         if isinstance(data, dict) and isinstance(data.get("items"), list):
             data.setdefault("settings", {"auto_start": True, "enabled_at": 0.0})
             return data
-    except (OSError, ValueError):
+    except FileNotFoundError:
         pass
+    except (OSError, ValueError):
+        try:  # keep an unreadable file instead of silently overwriting it on the next save
+            os.replace(store_path(home), store_path(home).with_name(f"todos.corrupt.{int(time.time())}.json"))
+        except OSError:
+            pass
     return _empty()
 
 
@@ -220,7 +226,7 @@ def add(home: Path, raw: str, *, now: Optional[float] = None) -> List[Dict[str, 
         items = data["items"]
         base = max([i.get("order", 0) for i in items] or [0])
         created = []
-        for k, t in enumerate(split_items(raw)):
+        for k, t in enumerate(split_items(raw)[:MAX_ADD_AT_ONCE]):
             if len(items) + len(created) >= MAX_ITEMS:
                 break
             it = new_item(t, order=base + 1 + k, now=now)
