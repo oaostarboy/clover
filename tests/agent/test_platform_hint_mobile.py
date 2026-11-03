@@ -31,7 +31,9 @@ def test_mobile_hint_present_and_accurate():
     h = PLATFORM_HINTS["mobile"]
     assert "iPhone app" in h and "not a terminal" in h
     assert "MEDIA:/absolute/path" in h
-    assert "does NOT render" in h  # markdown images / bare URLs are dropped by the app
+    assert "![alt](https url)" in h  # markdown images render inline in the app
+    assert "play inline" in h
+    assert "todo tool" in h and "Checklist tab" in h
     assert "desktop" in h
 
 
