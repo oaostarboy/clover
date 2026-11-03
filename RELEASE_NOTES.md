@@ -15,6 +15,11 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.2.10 | Clover C2.0.2.10 | 2026-11-03
+- Helper progress in the phone and desktop apps now shows only as the app's own card, not as extra text in the reply.
+- Old behind-the-scenes messages (helper finished, system notes) are no longer shown as if you had written them.
+- Telegram, Discord and Slack look exactly as before.
+
 ## 2.0.2.9 | Clover C2.0.2.9 | 2026-11-03
 - New to-do list backend for the iPhone app: Clover sorts your items, reads due dates like "friday 6pm", and tracks them.
 - Clover can start safe, low-risk research items on her own (web search only, at most two at once). She never sends, buys, posts or deletes anything without you.

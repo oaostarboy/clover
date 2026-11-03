@@ -51,3 +51,12 @@ def test_app_ack_has_no_telegram_card_but_telegram_unchanged():
     assert tg == rb._ack_text([_rcpt(summary)])  # Telegram path identical to before
     for marker in ("\U0001f500", "\u23f1", "\U0001f6e0", "\u2514", "> "):
         assert marker not in app
+
+
+def test_non_app_platforms_get_same_ack_as_no_agent():
+    # Behaviour contract: only app platforms differ; every other chat
+    # platform (Telegram, Discord, Slack, ...) gets the legacy reply.
+    summary = "\U0001f504 fixing it \u2192 result, ~5 min"
+    legacy = rb._ack_text([_rcpt(summary)])
+    for plat in ("telegram", "discord", "slack", "whatsapp", "cli"):
+        assert rb._ack_text([_rcpt(summary)], SimpleNamespace(platform=plat)) == legacy
