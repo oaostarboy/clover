@@ -106,7 +106,7 @@ def test_kill_switch_env_and_config(monkeypatch, tmp_path):
     monkeypatch.setenv(tr.KILL_SWITCH_ENV, "0")
     assert tr.kill_switch_on() is False
     monkeypatch.delenv(tr.KILL_SWITCH_ENV)
-    (tmp_path / "config.yaml").write_text("todos:\n  auto_start: false\n")
+    (tmp_path / "config.yaml").write_text("todos:\n  auto_start: false\n", encoding="utf-8")
     assert tr.kill_switch_on() is True
 
 
@@ -181,7 +181,7 @@ def test_interrupted_runs_are_reconciled_and_free_the_cap(tmp_path, monkeypatch)
 
 
 def test_corrupt_store_is_preserved_not_overwritten(tmp_path):
-    (tmp_path / "todos.json").write_text("{not json")
+    (tmp_path / "todos.json").write_text("{not json", encoding="utf-8")
     assert st.load(tmp_path)["items"] == []
     assert list(tmp_path.glob("todos.corrupt.*.json"))
 
@@ -192,7 +192,7 @@ def test_corrupt_store_is_preserved_not_overwritten(tmp_path):
 def test_symlink_to_secret_is_never_listed_or_served(tmp_path, monkeypatch):
     home = tmp_path / "home"; home.mkdir()
     monkeypatch.setenv("CLOVER_HOME", str(home))
-    (home / "auth.json").write_text("{}")
+    (home / "auth.json").write_text("{}", encoding="utf-8")
     work = tmp_path / "w"; work.mkdir()
     link = work / "photo.png"
     os.symlink(home / "auth.json", link)
@@ -217,7 +217,7 @@ def test_credential_files_never_listed(tmp_path, monkeypatch, name):
 def test_files_in_clover_home_and_system_trees_excluded(tmp_path, monkeypatch):
     home = tmp_path / "home"; (home / "images").mkdir(parents=True)
     monkeypatch.setenv("CLOVER_HOME", str(home))
-    top = home / "notes.md"; top.write_text("x")
+    top = home / "notes.md"; top.write_text("x", encoding="utf-8")
     assert ai.is_sensitive(str(top))
     assert ai.is_sensitive("/etc/hostname") and ai.is_sensitive("/proc/self/environ")
     ok = home / "cache" / "made.png"; ok.parent.mkdir(); ok.write_bytes(b"x")

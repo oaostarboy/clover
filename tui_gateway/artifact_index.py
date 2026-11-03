@@ -343,11 +343,11 @@ def thumbnail(home: Path, path: str, size: int = 480) -> Optional[Path]:
             r = subprocess.run(
                 [ff, "-v", "error", "-y", "-ss", "1", "-i", path, "-frames:v", "1",
                  "-vf", f"scale={size}:-2", "-q:v", "4", str(tmp)],
-                capture_output=True, timeout=30)
+                capture_output=True, timeout=30, stdin=subprocess.DEVNULL)
             if r.returncode != 0 or not tmp.is_file():  # clip shorter than 1s
                 r = subprocess.run([ff, "-v", "error", "-y", "-i", path, "-frames:v", "1",
                                     "-vf", f"scale={size}:-2", "-q:v", "4", str(tmp)],
-                                   capture_output=True, timeout=30)
+                                   capture_output=True, timeout=30, stdin=subprocess.DEVNULL)
                 if r.returncode != 0 or not tmp.is_file():
                     return None
         elif kind == "image":
@@ -364,7 +364,7 @@ def thumbnail(home: Path, path: str, size: int = 480) -> Optional[Path]:
                     return None
                 r = subprocess.run([ff, "-v", "error", "-y", "-i", path, "-frames:v", "1",
                                     "-vf", f"scale='min({size},iw)':-2", str(tmp)],
-                                   capture_output=True, timeout=30)
+                                   capture_output=True, timeout=30, stdin=subprocess.DEVNULL)
                 if r.returncode != 0 or not tmp.is_file():
                     return None
         else:

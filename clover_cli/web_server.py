@@ -1362,6 +1362,8 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
 
 # Categories with fewer fields get merged into "general" to avoid tab sprawl.
 _CATEGORY_MERGE: Dict[str, str] = {
+    # `todos.auto_start` is the only schema-surfaced todos field (the kill switch).
+    "todos": "agent",
     "privacy": "security",
     "context": "agent",
     "skills": "agent",
