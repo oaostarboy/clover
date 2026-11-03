@@ -956,6 +956,16 @@ def _dispatch_message_spoke(messages: Any) -> bool:
     return False
 
 
+# Surfaces that draw helper work as a native card from structured
+# ``subagent.*`` events.  The Telegram-formatted card text (emoji header +
+# blockquote) must never be written into their message content.
+APP_PLATFORMS = ("desktop", "mobile", "ios", "app")
+
+
+def _app_platform(agent: Any) -> bool:
+    return str(getattr(agent, "platform", "") or "").strip().lower() in APP_PLATFORMS
+
+
 def _chat_platform(agent: Any) -> bool:
     platform = str(getattr(agent, "platform", "") or "").strip().lower()
     return platform not in ("", "cli", "tui")
@@ -2030,6 +2040,22 @@ def _ack_text(receipts: List["_fl.DispatchReceipt"], agent: Any = None, messages
     opener (or no chat platform): the reply is the card text, as before."""
     pending = _pending_handoff_text(agent, messages)
     lines = [r.summary for r in receipts if getattr(r, "summary", "")]
+    if lines and _app_platform(agent):
+        # Native-card clients: the reply is the plain opener only; the card
+        # comes from the structured subagent events.
+        card_say = ""
+        try:
+            from agent.ack_checklist import card_for
+
+            card = card_for(receipts)
+            card_say = card.say_text() if card is not None else ""
+        except Exception:
+            logger.debug("ack checklist unavailable for app opener", exc_info=True)
+        opener = _pending_handoff_text(agent, messages, card_say)
+        line = "\n\n".join(t for t in (opener, card_say) if t)
+        if line:
+            return line
+        lines = []
     if lines:
         try:
             from agent.ack_checklist import card_for, _LOCK
