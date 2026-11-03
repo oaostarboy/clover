@@ -17690,6 +17690,7 @@ from . import (  # noqa: E402
     methods_profiles as _methods_profiles,
     methods_prompt as _methods_prompt,
     methods_session as _methods_session,
+    methods_todos as _methods_todos,
     methods_tools as _methods_tools,
 )
 
@@ -17702,6 +17703,7 @@ for _m in (
     _methods_tools,
     _methods_profiles,
     _methods_images,
+    _methods_todos,
     _methods_bot_relay,
     _methods_crew,
 ):
