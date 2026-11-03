@@ -9632,7 +9632,7 @@ _AUTO_CONTINUE_NOTE_PREFIX = "[System note: Your previous turn was interrupted m
 _INTERNAL_TURN_PREFIXES = (
     "[ASYNC DELEGATION", "[Clover runtime]", "[System note:", "[OUT-OF-BAND",
 )
-_INTERNAL_DISPLAY_KINDS = frozenset({"internal_notification", "auto_continue"})
+_INTERNAL_DISPLAY_KINDS = frozenset({"internal_notification"})
 
 
 def _legacy_display_kind(role: str, text: str) -> str | None:
