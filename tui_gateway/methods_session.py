@@ -3112,13 +3112,31 @@ def _(rid, params: dict) -> dict:
         _get_max_spawn_depth,
     )
 
+    from tui_gateway.task_board import enrich_active, needs_you_snapshot, recent_done
+
+    active = list_active_subagents()
+    try:
+        active = enrich_active(active)
+    except Exception:
+        logger.debug("delegation.status enrichment failed", exc_info=True)
+    extra: dict = {}
+    # Additive fields for the phone Tasks tab; older clients ignore them.
+    try:
+        extra["needs_you"] = needs_you_snapshot(_sessions, _sessions_lock, _pending_clarify_request_payload)
+    except Exception:
+        logger.debug("delegation.status needs_you failed", exc_info=True)
+    try:
+        extra["recent"] = recent_done(limit=int(params.get("recent_limit") or 10))
+    except Exception:
+        logger.debug("delegation.status recent failed", exc_info=True)
     return _ok(
         rid,
         {
-            "active": list_active_subagents(),
+            "active": active,
             "paused": is_spawn_paused(),
             "max_spawn_depth": _get_max_spawn_depth(),
             "max_concurrent_children": _get_max_concurrent_children(),
+            **extra,
         },
     )
 

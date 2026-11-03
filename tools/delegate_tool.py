@@ -235,12 +235,27 @@ def _retain_recent_subagent(record: Dict[str, Any]) -> None:
         _recent_subagents.pop(next(iter(_recent_subagents)), None)
 
 
+def _note_subagent_outcome(subagent_id: str, outcome: str, result_line: str = "") -> None:
+    """Stamp how a live child ended so the Tasks tab's Done list can show it."""
+    with _active_subagents_lock:
+        record = _active_subagents.get(subagent_id)
+        if record is not None:
+            record["outcome"] = outcome
+            record["result_line"] = " ".join(str(result_line or "").split())[:160]
+
+
 def _unregister_subagent(subagent_id: str, *, agent: Any = None) -> None:
     with _active_subagents_lock:
         record = _active_subagents.get(subagent_id)
         if record is not None and (agent is None or record.get("agent") is agent):
             _active_subagents.pop(subagent_id, None)
             _retain_recent_subagent(record)
+            try:  # Done column of the phone Tasks tab (bounded, in-memory)
+                from tui_gateway.task_board import note_finished
+
+                note_finished(record, str(record.get("outcome") or "done"))
+            except Exception:
+                pass
 
 
 def _close_subagent_steering(subagent_id: str, agent: Any) -> Optional[str]:
@@ -3960,6 +3975,13 @@ def _run_single_child(
             except Exception:
                 _plain = ""
 
+        if _subagent_id:
+            _note_subagent_outcome(
+                _subagent_id,
+                "failed" if status in ("error", "failed", "timeout") else "done",
+                _plain or (summary or entry.get("error") or ""),
+            )
+
         complete_kwargs: Dict[str, Any] = {
             "plain_summary": _plain,
             "preview": summary[:160] if summary else entry.get("error", ""),
@@ -4009,6 +4031,8 @@ def _run_single_child(
         )
         duration = round(time.monotonic() - child_start, 2)
         logging.exception(f"[subagent-{task_index}] failed")
+        if _subagent_id:
+            _note_subagent_outcome(_subagent_id, "failed", str(exc))
         if child_progress_cb:
             try:
                 child_progress_cb(

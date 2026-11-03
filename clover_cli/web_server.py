@@ -2849,6 +2849,30 @@ def _managed_file_response(
     )
 
 
+@app.get("/api/artifacts/thumb")
+async def get_artifact_thumb(id: str, size: int = 480):
+    """JPEG thumbnail for an image/video that ``artifacts.list`` indexed.
+
+    Takes an artifact id, never a path: the id must be in the registry the index
+    wrote, so this cannot be used to read arbitrary files. Bearer-token auth like
+    every /api route (no query-token fallback).
+    """
+    from tui_gateway import artifact_index
+
+    home = get_clover_home()
+    path = artifact_index.lookup(home, id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Unknown artifact")
+    thumb = await asyncio.to_thread(artifact_index.thumbnail, home, path, size)
+    if thumb is None:
+        raise HTTPException(status_code=404, detail="No thumbnail")
+    return FileResponse(
+        path=str(thumb),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @app.get("/api/files/download")
 async def download_managed_file(request: Request, path: str):
     """Stream a managed file as an attachment download.
