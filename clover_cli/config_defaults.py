@@ -3337,6 +3337,18 @@ DEFAULT_CONFIG = {
 
     # Gateway settings — control how messaging platforms (Telegram, Discord,
     # Slack, etc.) deliver agent-produced files as native attachments.
+    # Mobile push (iOS reply notifications). Service-gated: needs an APNs
+    # auth key (.p8) at key_path; no key = silently disabled.
+    "push": {
+        "apns": {
+            "enabled": False,
+            "key_id": "",
+            "team_id": "",
+            "key_path": "~/.clover/secrets/apns/AuthKey.p8",
+            "bundle_id": "ca.silasstudios.clover",
+        },
+    },
+
     "gateway": {
         # Optional named-profile allowlist for multiplex mode. None preserves
         # the historical serve-all behavior; [] serves only the default.

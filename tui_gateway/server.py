@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -10501,6 +10502,7 @@ def _emit_terminal_turn_error(
         payload["rendered"] = rendered
     _retire_turn_marker(session)
     _emit("message.complete", sid, payload)
+    _push_reply_notification(sid, session, text, "error", message)
 
 
 def _restore_agent_history_after_turn_error(session: dict, agent) -> bool:
@@ -13071,6 +13073,10 @@ def _run_prompt_submit(
                     payload["error_surface"] = _error_surface
             _retire_turn_marker(session, marker_key)
             _emit("message.complete", sid, payload)
+            _push_reply_notification(
+                sid, session, str(payload.get("text") or ""), str(status),
+                str(payload.get("error") or ""),
+            )
 
             # ── /goal continuation (Ralph-style loop) ─────────────────
             # After every TUI turn, if a /goal is active, ask the judge
@@ -16685,6 +16691,77 @@ def _persist_wake_enabled(enabled: bool) -> bool:
     except Exception as e:
         logger.warning("wake: failed to persist wake_word.enabled=%s: %s", enabled, e)
         return False
+
+
+def _push_reply_notification(sid: str, session: dict, text: str, status: str, error: str = "") -> None:
+    """APNs push for a final reply when no client is attached (or the app is
+    backgrounded). Silent no-op unless push.apns is configured. Never raises."""
+    try:
+        from gateway.push import apns
+
+        sender = apns.get_sender()
+        if not sender.available():
+            return
+        detached = _transport_is_dead(session.get("transport"))
+        if not (detached or apns.is_background()):
+            return
+        title = ""
+        try:
+            agent = session.get("agent")
+            key = session.get("session_key") or ""
+            title = str(getattr(agent, "_session_title_hint", "") or "").strip()
+            if not title:
+                db = getattr(agent, "_session_db", None) or _get_db()
+                title = str((db.get_session_title(key) if (db and key) else None) or "").strip()
+        except Exception:
+            title = ""
+        apns.notify_turn_complete(
+            session.get("session_key") or sid, title, text, status, error,
+            detached=detached, sender=sender,
+        )
+    except Exception:
+        logger.debug("push trigger failed", exc_info=True)
+
+
+@method("push.register")
+def _(rid, params: dict) -> dict:
+    token = str(params.get("token") or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{32,200}", token):
+        return _err(rid, 4002, "invalid device token")
+    from gateway.push import apns
+
+    apns.get_sender().store.register(
+        token, str(params.get("env") or "production"), str(params.get("device_name") or "")[:80]
+    )
+    logger.info("push.register env=%s", params.get("env"))
+    return _ok(rid, {"registered": True, "enabled": apns.get_sender().available()})
+
+
+@method("push.unregister")
+def _(rid, params: dict) -> dict:
+    from gateway.push import apns
+
+    token = str(params.get("token") or "").strip().lower()
+    return _ok(rid, {"removed": apns.get_sender().store.unregister(token)})
+
+
+@method("app.state")
+def _(rid, params: dict) -> dict:
+    from gateway.push import apns
+
+    apns.set_background(bool(params.get("background")))
+    return _ok(rid, {"background": apns.is_background()})
+
+
+@method("push.test")
+def _(rid, params: dict) -> dict:
+    from gateway.push import apns
+
+    sender = apns.get_sender()
+    if not sender.available():
+        return _err(rid, 4003, "push is not configured (push.apns.enabled + key file)")
+    n = sender.send(apns.build_payload("Clover", "Test notification — push is working.", "test"))
+    return _ok(rid, {"sent": n})
 
 
 @method("ping")
