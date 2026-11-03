@@ -33,8 +33,13 @@ def _(rid, params: dict) -> dict:
     text = params.get("text")
     if not isinstance(text, str) or not text.strip():
         return _err(rid, 4002, "text required")
+    from tui_gateway import todo_triage
+
+    assignee = todo_triage.normalize_assignee(params.get("assignee"))
+    if assignee is None:
+        return _err(rid, 4002, "assignee must be 'owner', 'auto' or an agent id")
     home = get_clover_home()
-    created = todo_store.add(home, text)
+    created = todo_store.add(home, text, assignee=assignee)
     if created:
         _broadcast_global_event("todos.changed", {"reason": "added", "items": created})
         todo_runtime.kick(home)
@@ -45,12 +50,21 @@ def _(rid, params: dict) -> dict:
 def _(rid, params: dict) -> dict:
     from tui_gateway import todo_store
 
+    from tui_gateway import todo_runtime, todo_triage
+
     item_id = str(params.get("id") or "")
-    patch = {k: params[k] for k in ("done", "text", "notes", "due_at", "remind_at", "owner") if k in params}
+    patch = {k: params[k] for k in ("done", "text", "notes", "due_at", "remind_at", "owner", "assignee") if k in params}
+    if "assignee" in patch:
+        a = todo_triage.normalize_assignee(patch["assignee"])
+        if a is None:
+            return _err(rid, 4002, "assignee must be 'owner', 'auto' or an agent id")
+        patch["assignee"] = a
     it = todo_store.update(get_clover_home(), item_id, patch)
     if it is None:
         return _err(rid, 4004, "unknown todo")
     _broadcast_global_event("todos.changed", {"reason": "updated", "item": it})
+    if "assignee" in patch:
+        todo_runtime.kick(get_clover_home())  # re-triage / re-dispatch under the new assignee
     return _ok(rid, {"item": it})
 
 

@@ -73,6 +73,21 @@ TRIAGE_SYSTEM = (
 )
 
 
+_ASSIGNEE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$")
+
+
+def normalize_assignee(raw: Any) -> Optional[str]:
+    """'owner' | 'auto' | an agent id. None = malformed (caller returns a 4002). Existence is checked at dispatch."""
+    if raw is None or raw == "":
+        return "auto"
+    if not isinstance(raw, str):
+        return None
+    v = raw.strip()
+    if v.lower() in ("owner", "auto"):
+        return v.lower()
+    return v if _ASSIGNEE_RE.match(v) else None
+
+
 def looks_external(text: str) -> bool:
     import unicodedata
 
@@ -170,10 +185,19 @@ def parse_outcome(final_text: str) -> Dict[str, str]:
 
 
 def triage_pending(home: Path, *, llm: Callable[[List[Dict[str, str]]], str], spawn: Callable[[Dict[str, Any]], Optional[str]],
-                   emit: Callable[[str, Dict[str, Any]], None], killed: Optional[bool] = None) -> List[str]:
+                   emit: Callable[[str, Dict[str, Any]], None], killed: Optional[bool] = None,
+                   assign: Optional[Callable[[Dict[str, Any], str], Any]] = None) -> List[str]:
     """Classify all untriaged items in one call, then start/draft eligible ones. Returns started ids."""
     data = store.load(home)
     pending = [i for i in data["items"] if not i.get("triaged") and not i.get("done")]
+    if not pending:
+        return []
+    # Owner kept it: no classification, no dispatch. Mark it theirs and stop.
+    for it in [i for i in pending if i.get("assignee") == "owner"]:
+        upd = store.patch_system(home, it["id"], {"triaged": True, "owner": "you", "owner_set_by_user": True})
+        if upd:
+            emit("todos.changed", {"reason": "triage", "item": upd})
+    pending = [i for i in pending if i.get("assignee") != "owner"]
     if not pending:
         return []
     results: Dict[str, Dict[str, Any]] = {}
@@ -192,11 +216,28 @@ def triage_pending(home: Path, *, llm: Callable[[List[Dict[str, str]]], str], sp
             fields["owner"] = tri["owner"]
         if tri.get("notes") and not it.get("notes"):
             fields["notes"] = tri["notes"]
+        agent_id = it.get("assignee") if it.get("assignee") not in (None, "", "auto", "owner") else None
+        if agent_id:
+            # Owner picked an agent: the item is that agent's (same risk gate below; classification only supplies risk/plan).
+            fields["owner"] = "clover"
+            fields["owner_set_by_user"] = True
         owner_eff = fields.get("owner", it.get("owner"))
         eff = dict(tri, owner=owner_eff)
         settings = store.load(home).get("settings", {})
         verdict = decide(it, eff, settings, running_count(store.load(home)["items"]), killed=kill)
-        if verdict == "start":
+        if verdict == "start" and agent_id:
+            sid, err = None, ""
+            try:
+                res = assign(dict(it, **fields), agent_id) if assign else (None, "Assigning to agents is not available here")
+                sid, err = res if isinstance(res, tuple) else (res, "")
+            except Exception as exc:  # noqa: BLE001
+                err = str(exc)[:200] or "Could not reach that agent"
+            if sid:
+                fields.update(session_id=sid, status="working", auto_started=True)
+                started.append(it["id"])
+            else:
+                fields.update(status="failed", result_summary=(err or "Could not reach that agent")[:300])
+        elif verdict == "start":
             sid = None
             try:
                 sid = spawn(dict(it, **fields))

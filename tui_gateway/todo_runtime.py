@@ -76,6 +76,51 @@ def spawn(item: Dict[str, Any]) -> Optional[str]:
     return sid
 
 
+def assign(item: Dict[str, Any], agent_id: str):
+    """Start ``item`` with the agent the owner picked. Returns ``(session_id, error)``.
+
+    The gate in ``todo_triage.decide`` has already cleared the item (low risk, nothing external). The default profile is this
+    gateway's own agent: same restricted web-only session as auto-start. Any other agent (peer or sibling profile) is reached
+    through the crew relay (``peer.turn``); the task prompt carries the same no-send/post/buy/delete rules and a
+    NEEDS_APPROVAL hand-back, and the remote agent's own approvals still apply. Unknown/offline agents become a clear error.
+    """
+    from . import crew as crew_mod
+    from .methods_crew import crew_roster
+
+    try:
+        roster = crew_roster()
+    except Exception:  # noqa: BLE001
+        return None, "Could not read the agent list from the gateway"
+    row = next((r for r in roster if str(r.get("id")).lower() == agent_id.lower()), None)
+    if row is None:
+        return None, f"Unknown agent '{agent_id}'"
+    name = str(row.get("display_name") or agent_id)
+    if not row.get("online"):
+        return None, f"{name} is offline"
+    if row.get("kind") == "profile" and agent_id.lower() in ("default", "clover"):
+        sid = spawn(item)
+        return (sid, "") if sid else (None, "Could not start the session")
+    from tui_gateway import server
+
+    home = server.get_clover_home()
+    sid = f"todo-{uuid.uuid4().hex[:12]}"
+
+    def run() -> None:
+        try:
+            out = crew_mod.relay_turn(agent_id, triage.task_prompt(item), room_id=f"todo:{item['id']}")
+            triage.finish_item(home, item["id"], out.get("reply") or "", broadcast)
+        except crew_mod.PeerRelayError as exc:
+            triage.fail_item(home, item["id"], broadcast, exc.message)
+        except Exception as exc:  # noqa: BLE001
+            triage.fail_item(home, item["id"], broadcast, str(exc))
+        finally:
+            _live_ids.discard(item["id"])
+
+    _live_ids.add(item["id"])
+    threading.Thread(target=run, name=f"todo-{item['id']}", daemon=True).start()
+    return sid, ""
+
+
 def reconcile_interrupted(home: Path) -> None:
     """Items marked working/queued by auto-start whose thread died (gateway restart) become failed.
 
@@ -110,7 +155,7 @@ def kick(home: Path) -> None:
                 time.sleep(_DEBOUNCE_S)
                 try:
                     reconcile_interrupted(home)
-                    triage.triage_pending(home, llm=llm, spawn=spawn, emit=broadcast)
+                    triage.triage_pending(home, llm=llm, spawn=spawn, emit=broadcast, assign=assign)
                 except Exception:  # noqa: BLE001
                     logger.debug("todo triage failed", exc_info=True)
                 with _worker_lock:
