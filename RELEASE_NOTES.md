@@ -15,6 +15,12 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.2.9 | Clover C2.0.2.9 | 2026-11-03
+- New to-do list backend for the iPhone app: Clover sorts your items, reads due dates like "friday 6pm", and tracks them.
+- Clover can start safe, low-risk research items on her own (web search only, at most two at once). She never sends, buys, posts or deletes anything without you.
+- Off switch: set todos.auto_start to false in config.yaml.
+- New Library backend: a list of the images, videos and files Clover made for you, with thumbnails. Your own uploads are kept out.
+
 ## 2.0.2.8 | Clover C2.0.2.8 | 2026-11-03
 - The iPhone Crew tab can now list your agents and chat with them through your Clover server.
 - Clover knows it is talking to the iPhone app: images, video and audio show inline, and to-dos appear in the Checklist tab.

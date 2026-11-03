@@ -1077,7 +1077,7 @@ _API_KEY_PROVIDER_AUX_MODELS: Dict[str, str] = _API_KEY_PROVIDER_AUX_MODELS_FALL
 # one exception to "auto = main model".  Opt out per task with
 # ``auxiliary.<task>.prefer_fast_model: false``; pin a model with
 # ``auxiliary.<task>.provider`` / ``.model`` (an explicit pin always wins).
-_FAST_MODEL_TASKS: frozenset = frozenset({"title_generation", "delegation_router"})
+_FAST_MODEL_TASKS: frozenset = frozenset({"title_generation", "delegation_router", "todo_triage"})
 
 
 def _task_prefers_fast_model(task: Optional[str]) -> bool:

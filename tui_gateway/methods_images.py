@@ -126,5 +126,38 @@ def _(rid, params: dict) -> dict:
     return _ok(rid, payload)
 
 
+@method("artifacts.list")
+def _(rid, params: dict) -> dict:
+    """Page through everything Clover generated for the owner (phone Library tab).
+
+    Params: ``cursor`` (opaque, from ``next_cursor``), ``limit`` (1-200, default 60),
+    ``kind`` (all|images|video|audio|docs|code, or image|doc|html|file), ``refresh``.
+    Result: ``{items: [{id, kind, title, path, mime, size, created_at, session_id,
+    message_id, session_title, thumb_url}], next_cursor, total, counts}``.
+    Bytes: ``GET /api/files/download?path=<path>`` (existing authenticated route);
+    thumbnails: ``GET /api/artifacts/thumb?id=<id>`` (only ids returned here).
+    """
+    from tui_gateway import artifact_index
+
+    try:
+        with _profile_db(params) as db:
+            if db is None:
+                return _err(rid, 5006, "state database unavailable")
+            home = get_clover_home()
+            items = artifact_index.index_for(db, home, force=bool(params.get("refresh")))
+        return _ok(
+            rid,
+            artifact_index.page(
+                items,
+                cursor=params.get("cursor"),
+                limit=params.get("limit") or 60,
+                kind=params.get("kind"),
+                include_uploads=bool(params.get("include_uploads")),
+            ),
+        )
+    except Exception as e:
+        return _err(rid, 5040, f"artifacts.list failed: {e}")
+
+
 def register(server) -> None:
     _registry.install(server)

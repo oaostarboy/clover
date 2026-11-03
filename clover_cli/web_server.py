@@ -1362,6 +1362,8 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
 
 # Categories with fewer fields get merged into "general" to avoid tab sprawl.
 _CATEGORY_MERGE: Dict[str, str] = {
+    # `todos.auto_start` is the only schema-surfaced todos field (the kill switch).
+    "todos": "agent",
     "privacy": "security",
     "context": "agent",
     "skills": "agent",
@@ -2846,6 +2848,30 @@ def _managed_file_response(
         filename=target.name,
         content_disposition_type=content_disposition_type,
         headers={"X-Content-Type-Options": "nosniff"} if media_only else None,
+    )
+
+
+@app.get("/api/artifacts/thumb")
+async def get_artifact_thumb(id: str, size: int = 480):
+    """JPEG thumbnail for an image/video that ``artifacts.list`` indexed.
+
+    Takes an artifact id, never a path: the id must be in the registry the index
+    wrote, so this cannot be used to read arbitrary files. Bearer-token auth like
+    every /api route (no query-token fallback).
+    """
+    from tui_gateway import artifact_index
+
+    home = get_clover_home()
+    path = artifact_index.lookup(home, id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Unknown artifact")
+    thumb = await asyncio.to_thread(artifact_index.thumbnail, home, path, size)
+    if thumb is None:
+        raise HTTPException(status_code=404, detail="No thumbnail")
+    return FileResponse(
+        path=str(thumb),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"},
     )
 
 
