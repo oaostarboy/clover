@@ -9627,6 +9627,14 @@ def _expand_skill_invocation_for_replay(text: str, task_id: str) -> str:
 _AUTO_CONTINUE_NOTE_PREFIX = "[System note: Your previous turn was interrupted mid-run"
 
 
+# Runtime-injected user-role turns (async delegation results, runtime notes,
+# out-of-band markers).  Model-facing only: clients get ``internal: true``.
+_INTERNAL_TURN_PREFIXES = (
+    "[ASYNC DELEGATION", "[Clover runtime]", "[System note:", "[OUT-OF-BAND",
+)
+_INTERNAL_DISPLAY_KINDS = frozenset({"internal_notification"})
+
+
 def _legacy_display_kind(role: str, text: str) -> str | None:
     """Infer the display type of a synthetic row persisted without one.
 
@@ -9639,6 +9647,8 @@ def _legacy_display_kind(role: str, text: str) -> str | None:
     """
     if role == "user" and text.lstrip().startswith(_AUTO_CONTINUE_NOTE_PREFIX):
         return "auto_continue"
+    if role == "user" and text.lstrip().startswith(_INTERNAL_TURN_PREFIXES):
+        return "internal_notification"
     return None
 
 
@@ -9741,6 +9751,8 @@ def _history_to_messages(history: list[dict]) -> list[dict]:
         display_kind = m.get("display_kind") or _legacy_display_kind(role, content_text)
         if display_kind:
             msg["display_kind"] = display_kind
+            if role == "user" and display_kind in _INTERNAL_DISPLAY_KINDS:
+                msg["internal"] = True
         if m.get("display_metadata"):
             msg["display_metadata"] = m["display_metadata"]
         messages.append(msg)
