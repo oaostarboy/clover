@@ -119,7 +119,7 @@ class TokenStore:
 
     def _read(self) -> list[dict]:
         try:
-            data = json.loads(self.path.read_text())
+            data = json.loads(self.path.read_text(encoding="utf-8"))
             return [d for d in data if isinstance(d, dict) and d.get("token")]
         except Exception:
             return []
@@ -128,7 +128,7 @@ class TokenStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(rows, f)
         os.replace(tmp, self.path)
         os.chmod(self.path, 0o600)
