@@ -15,6 +15,11 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.2.8 | Clover C2.0.2.8 | 2026-11-03
+- The iPhone Crew tab can now list your agents and chat with them through your Clover server.
+- Clover knows it is talking to the iPhone app: images, video and audio show inline, and to-dos appear in the Checklist tab.
+- Fixed voice add-ons being rolled back to an older, broken version (this had broken Live voice).
+
 ## 2.0.2.7 | Clover C2.0.2.7 | 2026-11-03
 - Clover keeps working on your request if your phone loses connection, and the reply is waiting when you return.
 - Fixed the Edge voice (Ava) failing with a 403 error.

@@ -483,3 +483,24 @@ class TestInstallSpecs:
         result = ld.install_specs(["honcho-ai==2.2.0"])
         assert result.ok is False
         assert "disk on fire" in result.stderr
+
+
+class TestNeverDowngrade:
+    def _fake(self, monkeypatch, versions):
+        TestIsSatisfiedVersionAware()._fake_version(monkeypatch, versions)
+
+    def test_newer_installed_satisfies_older_exact_pin(self, monkeypatch):
+        # Regression: stale pin edge-tts==7.2.7 must not reinstall over 7.3.1.
+        self._fake(monkeypatch, {"edge-tts": "7.3.1"})
+        assert ld._is_satisfied("edge-tts==7.2.7") is True
+
+    def test_older_installed_still_upgrades(self, monkeypatch):
+        self._fake(monkeypatch, {"edge-tts": "7.2.7"})
+        assert ld._is_satisfied("edge-tts==7.3.1") is False
+
+    def test_ensure_does_not_install_when_newer_present(self, monkeypatch):
+        self._fake(monkeypatch, {"edge-tts": "7.3.1"})
+        monkeypatch.setitem(ld.LAZY_DEPS, "tts.edge", ("edge-tts==7.2.7",))
+        monkeypatch.setattr(ld, "_venv_pip_install",
+                            lambda *a, **k: pytest.fail("downgrade attempted"))
+        ld.ensure("tts.edge", prompt=False)

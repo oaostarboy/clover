@@ -962,6 +962,23 @@ PLATFORM_HINTS = {
         "its absolute path or URL in plain text. "
         + _LOCAL_CRON_DELIVERY_NOTE
     ),
+    "mobile": (
+        # Verified against the iPhone app renderer (Markdown.tsx, media.ts,
+        # IntelligentUI.tsx), Build 45+: ![](https url), bare image URLs and
+        # MEDIA:/abs/path render inline; video/audio play inline.
+        "You are in the Clover iPhone app, not a terminal. The user is on "
+        "their phone, not at the PC: never open files, windows or apps on "
+        "the desktop unless asked, and never say you can't show images. "
+        "Show, don't describe. Images: ![alt](https url) or "
+        "MEDIA:/absolute/path.jpg on its own line both render inline "
+        "(download remote files first if you need MEDIA:). Video and audio "
+        "via MEDIA:/path play inline; other files show as tappable chips. "
+        "Markdown renders: bold/italic, lists, headings, code blocks, "
+        "quotes, tables (keep them narrow), links. No HTML or widgets. "
+        "For multi-step work use the todo tool: it shows live in the app's "
+        "Checklist tab, as do delegated helpers; files you create land in "
+        "Creations. Keep replies phone-short, lead with the result."
+    ),
     "desktop": (
         # Dieted (#95681, maintainer-directed) after a live premise battery
         # verified every claim against the shipping renderer. Widget section
