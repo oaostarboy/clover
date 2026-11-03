@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -205,6 +206,57 @@ def _resolve_ws_orphan_reap_grace() -> float:
 
 
 _WS_ORPHAN_REAP_GRACE_S = _resolve_ws_orphan_reap_grace()
+
+
+def _resolve_ws_detached_ttl() -> float:
+    """Seconds a disconnected (detached) session survives before reaping.
+
+    A phone's socket drops constantly (cellular, backgrounding). Instead of
+    interrupting the running turn after the reconnect grace, the turn keeps
+    running detached, its events/final reply buffer in the replay ring, and the
+    session is reaped only once the turn is finished AND this TTL passes with
+    no reconnect. ``dashboard.ws_detached_ttl_s`` (default 1800); ``0`` restores
+    the legacy interrupt-after-grace behaviour.
+    """
+    raw = None
+    try:
+        from clover_cli.config import load_config
+
+        raw = (load_config().get("dashboard") or {}).get("ws_detached_ttl_s")
+    except Exception:
+        raw = None
+    try:
+        ttl = float(raw) if raw is not None else 1800.0
+    except (ValueError, TypeError):
+        ttl = 1800.0
+    return max(0.0, ttl)
+
+
+_WS_DETACHED_TTL_S = _resolve_ws_detached_ttl()
+
+
+def _resolve_ws_detached_turn_max() -> float:
+    """Max wall-clock seconds a turn may keep running detached (default 3600).
+
+    Past this the legacy interrupt + force-reap path takes over so a hung
+    detached turn cannot hold a live-session slot forever.
+    ``dashboard.ws_detached_turn_max_s``; ``0`` disables the cap.
+    """
+    raw = None
+    try:
+        from clover_cli.config import load_config
+
+        raw = (load_config().get("dashboard") or {}).get("ws_detached_turn_max_s")
+    except Exception:
+        raw = None
+    try:
+        v = float(raw) if raw is not None else 3600.0
+    except (ValueError, TypeError):
+        v = 3600.0
+    return max(0.0, v)
+
+
+_WS_DETACHED_TURN_MAX_S = _resolve_ws_detached_turn_max()
 _WS_ORPHAN_INTERRUPT_REAP_POLL_S = 1.0
 # Total budget for the interrupt-then-reap poll chain. If an interrupted turn
 # never settles (agent thread hung in a syscall, supervisor lost), each 1s poll
@@ -1138,6 +1190,11 @@ def _pop_session_by_id(sid: str) -> dict | None:
     return session
 
 
+def _clear_detached_markers(session: dict) -> None:
+    for k in ("_detached_idle_since", "_detached_since", "_detached_turn_seen"):
+        session.pop(k, None)
+
+
 def _teardown_popped_session(
     session: dict | None, *, end_reason: str = "tui_close"
 ) -> bool:
@@ -1161,6 +1218,14 @@ def _teardown_popped_session(
         except Exception:
             logger.debug("failed waiting for session turn thread", exc_info=True)
     _teardown_session(session, end_reason=end_reason)
+    sid = session.get("_sid")
+    if sid:
+        try:
+            from tui_gateway import event_replay
+
+            event_replay.forget(sid)
+        except Exception:
+            logger.debug("event_replay.forget failed", exc_info=True)
     return True
 
 
@@ -1402,8 +1467,55 @@ def _schedule_ws_orphan_reap(sid: str, *, delay_s: float | None = None) -> None:
             current = _sessions.get(sid)
             if current is None or not _ws_session_is_detached(current):
                 return
+            detached_over_max = False
+            if _WS_DETACHED_TTL_S > 0 and current.get("running"):
+                _now = time.time()
+                _since = current.setdefault("_detached_since", _now)
+                if (
+                    _WS_DETACHED_TURN_MAX_S > 0
+                    and _now - _since > _WS_DETACHED_TURN_MAX_S
+                ):
+                    detached_over_max = True
+                    logger.error(
+                        "client_gone sid=%s: detached turn exceeded max "
+                        "wall-clock (%.0fs > %.0fs) — interrupting and "
+                        "force-reaping",
+                        sid, _now - _since, _WS_DETACHED_TURN_MAX_S,
+                    )
             if _session_has_active_delegations(sid, current):
                 reschedule_delay = _WS_ORPHAN_REAP_GRACE_S
+            elif (
+                _WS_DETACHED_TTL_S > 0
+                and current.get("running")
+                and not detached_over_max
+            ):
+                # Detached-continue: a dropped socket must not kill the work.
+                # Keep polling; the turn finalizes normally and its events
+                # (incl. the final reply) sit in the replay ring for resume.
+                current.pop("_detached_idle_since", None)
+                current["_detached_turn_seen"] = True
+                reschedule_delay = _WS_ORPHAN_REAP_GRACE_S
+            elif (
+                _WS_DETACHED_TTL_S > 0
+                and current.get("_detached_turn_seen")
+                and not current.get("running")
+            ):
+                idle_since = current.setdefault(
+                    "_detached_idle_since", time.time()
+                )
+                remaining = _WS_DETACHED_TTL_S - (time.time() - idle_since)
+                if remaining > 0:
+                    reschedule_delay = min(
+                        max(remaining, 0.05),
+                        max(_WS_ORPHAN_REAP_GRACE_S, 1.0),
+                    )
+                else:
+                    logger.info(
+                        "client_gone sid=%s action=reap_after_detached_ttl "
+                        "ttl=%.0fs",
+                        sid, _WS_DETACHED_TTL_S,
+                    )
+                    session = _pop_session_by_id(sid)
             elif current.get("running"):
                 # Mid-turn detached sessions must never drop the single
                 # Timer (#85578): after the reconnect grace the turn is
@@ -1543,6 +1655,7 @@ def _close_sessions_for_transport(
                     else:
                         current["transport"] = _detached_ws_transport
                         current.pop("_client_gone_interrupt_requested", None)
+                        _clear_detached_markers(current)
                         should_schedule_reap = True
         if claimed_for_teardown is not None:
             if _teardown_popped_session(claimed_for_teardown, end_reason=end_reason):
@@ -10389,6 +10502,7 @@ def _emit_terminal_turn_error(
         payload["rendered"] = rendered
     _retire_turn_marker(session)
     _emit("message.complete", sid, payload)
+    _push_reply_notification(sid, session, text, "error", message)
 
 
 def _restore_agent_history_after_turn_error(session: dict, agent) -> bool:
@@ -10878,6 +10992,8 @@ def _live_session_payload(
             session["cols"] = cols
         if transport is not None:
             session["transport"] = transport
+            if transport is not _detached_ws_transport:
+                _clear_detached_markers(session)
             # Track every transport that has shown this session (multi-window:
             # pop-out windows each resume the same sid). The last viewer
             # becomes the transport on the disconnect path so closing a
@@ -12957,6 +13073,10 @@ def _run_prompt_submit(
                     payload["error_surface"] = _error_surface
             _retire_turn_marker(session, marker_key)
             _emit("message.complete", sid, payload)
+            _push_reply_notification(
+                sid, session, str(payload.get("text") or ""), str(status),
+                str(payload.get("error") or ""),
+            )
 
             # ── /goal continuation (Ralph-style loop) ─────────────────
             # After every TUI turn, if a /goal is active, ask the judge
@@ -16571,6 +16691,77 @@ def _persist_wake_enabled(enabled: bool) -> bool:
     except Exception as e:
         logger.warning("wake: failed to persist wake_word.enabled=%s: %s", enabled, e)
         return False
+
+
+def _push_reply_notification(sid: str, session: dict, text: str, status: str, error: str = "") -> None:
+    """APNs push for a final reply when no client is attached (or the app is
+    backgrounded). Silent no-op unless push.apns is configured. Never raises."""
+    try:
+        from gateway.push import apns
+
+        sender = apns.get_sender()
+        if not sender.available():
+            return
+        detached = _transport_is_dead(session.get("transport"))
+        if not (detached or apns.is_background()):
+            return
+        title = ""
+        try:
+            agent = session.get("agent")
+            key = session.get("session_key") or ""
+            title = str(getattr(agent, "_session_title_hint", "") or "").strip()
+            if not title:
+                db = getattr(agent, "_session_db", None) or _get_db()
+                title = str((db.get_session_title(key) if (db and key) else None) or "").strip()
+        except Exception:
+            title = ""
+        apns.notify_turn_complete(
+            session.get("session_key") or sid, title, text, status, error,
+            detached=detached, sender=sender,
+        )
+    except Exception:
+        logger.debug("push trigger failed", exc_info=True)
+
+
+@method("push.register")
+def _(rid, params: dict) -> dict:
+    token = str(params.get("token") or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{32,200}", token):
+        return _err(rid, 4002, "invalid device token")
+    from gateway.push import apns
+
+    apns.get_sender().store.register(
+        token, str(params.get("env") or "production"), str(params.get("device_name") or "")[:80]
+    )
+    logger.info("push.register env=%s", params.get("env"))
+    return _ok(rid, {"registered": True, "enabled": apns.get_sender().available()})
+
+
+@method("push.unregister")
+def _(rid, params: dict) -> dict:
+    from gateway.push import apns
+
+    token = str(params.get("token") or "").strip().lower()
+    return _ok(rid, {"removed": apns.get_sender().store.unregister(token)})
+
+
+@method("app.state")
+def _(rid, params: dict) -> dict:
+    from gateway.push import apns
+
+    apns.set_background(bool(params.get("background")))
+    return _ok(rid, {"background": apns.is_background()})
+
+
+@method("push.test")
+def _(rid, params: dict) -> dict:
+    from gateway.push import apns
+
+    sender = apns.get_sender()
+    if not sender.available():
+        return _err(rid, 4003, "push is not configured (push.apns.enabled + key file)")
+    n = sender.send(apns.build_payload("Clover", "Test notification — push is working.", "test"))
+    return _ok(rid, {"sent": n})
 
 
 @method("ping")

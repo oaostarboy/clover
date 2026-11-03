@@ -1727,6 +1727,12 @@ DEFAULT_CONFIG = {
         # override for backward compatibility. 0 disables the reap
         # (park forever).
         "ws_orphan_reap_grace_s": 20.0,
+        # Seconds a disconnected session keeps its running turn (detached) and
+        # buffered reply before being reaped. 0 = legacy interrupt-after-grace.
+        "ws_detached_ttl_s": 1800.0,
+        # Max wall-clock a turn may keep running detached before the legacy
+        # interrupt + force-reap takes over. 0 = no cap.
+        "ws_detached_turn_max_s": 3600.0,
         # Startup sweep of session rows orphaned by a dead gateway process
         # (#65194).  The ws-orphan grace timer above is in-process, so a
         # gateway restart (update, crash, systemd) leaves disconnected
@@ -3331,6 +3337,18 @@ DEFAULT_CONFIG = {
 
     # Gateway settings — control how messaging platforms (Telegram, Discord,
     # Slack, etc.) deliver agent-produced files as native attachments.
+    # Mobile push (iOS reply notifications). Service-gated: needs an APNs
+    # auth key (.p8) at key_path; no key = silently disabled.
+    "push": {
+        "apns": {
+            "enabled": False,
+            "key_id": "",
+            "team_id": "",
+            "key_path": "~/.clover/secrets/apns/AuthKey.p8",
+            "bundle_id": "ca.silasstudios.clover",
+        },
+    },
+
     "gateway": {
         # Optional named-profile allowlist for multiplex mode. None preserves
         # the historical serve-all behavior; [] serves only the default.

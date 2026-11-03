@@ -15,6 +15,11 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.2.7 | Clover C2.0.2.7 | 2026-11-03
+- Clover keeps working on your request if your phone loses connection, and the reply is waiting when you return.
+- Fixed the Edge voice (Ava) failing with a 403 error.
+- Groundwork for iPhone reply notifications (off unless configured).
+
 ## 2.0.2.6 | Clover C2.0.2.6 | 2026-11-02
 - Optional live desktop view and remote control from the iPhone Control tab, built into the Clover server.
 - Off by default; turn it on with desktop_control.enabled in config.yaml, with view-only and no-input modes.

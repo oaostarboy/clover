@@ -38,6 +38,14 @@ def _dispatch_sync(req: dict, transport=None) -> dict | None:
 
 
 @pytest.fixture(autouse=True)
+def _legacy_detached_ttl(monkeypatch):
+    """Pre-existing orphan-reap tests assert the legacy interrupt-after-grace
+    path (ttl=0). Detached-continue is covered in
+    tests/tui_gateway/test_detached_turn_continue.py."""
+    monkeypatch.setattr(server, "_WS_DETACHED_TTL_S", 0.0)
+
+
+@pytest.fixture(autouse=True)
 def _neuter_agent_prewarm_timer(request, monkeypatch):
     """Stub the deferred agent pre-warm timer for every test in this module.
 

@@ -42,6 +42,10 @@ _replay_lock = threading.Lock()
 # the client's dispatch path consumes.
 _replay_buffers: "OrderedDict[str, deque]" = OrderedDict()
 _replay_next_seq: dict[str, int] = {}
+# sid -> (seq, params) of the latest ``message.complete``. Pinned outside the
+# ring so a detached turn's final reply survives even if a flood of deltas
+# evicts it from the bounded ring. One entry per session (bounded).
+_replay_final: dict[str, tuple] = {}
 
 
 def replay_epoch() -> str:
@@ -72,7 +76,10 @@ def _stamp_event(obj: dict) -> None:
             while len(_replay_buffers) > _REPLAY_SESSIONS_MAX:
                 _oldest_sid, _oldest_buf = _replay_buffers.popitem(last=False)
                 _replay_next_seq.pop(_oldest_sid, None)
+                _replay_final.pop(_oldest_sid, None)
         buf.append((seq, params))
+        if params.get("type") == "message.complete":
+            _replay_final[sid] = (seq, params)
 
 
 def events_since(sid: str, last_seen: int) -> list[dict]:
@@ -88,7 +95,13 @@ def events_since(sid: str, last_seen: int) -> list[dict]:
         buf = _replay_buffers.get(sid or "")
         if not buf:
             return []
-        return [event for seq, event in buf if seq > last_seen]
+        out = [event for seq, event in buf if seq > last_seen]
+        final = _replay_final.get(sid or "")
+        if final and final[0] > last_seen and not any(e is final[1] for e in out):
+            # Final reply was evicted from the ring: re-add it in seq order.
+            out.append(final[1])
+            out.sort(key=lambda e: e.get("seq", 0))
+        return out
 
 
 def is_truncated(sid: str, last_seen: int) -> bool:
@@ -108,11 +121,20 @@ def latest_seq(sid: str) -> int:
         return _replay_next_seq.get(sid or "", 0)
 
 
+def forget(sid: str) -> None:
+    """Drop the ring, seq counter and pinned final for a reaped session."""
+    with _replay_lock:
+        _replay_buffers.pop(sid, None)
+        _replay_next_seq.pop(sid, None)
+        _replay_final.pop(sid, None)
+
+
 def reset_replay_state() -> None:
     """Test hook."""
     with _replay_lock:
         _replay_buffers.clear()
         _replay_next_seq.clear()
+        _replay_final.clear()
 
 
 def replay_stats() -> dict:

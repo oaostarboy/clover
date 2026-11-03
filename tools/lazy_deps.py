@@ -119,6 +119,10 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     "search.firecrawl": ("firecrawl-py==4.17.0",),
     "search.parallel": ("parallel-web==0.4.2",),
 
+    # ─── Push notifications ────────────────────────────────────────────────
+    # APNs needs HTTP/2; httpx[http2] pulls h2. Versions match uv.lock.
+    "push.apns": ("h2==4.3.0", "hpack==4.1.0", "hyperframe==6.1.0"),
+
     # ─── Monitoring ─────────────────────────────────────────────────────────
     # OTLP gateway monitoring export. Lazily installed on first use of
     # monitoring.gateway_health_export / monitoring.export.otlp. Tracks the
@@ -138,7 +142,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     # 2.4.6 was removed and clean releases resumed (2.4.7, 2.4.8). Voxtral
     # STT + TTS share the same SDK.
     "tts.mistral": ("mistralai==2.4.8",),
-    "tts.edge": ("edge-tts==7.2.7",),
+    "tts.edge": ("edge-tts==7.3.1",),
     "tts.elevenlabs": ("elevenlabs==1.59.0",),
 
     # ─── Speech-to-text providers ──────────────────────────────────────────
