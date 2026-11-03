@@ -1,4 +1,4 @@
-"""Crew JSON-RPC handlers: ``agents.list`` and ``peer.turn`` (see crew.py).
+"""Crew JSON-RPC handlers: ``crew.list`` and ``peer.turn`` (see crew.py).
 
 Handlers are rebound onto server.py globals (method_ctx.py): keep helpers in
 ``tui_gateway.crew`` and import lazily inside the handler.
@@ -32,7 +32,7 @@ def _owner_ok():
     return not (uid == _INTERNAL_USER_ID and prov == _INTERNAL_PROVIDER)
 
 
-@method("agents.list")
+@method("crew.list")
 def _(rid, params: dict) -> dict:
     """One merged crew: local profiles + configured bot_peers.
 

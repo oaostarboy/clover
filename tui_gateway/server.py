@@ -347,9 +347,9 @@ _LONG_HANDLERS = frozenset(
         "bot_relay.outbox.drain",
         "bot_relay.deliver",
         "bot_relay.reply",
-        # Crew: agents.list probes peers (≤2s, concurrent); peer.turn is a full
+        # Crew: crew.list probes peers (≤2s, concurrent); peer.turn is a full
         # remote agent turn (minutes) — both stay off the WS reader thread.
-        "agents.list",
+        "crew.list",
         "peer.turn",
         # image.generate is a multi-second remote API round-trip.
         "image.generate",

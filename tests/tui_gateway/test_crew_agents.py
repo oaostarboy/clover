@@ -1,4 +1,4 @@
-"""agents.list merge/dedupe/online cache + peer.turn relay (fake transport)."""
+"""crew.list merge/dedupe/online cache + peer.turn relay (fake transport)."""
 
 from __future__ import annotations
 
@@ -175,5 +175,5 @@ def test_peer_turn_rpc_ok_and_error(monkeypatch):
     assert _call(ident, {"peer": "suni", "text": "x"})["error"]["code"] == 4106
 
 
-def test_agents_list_rpc_registered_long():
-    assert "agents.list" in srv._methods and "peer.turn" in srv._LONG_HANDLERS
+def test_crew_list_rpc_registered_long():
+    assert "crew.list" in srv._methods and "peer.turn" in srv._LONG_HANDLERS
