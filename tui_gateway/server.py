@@ -347,6 +347,10 @@ _LONG_HANDLERS = frozenset(
         "bot_relay.outbox.drain",
         "bot_relay.deliver",
         "bot_relay.reply",
+        # Crew: agents.list probes peers (≤2s, concurrent); peer.turn is a full
+        # remote agent turn (minutes) — both stay off the WS reader thread.
+        "agents.list",
+        "peer.turn",
         # image.generate is a multi-second remote API round-trip.
         "image.generate",
         "projects.discover_repos",
@@ -17680,6 +17684,7 @@ from . import (  # noqa: E402
     methods_browser_control as _methods_browser_control,
     methods_bot_relay as _methods_bot_relay,
     methods_complete as _methods_complete,
+    methods_crew as _methods_crew,
     methods_config as _methods_config,
     methods_images as _methods_images,
     methods_profiles as _methods_profiles,
@@ -17698,6 +17703,7 @@ for _m in (
     _methods_profiles,
     _methods_images,
     _methods_bot_relay,
+    _methods_crew,
 ):
     _m.register(sys.modules[__name__])
 del _m
