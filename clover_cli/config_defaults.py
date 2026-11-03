@@ -1727,6 +1727,9 @@ DEFAULT_CONFIG = {
         # override for backward compatibility. 0 disables the reap
         # (park forever).
         "ws_orphan_reap_grace_s": 20.0,
+        # Seconds a disconnected session keeps its running turn (detached) and
+        # buffered reply before being reaped. 0 = legacy interrupt-after-grace.
+        "ws_detached_ttl_s": 1800.0,
         # Startup sweep of session rows orphaned by a dead gateway process
         # (#65194).  The ws-orphan grace timer above is in-process, so a
         # gateway restart (update, crash, systemd) leaves disconnected

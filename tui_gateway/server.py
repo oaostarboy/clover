@@ -205,6 +205,33 @@ def _resolve_ws_orphan_reap_grace() -> float:
 
 
 _WS_ORPHAN_REAP_GRACE_S = _resolve_ws_orphan_reap_grace()
+
+
+def _resolve_ws_detached_ttl() -> float:
+    """Seconds a disconnected (detached) session survives before reaping.
+
+    A phone's socket drops constantly (cellular, backgrounding). Instead of
+    interrupting the running turn after the reconnect grace, the turn keeps
+    running detached, its events/final reply buffer in the replay ring, and the
+    session is reaped only once the turn is finished AND this TTL passes with
+    no reconnect. ``dashboard.ws_detached_ttl_s`` (default 1800); ``0`` restores
+    the legacy interrupt-after-grace behaviour.
+    """
+    raw = None
+    try:
+        from clover_cli.config import load_config
+
+        raw = (load_config().get("dashboard") or {}).get("ws_detached_ttl_s")
+    except Exception:
+        raw = None
+    try:
+        ttl = float(raw) if raw is not None else 1800.0
+    except (ValueError, TypeError):
+        ttl = 1800.0
+    return max(0.0, ttl)
+
+
+_WS_DETACHED_TTL_S = _resolve_ws_detached_ttl()
 _WS_ORPHAN_INTERRUPT_REAP_POLL_S = 1.0
 # Total budget for the interrupt-then-reap poll chain. If an interrupted turn
 # never settles (agent thread hung in a syscall, supervisor lost), each 1s poll
@@ -1404,6 +1431,29 @@ def _schedule_ws_orphan_reap(sid: str, *, delay_s: float | None = None) -> None:
                 return
             if _session_has_active_delegations(sid, current):
                 reschedule_delay = _WS_ORPHAN_REAP_GRACE_S
+            elif _WS_DETACHED_TTL_S > 0 and current.get("running"):
+                # Detached-continue: a dropped socket must not kill the work.
+                # Keep polling; the turn finalizes normally and its events
+                # (incl. the final reply) sit in the replay ring for resume.
+                current.pop("_detached_idle_since", None)
+                reschedule_delay = _WS_ORPHAN_REAP_GRACE_S
+            elif _WS_DETACHED_TTL_S > 0:
+                idle_since = current.setdefault(
+                    "_detached_idle_since", time.time()
+                )
+                remaining = _WS_DETACHED_TTL_S - (time.time() - idle_since)
+                if remaining > 0:
+                    reschedule_delay = min(
+                        max(remaining, 0.05),
+                        max(_WS_ORPHAN_REAP_GRACE_S, 1.0),
+                    )
+                else:
+                    logger.info(
+                        "client_gone sid=%s action=reap_after_detached_ttl "
+                        "ttl=%.0fs",
+                        sid, _WS_DETACHED_TTL_S,
+                    )
+                    session = _pop_session_by_id(sid)
             elif current.get("running"):
                 # Mid-turn detached sessions must never drop the single
                 # Timer (#85578): after the reconnect grace the turn is
@@ -1543,6 +1593,7 @@ def _close_sessions_for_transport(
                     else:
                         current["transport"] = _detached_ws_transport
                         current.pop("_client_gone_interrupt_requested", None)
+                        current.pop("_detached_idle_since", None)
                         should_schedule_reap = True
         if claimed_for_teardown is not None:
             if _teardown_popped_session(claimed_for_teardown, end_reason=end_reason):
@@ -10878,6 +10929,8 @@ def _live_session_payload(
             session["cols"] = cols
         if transport is not None:
             session["transport"] = transport
+            if transport is not _detached_ws_transport:
+                session.pop("_detached_idle_since", None)
             # Track every transport that has shown this session (multi-window:
             # pop-out windows each resume the same sid). The last viewer
             # becomes the transport on the disconnect path so closing a
