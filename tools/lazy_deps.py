@@ -629,7 +629,17 @@ def _is_satisfied(spec: str) -> bool:
         return True
 
     try:
-        return Version(installed) in SpecifierSet(spec_tail)
+        if Version(installed) in SpecifierSet(spec_tail):
+            return True
+        # Never DOWNGRADE: an exact ``==X`` pin is a floor for already-installed
+        # newer releases.  A stale process (e.g. one importing an older
+        # ``tools.lazy_deps`` via PYTHONPATH) carrying an old pin must not
+        # reinstall an older, possibly broken version over a newer one
+        # (edge-tts 7.3.1 -> 7.2.7 -> Microsoft 403).
+        m = re.fullmatch(r"\s*==\s*([^\s,;*]+)\s*", spec_tail)
+        if m and Version(installed) > Version(m.group(1)):
+            return True
+        return False
     except (InvalidSpecifier, InvalidVersion, Exception):
         # Malformed spec or installed version we can't parse — don't churn.
         return True
