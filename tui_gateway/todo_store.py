@@ -216,11 +216,11 @@ def new_item(text: str, *, order: float, now: Optional[float] = None, parse_date
         "id": uuid.uuid4().hex[:12], "text": clean, "notes": "", "done": False, "done_at": None,
         "created_at": now, "updated_at": now, "order": order, "due_at": due, "remind_at": None,
         "owner": None, "risk": None, "plan": "", "status": "", "session_id": None,
-        "result_summary": "", "triaged": False, "auto_started": False, "done_by": None,
+        "result_summary": "", "assignee": "auto", "triaged": False, "auto_started": False, "done_by": None,
     }
 
 
-def add(home: Path, raw: str, *, now: Optional[float] = None) -> List[Dict[str, Any]]:
+def add(home: Path, raw: str, *, now: Optional[float] = None, assignee: str = "auto") -> List[Dict[str, Any]]:
     with _lock:
         data = load(home)
         items = data["items"]
@@ -231,13 +231,14 @@ def add(home: Path, raw: str, *, now: Optional[float] = None) -> List[Dict[str, 
                 break
             it = new_item(t, order=base + 1 + k, now=now)
             if it:
+                it["assignee"] = assignee
                 created.append(it)
         items.extend(created)
         save(home, data)
         return created
 
 
-_EDITABLE = ("text", "notes", "due_at", "remind_at", "owner")
+_EDITABLE = ("text", "notes", "due_at", "remind_at", "owner", "assignee")
 
 
 def update(home: Path, item_id: str, patch: Dict[str, Any], *, now: Optional[float] = None) -> Optional[Dict[str, Any]]:
@@ -266,6 +267,15 @@ def update(home: Path, item_id: str, patch: Dict[str, Any], *, now: Optional[flo
                             continue
                     if k == "owner" and v not in OWNERS:
                         continue
+                    if k == "assignee":
+                        v = str(v or "auto").strip()[:80] or "auto"
+                        if v != it.get("assignee", "auto"):  # re-assigning re-opens dispatch
+                            it["triaged"] = False
+                            it.pop("waiting_for_you", None)
+                            it.pop("waiting_agent", None)
+                            if it.get("status") in ("failed", "needs_you") and not it.get("done"):
+                                it["status"] = ""
+                                it["approval_needed"] = False
                     if k in ("due_at", "remind_at") and v is not None:
                         try:
                             v = float(v)

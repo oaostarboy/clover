@@ -15,6 +15,13 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.2.11 | Clover C2.0.2.11 | 2026-11-03
+- Checklist items can now be given to a specific helper agent, or kept for yourself, instead of always being picked automatically.
+- Items you keep for yourself are never started by Clover.
+- Items for Clover herself still follow the same safe rules: web research only, nothing sent, posted, bought or deleted.
+- Items given to another agent (Octavia, Suni, Alfred) wait for you. They only start after you tap Start in the app.
+- Anything risky still stops and asks you first, and the auto-start off switch still stops everything.
+
 ## 2.0.2.10 | Clover C2.0.2.10 | 2026-11-03
 - Helper progress in the phone and desktop apps now shows only as the app's own card, not as extra text in the reply.
 - Old behind-the-scenes messages (helper finished, system notes) are no longer shown as if you had written them.
