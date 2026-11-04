@@ -14,6 +14,27 @@ _registry = HandlerRegistry()
 method = _registry.method
 
 
+def _resolve_assignee(raw):
+    """-> (assignee, error). Shape-checks, then maps an agent id onto the crew roster's own id (never the raw string)."""
+    from tui_gateway import todo_triage
+
+    a = todo_triage.normalize_assignee(raw)
+    if a is None:
+        return None, "assignee must be 'owner', 'auto' or an agent id"
+    if a in ("owner", "auto"):
+        return a, ""
+    from tui_gateway.methods_crew import crew_roster
+
+    try:
+        roster = crew_roster()
+    except Exception:
+        return None, "could not read the agent list to check the assignee"
+    row = next((r for r in roster if str(r.get("id")).lower() == a.lower()), None)
+    if row is None:
+        return None, f"unknown agent '{a[:40]}'"
+    return str(row["id"]), ""
+
+
 @method("todos.list")
 def _(rid, params: dict) -> dict:
     from tui_gateway import todo_runtime, todo_store
@@ -33,11 +54,9 @@ def _(rid, params: dict) -> dict:
     text = params.get("text")
     if not isinstance(text, str) or not text.strip():
         return _err(rid, 4002, "text required")
-    from tui_gateway import todo_triage
-
-    assignee = todo_triage.normalize_assignee(params.get("assignee"))
+    assignee, bad = _resolve_assignee(params.get("assignee"))
     if assignee is None:
-        return _err(rid, 4002, "assignee must be 'owner', 'auto' or an agent id")
+        return _err(rid, 4002, bad)
     home = get_clover_home()
     created = todo_store.add(home, text, assignee=assignee)
     if created:
@@ -55,9 +74,9 @@ def _(rid, params: dict) -> dict:
     item_id = str(params.get("id") or "")
     patch = {k: params[k] for k in ("done", "text", "notes", "due_at", "remind_at", "owner", "assignee") if k in params}
     if "assignee" in patch:
-        a = todo_triage.normalize_assignee(patch["assignee"])
+        a, bad = _resolve_assignee(patch["assignee"])
         if a is None:
-            return _err(rid, 4002, "assignee must be 'owner', 'auto' or an agent id")
+            return _err(rid, 4002, bad)
         patch["assignee"] = a
     it = todo_store.update(get_clover_home(), item_id, patch)
     if it is None:
@@ -118,8 +137,26 @@ def _(rid, params: dict) -> dict:
     """Owner taps Approve on a drafted/external item: clears the gate and opens the item's chat to proceed."""
     from tui_gateway import todo_store
 
+    from tui_gateway import todo_runtime, todo_triage
+
     item_id = str(params.get("id") or "")
-    it = todo_store.patch_system(get_clover_home(), item_id, {"approval_needed": False, "status": "queued", "owner": "clover", "approved": True})
+    home = get_clover_home()
+    cur = next((i for i in todo_store.load(home)["items"] if i["id"] == item_id), None)
+    if cur and cur.get("waiting_for_you") and cur.get("waiting_agent") and not cur.get("done"):
+        # Owner tapped Start on an item queued for another agent: dispatch now (roster re-checked inside assign).
+        agent = str(cur["waiting_agent"])
+        base = {"waiting_for_you": False, "waiting_agent": "", "approval_needed": False, "approved": True}
+        todo_store.patch_system(home, item_id, dict(base, status="queued"))  # claim first: a double tap can't dispatch twice
+        if todo_triage.kill_switch_on():
+            it = todo_store.patch_system(home, item_id, dict(base, status="failed", result_summary="Auto-start is switched off"))
+        else:
+            sid, err = todo_runtime.assign(cur, agent)
+            fields = dict(base, status="working", session_id=sid, auto_started=True) if sid else dict(
+                base, status="failed", result_summary=(err or "Could not reach that agent")[:300])
+            it = todo_store.patch_system(home, item_id, fields)
+        _broadcast_global_event("todos.changed", {"reason": "approved", "item": it})
+        return _ok(rid, {"item": it})
+    it = todo_store.patch_system(home, item_id, {"approval_needed": False, "status": "queued", "owner": "clover", "approved": True})
     if it is None:
         return _err(rid, 4004, "unknown todo")
     _broadcast_global_event("todos.changed", {"reason": "approved", "item": it})

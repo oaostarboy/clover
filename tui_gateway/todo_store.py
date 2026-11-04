@@ -271,6 +271,8 @@ def update(home: Path, item_id: str, patch: Dict[str, Any], *, now: Optional[flo
                         v = str(v or "auto").strip()[:80] or "auto"
                         if v != it.get("assignee", "auto"):  # re-assigning re-opens dispatch
                             it["triaged"] = False
+                            it.pop("waiting_for_you", None)
+                            it.pop("waiting_agent", None)
                             if it.get("status") in ("failed", "needs_you") and not it.get("done"):
                                 it["status"] = ""
                                 it["approval_needed"] = False

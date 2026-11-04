@@ -88,6 +88,11 @@ def normalize_assignee(raw: Any) -> Optional[str]:
     return v if _ASSIGNEE_RE.match(v) else None
 
 
+def is_default_agent(agent_id: str) -> bool:
+    """The gateway's own agent: runs in the restricted web-only session. Everyone else needs the owner's tap first."""
+    return str(agent_id or "").strip().lower() in ("default", "clover")
+
+
 def looks_external(text: str) -> bool:
     import unicodedata
 
@@ -225,7 +230,12 @@ def triage_pending(home: Path, *, llm: Callable[[List[Dict[str, str]]], str], sp
         eff = dict(tri, owner=owner_eff)
         settings = store.load(home).get("settings", {})
         verdict = decide(it, eff, settings, running_count(store.load(home)["items"]), killed=kill)
-        if verdict == "start" and agent_id:
+        if verdict == "start" and agent_id and not is_default_agent(agent_id):
+            # Another agent runs under its OWN toolset (relay_turn cannot restrict it), so the prompt is not a hard limit.
+            # Queue it for them, but they only start after the owner taps Start (todos.approve).
+            fields.update(status="needs_you", approval_needed=True, waiting_for_you=True, waiting_agent=agent_id,
+                          approval_text=f"Start {agent_id} on this? Nothing runs until you tap Start.")
+        elif verdict == "start" and agent_id:
             sid, err = None, ""
             try:
                 res = assign(dict(it, **fields), agent_id) if assign else (None, "Assigning to agents is not available here")
