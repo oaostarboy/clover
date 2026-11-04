@@ -88,6 +88,25 @@ def normalize_assignee(raw: Any) -> Optional[str]:
     return v if _ASSIGNEE_RE.match(v) else None
 
 
+def resolve_assignee(raw):
+    """-> (assignee, error). Shape-checks, then maps an agent id onto the crew roster's own id (never the raw string)."""
+    a = normalize_assignee(raw)
+    if a is None:
+        return None, "assignee must be 'owner', 'auto' or an agent id"
+    if a in ("owner", "auto"):
+        return a, ""
+    from tui_gateway.methods_crew import crew_roster
+
+    try:
+        roster = crew_roster()
+    except Exception:
+        return None, "could not read the agent list to check the assignee"
+    row = next((r for r in roster if str(r.get("id")).lower() == a.lower()), None)
+    if row is None:
+        return None, f"unknown agent '{a[:40]}'"
+    return str(row["id"]), ""
+
+
 def is_default_agent(agent_id: str) -> bool:
     """The gateway's own agent: runs in the restricted web-only session. Everyone else needs the owner's tap first."""
     return str(agent_id or "").strip().lower() in ("default", "clover")

@@ -14,27 +14,6 @@ _registry = HandlerRegistry()
 method = _registry.method
 
 
-def _resolve_assignee(raw):
-    """-> (assignee, error). Shape-checks, then maps an agent id onto the crew roster's own id (never the raw string)."""
-    from tui_gateway import todo_triage
-
-    a = todo_triage.normalize_assignee(raw)
-    if a is None:
-        return None, "assignee must be 'owner', 'auto' or an agent id"
-    if a in ("owner", "auto"):
-        return a, ""
-    from tui_gateway.methods_crew import crew_roster
-
-    try:
-        roster = crew_roster()
-    except Exception:
-        return None, "could not read the agent list to check the assignee"
-    row = next((r for r in roster if str(r.get("id")).lower() == a.lower()), None)
-    if row is None:
-        return None, f"unknown agent '{a[:40]}'"
-    return str(row["id"]), ""
-
-
 @method("todos.list")
 def _(rid, params: dict) -> dict:
     from tui_gateway import todo_runtime, todo_store
@@ -54,7 +33,9 @@ def _(rid, params: dict) -> dict:
     text = params.get("text")
     if not isinstance(text, str) or not text.strip():
         return _err(rid, 4002, "text required")
-    assignee, bad = _resolve_assignee(params.get("assignee"))
+    from tui_gateway import todo_triage
+
+    assignee, bad = todo_triage.resolve_assignee(params.get("assignee"))
     if assignee is None:
         return _err(rid, 4002, bad)
     home = get_clover_home()
@@ -74,7 +55,7 @@ def _(rid, params: dict) -> dict:
     item_id = str(params.get("id") or "")
     patch = {k: params[k] for k in ("done", "text", "notes", "due_at", "remind_at", "owner", "assignee") if k in params}
     if "assignee" in patch:
-        a, bad = _resolve_assignee(patch["assignee"])
+        a, bad = todo_triage.resolve_assignee(patch["assignee"])
         if a is None:
             return _err(rid, 4002, bad)
         patch["assignee"] = a

@@ -47,13 +47,13 @@ def test_default_agent_dispatches_immediately(tmp_path):
 
 
 def test_unknown_or_offline_agent_is_a_clear_error_status(tmp_path):
-    it = _open(tmp_path, "research ultrawide monitors", "ghost")
+    it = _open(tmp_path, "research ultrawide monitors", "default")
     tr.triage_pending(tmp_path, llm=lambda m: _low(it), spawn=lambda i: "x", emit=lambda *a: None, killed=False,
                       assign=lambda i, a: (None, f"Unknown agent '{a}'"))
     row = st.load(tmp_path)["items"][0]
-    assert row["status"] == "failed" and "Unknown agent 'ghost'" in row["result_summary"]
+    assert row["status"] == "failed" and "Unknown agent 'default'" in row["result_summary"]
     # a raising dispatcher is contained too
-    it2 = _open(tmp_path, "research b", "ghost")
+    it2 = _open(tmp_path, "research b", "default")
     def boom(i, a): raise RuntimeError("peer down")
     tr.triage_pending(tmp_path, llm=lambda m: _low(it2), spawn=lambda i: "x", emit=lambda *a: None, killed=False, assign=boom)
     by = {i["id"]: i for i in st.load(tmp_path)["items"]}
