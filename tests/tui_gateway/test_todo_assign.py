@@ -176,3 +176,17 @@ def test_rpc_rejects_assignee_not_in_roster(monkeypatch, tmp_path):
     assert "error" in server._methods["todos.add"](2, {"text": "x", "assignee": "../etc"})
     r = server._methods["todos.add"](3, {"text": "research x", "assignee": "suni"})
     assert r["result"]["items"][0]["assignee"] == "Suni"
+
+
+def test_concurrent_assignee_writes_keep_every_item(tmp_path):
+    import threading
+
+    def work(n):
+        for k in range(10):
+            it = st.add(tmp_path, f"item {n}-{k}", assignee="owner")[0]
+            st.update(tmp_path, it["id"], {"assignee": "auto"})
+
+    ts = [threading.Thread(target=work, args=(n,)) for n in range(4)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    items = st.load(tmp_path)["items"]
+    assert len(items) == 40 and all(i["assignee"] == "auto" for i in items)
