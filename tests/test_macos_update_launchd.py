@@ -102,6 +102,29 @@ def test_tracks_detached_builder_and_waits_without_signals(rig, monkeypatch):
     assert all(c[0] == 'print' for c in state['calls'])
 
 
+def test_gateway_descendant_captured(rig):
+    ops, service, state, _ = rig
+    state['processes'][301] = m.Process(301, 120, 2002, ('worker',), service.home, {})
+    assert {p.pid for p in ops.capture_builders([service])} == {301}
+
+
+def test_new_orphan_after_capture_delays_mutation(rig, monkeypatch):
+    ops, service, state, _ = rig
+    parent = m.Process(300, 1, 2001, ('node', 'npm', 'run', 'build'), service.installation_root, {})
+    state['processes'][300] = parent
+    children = ops.capture_builders([service])
+    state['loaded'] = False
+    state['processes'] = {301: m.Process(301, 1, 2002, ('custom-worker',), service.home, {})}
+    sleeps = []
+    def finish(seconds):
+        sleeps.append(seconds)
+        state['processes'].clear()
+    monkeypatch.setattr(m.time, 'sleep', finish)
+    ops.wait_quiescent([service], children, 1)
+    assert sleeps, 'mutation would have occurred while the orphan was alive'
+    assert all(c[0] == 'print' for c in state['calls'])
+
+
 def test_restore_unloaded_service_uses_saved_domain_and_proves_fresh_owner(rig, monkeypatch):
     ops, service, state, status = rig
     original = m._launchctl

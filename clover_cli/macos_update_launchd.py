@@ -199,9 +199,16 @@ def _builder_matches(process, roots):
         return False
     if process.cwd is None:
         raise LifecycleRefused('Cannot establish a possible builder workspace')
-    return any(_inside(process.cwd, root) or any(
+    bound = any(_inside(process.cwd, root) or any(
         Path(arg).is_absolute() and _inside(arg, root) for arg in process.argv)
         for root in roots)
+    if not bound:
+        args = process.argv
+        package_build = bool(names & {'npm', 'npm-cli.js', 'pnpm', 'yarn'}) and 'build' in args
+        vite_build = bool(names & {'node', 'node.exe'}) and bool(names & {'vite', 'electron-vite'}) and 'build' in args
+        if package_build or vite_build or clover_builder:
+            raise LifecycleRefused('Ambiguous builder workspace')
+    return bound
 
 
 def _collect_children(table, seeds):
@@ -324,39 +331,63 @@ class LaunchdOperations:
             _verify_owner(service, service.pid, service.birth, _process_table())
 
     def capture_builders(self, services):
+        # Failed recapture must never leave an earlier baseline usable.
+        self._capture_baseline = None
         table = _process_table()
         roots = self.roots | {s.installation_root for s in services}
-        seeds = {p.pid for p in table.values() if _builder_matches(p, roots)}
-        descendants = _collect_children(table, seeds)
         protected = _protected_pids(table)
+        service_pids = {pid for s in services for pid in (s.pid, s.supervisor_pid) if pid is not None}
+        for s in services:
+            for pid, birth in ((s.pid, s.birth), (s.supervisor_pid, s.supervisor_birth)):
+                if pid is not None and (pid not in table or table[pid].birth != birth):
+                    raise LifecycleRefused('Service process identity changed before capture')
+        explicit = {p.pid for p in table.values() if _builder_matches(p, roots)}
+        descendants = _collect_children(table, explicit | service_pids)
+        if descendants & protected:
+            raise LifecycleRefused('Builder or gateway descendant is an updater ancestor')
+        generic = {p.pid for p in table.values() if p.pid not in protected
+                   and any(_inside(p.cwd, root) for root in roots)}
+        descendants |= _collect_children(table, generic)
         if descendants & protected:
             raise LifecycleRefused('Builder is an updater ancestor')
-        return [table[pid] for pid in descendants]
+        self._capture_baseline = table.copy()
+        return [table[pid] for pid in descendants - service_pids]
 
     def wait_quiescent(self, services, children, timeout):
+        if getattr(self, '_capture_baseline', None) is None:
+            raise LifecycleRefused('Cannot establish quiescent state without capture')
+        baseline = self._capture_baseline
         deadline = time.monotonic() + timeout
         tracked = {p.pid: p.birth for p in children}
+        service_births = {pid: birth for s in services for pid, birth in
+                          ((s.pid, s.birth), (s.supervisor_pid, s.supervisor_birth))
+                          if pid is not None}
         roots = self.roots | {s.installation_root for s in services}
+        empty_observations = 0
         while True:
             table = _process_table()
-            for pid, birth in tracked.items():
+            for pid, birth in (tracked | service_births).items():
                 if pid in table and table[pid].birth != birth:
-                    raise LifecycleRefused('Builder process identity changed')
-            seeds = {pid for pid in tracked if pid in table}
+                    raise LifecycleRefused('Builder or service process identity changed')
+            protected = _protected_pids(table)
+            seeds = {pid for pid in tracked | service_births if pid in table}
             seeds.update(p.pid for p in table.values() if _builder_matches(p, roots))
-            for pid in _collect_children(table, seeds):
-                tracked[pid] = table[pid].birth
-            if set(tracked) & _protected_pids(table):
+            seeds.update(p.pid for p in table.values() if p.pid not in protected
+                         and any(_inside(p.cwd, root) for root in roots))
+            seeds.update(p.pid for p in table.values() if p.ppid == 1
+                         and (p.pid not in baseline or baseline[p.pid].birth != p.birth))
+            descendants = _collect_children(table, seeds)
+            if descendants & protected:
                 raise LifecycleRefused('Builder is an updater ancestor')
+            for pid in descendants - service_births.keys():
+                tracked[pid] = table[pid].birth
             registrations = [_registration(s) for s in services]
-            for s in services:
-                for pid, birth in ((s.pid, s.birth), (s.supervisor_pid, s.supervisor_birth)):
-                    if pid in table and table[pid].birth != birth:
-                        raise LifecycleRefused('Service process identity changed')
-            gateways_alive = any(pid in table for s in services
-                                 for pid in (s.pid, s.supervisor_pid) if pid is not None)
-            if not seeds and not gateways_alive and not any(loaded for loaded, _ in registrations):
-                return
+            if not descendants and not any(loaded for loaded, _ in registrations):
+                empty_observations += 1
+                if empty_observations >= 2:
+                    return
+            else:
+                empty_observations = 0
             if time.monotonic() >= deadline:
                 raise LifecycleRefused('Services or builders did not become quiescent')
             time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
