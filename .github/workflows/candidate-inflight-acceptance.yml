@@ -16,8 +16,8 @@ concurrency:
   group: candidate-inflight-${{ github.run_id }}
   cancel-in-progress: false
 env:
-  TARGET_REF: 8b02bff8c02c79bf177b9b3c07a382afef16a935
-  TARGET_TREE: c70c414514a3ce155a090d3baf22d2e396f0e66b
+  TARGET_REF: 2345a546a4f6a75dd3fd1893cb84c247d565b02d
+  TARGET_TREE: 7b9505e84ff466971caebbec5add14edd7381711
 jobs:
   native:
     name: ${{ matrix.os }} / ${{ matrix.base }} / ${{ matrix.entry }} / held-turn local IRC

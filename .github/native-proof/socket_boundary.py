@@ -4,7 +4,7 @@ import datetime, json, os, subprocess, sys, time
 from pathlib import Path
 
 def capture(port=18791, runner=subprocess.run):
-    commands = [["lsof", "-nP", f"-iTCP:{port}"], ["netstat", "-anv", "-p", "tcp"], ["ps", "-axo", "pid,ppid"], ["launchctl", "print", f"gui/{os.getuid()}/ai.clover.gateway"]]
+    commands = [["lsof", "-nP", f"-iTCP:{port}"], ["netstat", "-anv", "-p", "tcp"], ["ps", "-axo", "pid,ppid,lstart,command"], ["launchctl", "print", f"gui/{os.getuid()}/ai.clover.gateway"]]
     result = {"utc": datetime.datetime.now(datetime.timezone.utc).isoformat(), "monotonic_ns": time.monotonic_ns(), "commands": []}
     for cmd in commands:
         try:

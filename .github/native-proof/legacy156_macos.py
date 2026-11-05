@@ -325,6 +325,13 @@ def main(a):
     health_watch = None
     service = None
     try:
+        # Start before the legacy gateway, which may launch an unlocked desktop
+        # builder as part of startup. Sampling only at update time misses it.
+        boundary_stop = evidence / 'socket-boundary.stop'
+        boundary = subprocess.Popen([sys.executable, str(HELPERS / 'socket_boundary.py'),
+            str(evidence / 'socket-boundary.jsonl'), str(boundary_stop)])
+        wait_for(lambda: (evidence / 'socket-boundary.jsonl').exists() and
+                 (evidence / 'socket-boundary.jsonl').stat().st_size > 0, 30)
         run([bin, 'gateway', 'install'], 'service-install', timeout=180)
         service = call('service', 'service-definition')
         shutil.copy2(service['path'], evidence / 'installed-before.plist')
@@ -366,11 +373,6 @@ def main(a):
             health_watch = subprocess.Popen([str(live_python), str(HELPERS/'legacy156_large_state.py'),
                 'watch', '--home',str(home),'--evidence',str(evidence),'--target',a.target],
                 env=env,stdout=health_log,stderr=subprocess.STDOUT)
-        boundary_stop = evidence / 'socket-boundary.stop'
-        boundary = subprocess.Popen([sys.executable, str(HELPERS / 'socket_boundary.py'),
-            str(evidence / 'socket-boundary.jsonl'), str(boundary_stop)])
-        wait_for(lambda: (evidence / 'socket-boundary.jsonl').exists() and
-                 (evidence / 'socket-boundary.jsonl').stat().st_size > 0, 30)
         update = None
         update_log = (evidence / 'terminal-update.log').open('w')
         if a.entry == 'terminal':
@@ -463,6 +465,32 @@ def main(a):
         samples.append(final)
         dump(evidence / 'gateway-window.json', samples)
         assert git('rev-parse', 'HEAD^{tree}') == a.tree and not git('diff', '--name-only', 'HEAD')
+        # A zero exit and a stable gateway do not prove the Node/desktop repair.
+        # Require an actual scoped refresh, actual desktop packaging, usable
+        # Electron runtime, and the dependency missing in the prior failure.
+        import plistlib
+        update_text = (evidence / 'terminal-update.log').read_text(errors='replace')
+        updater_log = (home / 'logs/update.log').read_text(errors='replace')
+        assert 'ui-tui, web workspaces installed' in update_text, 'no successful full Node workspace refresh'
+        assert 'Building desktop packaged app' in updater_log, 'no actual candidate desktop build'
+        desktop = source / 'apps/desktop'
+        apps = list((desktop / 'release').glob('mac*/Clover.app'))
+        assert apps, 'no packaged desktop app'
+        app = max(apps, key=lambda p: p.stat().st_mtime)
+        executable = app / 'Contents/MacOS/Clover'
+        assert executable.is_file() and os.access(executable, os.X_OK)
+        info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
+        expected_version = read_json(desktop / 'package.json')['version']
+        assert info['CFBundleShortVersionString'] == expected_version
+        assert (source / 'node_modules/driver.js/package.json').is_file(), 'driver.js missing'
+        runtime_env = dict(env, ELECTRON_RUN_AS_NODE='1')
+        runtime = subprocess.run([str(executable), '-p', 'JSON.stringify(process.versions)'],
+                                 env=runtime_env, capture_output=True, text=True, timeout=30, check=True)
+        versions = json.loads(runtime.stdout.strip())
+        assert versions.get('node') and versions.get('electron')
+        dump(evidence / 'node-desktop-acceptance.json', dict(node_refresh=True,
+             desktop_build=True, app=str(app), app_version=expected_version,
+             driver_js=True, runtime_versions=versions))
         run([live / 'bin/python', HELPERS / 'proof.py', 'identity', '--repo', source,
             '--sha', a.target, '--tree', a.tree, '--output', evidence / 'installed-after.json'], 'source-identity')
         call('sqlite', 'sqlite-after')
