@@ -1,7 +1,7 @@
-name: Windows repair candidate-to-marker update proof
+name: Windows repair fresh installed proof
 on:
   push:
-    branches: [ci/windows-repair-update-ce418d93]
+    branches: [ci/windows-repair-fresh-ce418d93]
 permissions:
   contents: read
 env:
@@ -12,20 +12,12 @@ env:
   OLD_SHA: 9271c360f4519fc30887bbab7777c76970d4318f
   NEXT_SHA: cd3d7ba69b34abda06f167ecb30ca2fd09c8bde2
   NEXT_TREE: 5a19c0264fdcca252c8f1aa55fa2b01d62934f34
+  SETUP: zyra
+  UPDATE_PATH: cli
 jobs:
-  update:
-    name: Windows ${{ matrix.setup }} ${{ matrix.path }} candidate-to-marker
+  fresh:
     runs-on: windows-2025
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        setup: [troy, zyra]
-        path: [cli, chat]
-    env:
-      SETUP: ${{ matrix.setup }}
-      UPDATE_PATH: ${{ matrix.path }}
-      PHASE: new2next
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -41,9 +33,9 @@ jobs:
       - name: Fetch exact marker branch
         shell: bash
         run: git -C source fetch origin "+refs/heads/$NEXT_REF:refs/remotes/origin/$NEXT_REF"
-      - name: Native supervisor update and owner evidence
+      - name: Real installer and native Stop and report contracts
         shell: pwsh
-        run: ./helpers/.github/native-proof/windows.ps1 -Mode new2next
+        run: ./helpers/.github/native-proof/windows.ps1 -Mode fresh
       - name: Preserve actual row outcome
         if: always()
         shell: bash
@@ -55,7 +47,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: update-${{ matrix.setup }}-${{ matrix.path }}-${{ github.run_id }}
+          name: fresh-windows-repair-${{ github.run_id }}
           path: ${{ runner.temp }}/evidence
           include-hidden-files: true
           if-no-files-found: error
