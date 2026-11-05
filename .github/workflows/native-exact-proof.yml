@@ -1,55 +1,88 @@
-name: Windows final repair clock and Stop proof
+name: Windows permissions and same-runner crash comparison
 on:
   push:
-    branches: [ci/windows-repair-focused-ce418d93]
+    branches: [ci/windows-permissions-crash-ab]
 permissions:
   contents: read
 jobs:
-  tests:
+  compare:
     runs-on: windows-2025
-    timeout-minutes: 30
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: 89b62ae5f7d1a00ace16652e95003f5523a93a94
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.11'
-      - name: Install disposable test dependencies
+      - name: Prepare exact product checkouts and one dependency environment
         shell: pwsh
         run: |
+          $out = Join-Path $env:RUNNER_TEMP 'windows-ab-evidence'
+          New-Item -ItemType Directory -Force $out | Out-Null
+          git worktree add --detach "$env:RUNNER_TEMP/base" ce418d930a933b8ce19ea633b33031751b6e049a
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git worktree add --detach "$env:RUNNER_TEMP/revised" 89b62ae5f7d1a00ace16652e95003f5523a93a94
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --name-only ce418d930a933b8ce19ea633b33031751b6e049a 89b62ae5f7d1a00ace16652e95003f5523a93a94 | Out-File "$out/source-difference.txt"
+          Push-Location "$env:RUNNER_TEMP/base"
           python -m pip install -e '.[dev]' 'python-telegram-bot[webhooks]==22.8'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Native exact-commit tests
+          python -m pip freeze | Out-File "$out/dependencies.txt"
+          python -VV | Out-File "$out/python.txt"
+          Pop-Location
+      - name: Capture real handoff file ACLs without changing permissions
         shell: pwsh
         run: |
+          $out = Join-Path $env:RUNNER_TEMP 'windows-ab-evidence'
+          $env:CLOVER_HOME = Join-Path $env:USERPROFILE 'clover-permissions-proof'
+          $env:CLOVER_SAFE_MODE='1'
+          Push-Location "$env:RUNNER_TEMP/base"
+          python -c "from agent.handoff_notes import write_notes,attach_known; import json; p=write_notes('acl-proof','synthetic test only'); assert p; assert attach_known(p,['synthetic known item']); print(json.dumps({'path':str(p)}))" > "$out/handoff-path.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $record = Get-Content "$out/handoff-path.json" -Raw | ConvertFrom-Json
+          $targets = @($env:USERPROFILE, $env:CLOVER_HOME, (Split-Path $record.path), $record.path)
+          $records = foreach ($target in $targets) {
+            $acl = Get-Acl -LiteralPath $target
+            @{path=$target; owner=$acl.Owner; sddl=$acl.Sddl; protected=$acl.AreAccessRulesProtected; access=@($acl.Access | ForEach-Object { @{identity=$_.IdentityReference.Value; rights=$_.FileSystemRights.ToString(); type=$_.AccessControlType.ToString(); inherited=$_.IsInherited} })}
+          }
+          $records | ConvertTo-Json -Depth 8 | Out-File "$out/acl.json"
+          Pop-Location
+      - name: Sequential baseline and revised tests with fresh per-case homes
+        if: always()
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'windows-ab-evidence'
           $env:PYTHONFAULTHANDLER='1'; $env:CLOVER_SAFE_MODE='1'; $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
-          $out = Join-Path $env:RUNNER_TEMP 'windows-final-tests'
-          New-Item -ItemType Directory -Force $out | Out-Null
-          git rev-parse HEAD | Out-File "$out/commit.txt" -Encoding utf8
-          git rev-parse 'HEAD^{tree}' | Out-File "$out/tree.txt" -Encoding utf8
-          $tests = @(
-            @{name='clock'; file='tests/clover_cli/test_windows_handoff_clock_native.py'},
-            @{name='receipt'; file='tests/clover_cli/test_windows_update_receipt_handoff.py'},
-            @{name='handoff'; file='tests/agent/test_handoff_windows_permissions.py'},
+          $cases = @(
             @{name='stop'; file='tests/cron/test_workstream_dm_runtime.py'},
-            @{name='report'; file='tests/gateway/test_workstream_acceptance.py'}
+            @{name='receipt'; file='tests/clover_cli/test_windows_update_receipt_handoff.py'}
           )
           $failed=$false
-          foreach ($test in $tests) {
-            $name=$test.name
-            $args_ = @('-m','pytest','-p','pytest_asyncio.plugin',$test.file,'-vv','-s','--durations=0','-o','faulthandler_timeout=30')
-            $p = Start-Process -FilePath (Get-Command python).Source -ArgumentList $args_ -RedirectStandardOutput "$out/$name.log" -RedirectStandardError "$out/$name.err" -PassThru -NoNewWindow
-            if (-not $p.WaitForExit(600000)) { & taskkill /PID $p.Id /T /F | Out-Null; $rc=124 } else { $rc=$p.ExitCode }
-            "$name exit=$rc" | Tee-Object -FilePath "$out/results.txt" -Append
-            if ($rc -ne 0) { $failed=$true }
+          foreach ($variant in @('base','revised')) {
+            $source = Join-Path $env:RUNNER_TEMP $variant
+            $env:PYTHONPATH=$source
+            Push-Location $source
+            git rev-parse HEAD | Out-File "$out/$variant-commit.txt"
+            foreach ($case in $cases) {
+              $name="$variant-$($case.name)"
+              $env:CLOVER_HOME=Join-Path $env:RUNNER_TEMP "home-$name"
+              New-Item -ItemType Directory -Force $env:CLOVER_HOME | Out-Null
+              $args_=@('-m','pytest','-p','pytest_asyncio.plugin',$case.file,'-vv','-s','--durations=0','-o','faulthandler_timeout=30')
+              $started=Get-Date
+              $p=Start-Process -FilePath (Get-Command python).Source -ArgumentList $args_ -RedirectStandardOutput "$out/$name.log" -RedirectStandardError "$out/$name.err" -PassThru -NoNewWindow
+              if (-not $p.WaitForExit(600000)) { & taskkill /PID $p.Id /T /F | Out-Null; $rc=124 } else { $rc=$p.ExitCode }
+              @{case=$name; exit=$rc; started=$started.ToUniversalTime().ToString('o'); ended=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json -Compress | Add-Content "$out/results.jsonl"
+              if ($rc -ne 0) { $failed=$true }
+            }
+            Pop-Location
           }
           if ($failed) { exit 1 }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: windows-final-tests
-          path: ${{ runner.temp }}/windows-final-tests/
-          if-no-files-found: warn
-          retention-days: 3
+          name: windows-permissions-crash-ab
+          path: ${{ runner.temp }}/windows-ab-evidence/
+          if-no-files-found: error
+          retention-days: 7
