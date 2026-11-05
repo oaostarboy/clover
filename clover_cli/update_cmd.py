@@ -88,6 +88,11 @@ _STALE_PURGE_PROTECTED = frozenset(
         "clover_cli",
         "clover_cli.main",
         "clover_cli.update_cmd",
+        # These modules own open drain markers, captured launchd identities,
+        # and the invocation ContextVar. Keep one owner through nested imports.
+        "clover_cli.macos_update_transaction",
+        "clover_cli.macos_update_lifecycle",
+        "clover_cli.macos_update_launchd",
         "clover_cli.clover_logging",
         # Holds the OPEN update receipt in a module global. Evicting it made
         # the command-boundary finalizer import a fresh module with no open
