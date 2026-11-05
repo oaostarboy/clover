@@ -171,8 +171,10 @@ def main():
     plugin = args.repo / 'report_diag_plugin.py'
     if plugin.exists():
         raise FileExistsError(plugin)
-    shutil.copyfile(Path(__file__).with_name('report_timing_plugin.py'), plugin)
-    test_env['REPORT_TIMING_DIR'] = str(args.evidence.resolve())
+    plugin_template = Path(__file__).with_name('report_timing_plugin.py').read_text(encoding='utf-8')
+    placeholder = "'__REPORT_TIMING_DIR__'"
+    assert plugin_template.count(placeholder) == 1
+    plugin.write_text(plugin_template.replace(placeholder, repr(str(args.evidence.resolve()))), encoding='utf-8')
     suites = {'report-only': SUITES['report-only']}
     results = []
     failed = False

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-out = Path(os.environ['REPORT_TIMING_DIR']) / ('report-timing-%s.jsonl' % os.getpid())
+out = Path('__REPORT_TIMING_DIR__') / ('report-timing-%s.jsonl' % os.getpid())
 write_lock = threading.Lock()
 
 def record(**kw):
