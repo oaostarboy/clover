@@ -721,6 +721,28 @@ def _validate_critical_modules_import(root) -> tuple[bool, str | None, str | Non
         "raise SystemExit(0)\n"
         % (_UPDATE_CRITICAL_MODULES, tuple(sorted(FIRST_PARTY_MODULE_ROOTS)))
     )
+    from clover_cli._migration_target import target_root
+    bound_target = target_root()
+    if bound_target is not None:
+        # Never execute target-owned Python in the staged controller, including
+        # via a child interpreter's cwd or site hooks.  The verified stage is
+        # the source being validated; only its explicitly trusted paths remain.
+        stage_root = Path(__file__).resolve().parent.parent
+        safe_paths = []
+        for entry in sys.path:
+            if not entry:
+                continue
+            path = Path(entry).resolve()
+            if path == bound_target or bound_target in path.parents:
+                continue
+            safe_paths.append(str(path))
+        probe = f"import sys; sys.path[:0] = {safe_paths!r}\n" + probe
+        interpreter = sys.executable
+        command = [interpreter, '-I', '-S', '-c', probe]
+        probe_cwd = stage_root
+    else:
+        command = None
+        probe_cwd = root
     try:
         interpreter = sys.executable
         try:
@@ -732,8 +754,8 @@ def _validate_critical_modules_import(root) -> tuple[bool, str | None, str | Non
         except Exception:
             pass  # fall back to the running interpreter
         result = subprocess.run(
-            [interpreter, "-c", probe],
-            cwd=str(root),
+            command or [interpreter, "-c", probe],
+            cwd=str(probe_cwd),
             capture_output=True,
             text=True,
             encoding="utf-8",

@@ -104,6 +104,17 @@ def test_wrong_fetched_ref_leaves_source_and_local_config_unchanged(tmp_path):
     assert before == ((target / 'pyproject.toml').read_bytes(), (target / '.git' / 'config').read_bytes())
 
 
+def test_staged_import_probe_never_imports_old_target(monkeypatch, tmp_path):
+    from clover_cli import _migration_target, update_cmd
+    target = tmp_path / 'target'
+    (target / 'clover_cli').mkdir(parents=True)
+    marker = tmp_path / 'old-product-fired'
+    (target / 'clover_cli' / '__init__.py').write_text(f"open({str(marker)!r}, 'w').write('fired')\n")
+    monkeypatch.setattr(_migration_target, '_target', target)
+    update_cmd._validate_critical_modules_import(target)
+    assert not marker.exists()
+
+
 def test_config_migration_waits_for_staged_fetch(monkeypatch, tmp_path):
     from clover_cli import _migration_target, config
     home = tmp_path / 'home'
