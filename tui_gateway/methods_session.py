@@ -380,6 +380,16 @@ def _(rid, params: dict) -> dict:
 
 @method("session.resume")
 def _(rid, params: dict) -> dict:
+    from tui_gateway.device_auth import (
+        DeviceAccessDenied, device_principal, ensure_session_owned,
+        profile_home as device_profile_home,
+    )
+
+    try:
+        principal = device_principal(current_transport())
+        expected_home = device_profile_home(principal) if principal is not None else None
+    except DeviceAccessDenied as exc:
+        return _err(rid, 4030, str(exc))
     target = params.get("session_id", "")
     if not target:
         return _err(rid, 4006, "session_id required")
@@ -390,7 +400,13 @@ def _(rid, params: dict) -> dict:
     # ``profile`` (app-global remote mode): resume a session that lives in another
     # local profile's state.db. None/own profile → the launch profile (unchanged).
     profile = (params.get("profile") or "").strip() or None
+    if principal is not None:
+        profile = principal.profile
     profile_home = _profile_home(profile)
+    if principal is not None and (profile_home is None or Path(profile_home).resolve() != expected_home):
+        if Path(_clover_home).resolve() != expected_home:
+            return _err(rid, 4030, "device profile unavailable")
+        profile_home = None
     defer_history = is_truthy_value(params.get("defer_history", False))
     # Desktop hydrates persisted transcripts through the authenticated REST
     # route in parallel. Suppress the duplicate WebSocket transcript only when
@@ -449,7 +465,11 @@ def _(rid, params: dict) -> dict:
                     for live_sid, record in list(_sessions.items()):
                         if not isinstance(record, dict):
                             continue
-                        if (record.get("profile_home") or None) != want_home:
+                        if principal is not None:
+                            record_home = record.get("profile_home") or _clover_home
+                            if Path(record_home).resolve() != expected_home:
+                                continue
+                        elif (record.get("profile_home") or None) != want_home:
                             continue
                         if (
                             str(record.get("session_key") or "") == needle
@@ -461,6 +481,10 @@ def _(rid, params: dict) -> dict:
                 live_sid = _find_live_unpersisted(target, profile_home)
                 live = _sessions.get(live_sid) if live_sid else None
                 if live is not None:
+                    try:
+                        ensure_session_owned(current_transport(), live, launch_home=_clover_home)
+                    except DeviceAccessDenied as exc:
+                        return _err(rid, 4030, str(exc))
                     if owns_db:
                         with contextlib.suppress(Exception):
                             db.close()
@@ -510,7 +534,7 @@ def _(rid, params: dict) -> dict:
                 # profile's db, then retry the lookup. Only profile-scoped
                 # resumes reach here (owns_db); unknown ids in the default
                 # store still 4007 exactly as before.
-                if owns_db:
+                if owns_db and principal is None:
                     try:
                         default_db = _get_db()
                         # Exact-id match ONLY. Title lookup (get_session_by_title)
@@ -641,6 +665,10 @@ def _(rid, params: dict) -> dict:
             # Keeping the client-gone check and transport rebind in one critical
             # section makes grace expiry atomic across every reuse path.
             with _session_resume_lock:
+                try:
+                    ensure_session_owned(current_transport(), session, launch_home=_clover_home)
+                except DeviceAccessDenied as exc:
+                    return _err(rid, 4030, str(exc))
                 if _sessions.get(sid) is not session:
                     return _err(rid, 4007, "session no longer live; retry resume")
                 if session.get("_client_gone_interrupt_requested"):
