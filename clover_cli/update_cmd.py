@@ -4368,6 +4368,8 @@ def _repair_node_deps_on_current_checkout(
         print_completion(
             "⚠ Checkout is current, but Node.js dependencies could not be repaired."
         )
+        if gateway_mode:
+            _write_gateway_update_exit_code(False)
         return False
     # Pair the refresh with the web build like every other
     # _update_node_dependencies call site; it staleness-checks internally,
