@@ -12,6 +12,13 @@ def capture(port=18791, runner=subprocess.run):
             out = p.stdout
             if cmd[0] == 'netstat':
                 out = '\n'.join(line for line in out.splitlines() if f'.{port}' in line or f':{port}' in line)
+            elif cmd[0] == 'ps':
+                # Filter before applying the output cap: system processes on
+                # hosted macOS can otherwise hide all fixture process IDs.
+                lines = out.splitlines()
+                terms = ('native-mac-upgrade-', 'npm', 'node', 'electron', 'clover')
+                out = '\n'.join(lines[:1] + [line for line in lines[1:]
+                                              if any(term in line.lower() for term in terms)])
             result['commands'].append({'argv': cmd, 'rc': p.returncode, 'out': out[:30000], 'err': p.stderr[:1000]})
         except (OSError, subprocess.TimeoutExpired) as e:
             result['commands'].append({'argv': cmd, 'error': str(e)})
