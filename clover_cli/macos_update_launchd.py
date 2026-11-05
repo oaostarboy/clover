@@ -164,6 +164,91 @@ def _verify_plist(service):
         raise LifecycleRefused('Service installation or profile is unknown')
 
 
+def _loaded_wrapper_attested(service, expected, supervisor_pid):
+    """Check only immediate launchctl fields, never nested endpoint fields."""
+    if service.domain not in (f'gui/{os.getuid()}', f'user/{os.getuid()}'):
+        return False
+    result = _launchctl('print', f'{service.domain}/{service.label}')
+    if result.returncode:
+        return False
+    lines = result.stdout.splitlines()
+    if not lines or not lines[0].rstrip().endswith(' = {'):
+        return False
+    fields, arguments = {}, []
+    depth = 1
+    in_arguments = False
+    for line in lines[1:]:
+        text = line.strip()
+        if text == '}':
+            if depth == 2 and in_arguments:
+                in_arguments = False
+            depth -= 1
+            if depth < 0:
+                return False
+            continue
+        if depth == 1:
+            match = re.fullmatch(r'(path|program|pid) = (.*)', text)
+            if match:
+                key, value = match.groups()
+                if key in fields:
+                    return False
+                fields[key] = value
+            elif text == 'arguments = {':
+                if 'arguments' in fields:
+                    return False
+                fields['arguments'] = True
+                in_arguments = True
+                depth += 1
+                continue
+        elif depth == 2 and in_arguments:
+            arguments.append(text)
+            continue
+        if text.endswith(' = {'):
+            depth += 1
+    return (depth == 0 and fields.get('path') == str(service.plist)
+            and fields.get('pid') == str(supervisor_pid)
+            and fields.get('program') == expected[0]
+            and arguments == list(expected))
+
+
+def _framework_alias_attested(service, supervisor, child, wrapper, inner):
+    import psutil
+    if sys.platform != 'darwin' or wrapper == inner or child.ppid != supervisor.pid or supervisor.ppid != 1:
+        return False
+    try:
+        interpreter = Path(wrapper[0])
+        venv = interpreter.parent.parent
+        if not interpreter.is_absolute() or not (venv / 'pyvenv.cfg').is_file():
+            return False
+        resolved = interpreter.resolve(strict=True)
+        if resolved.parent.name != 'bin' or resolved.parent.parent.parent.name != 'Versions' or resolved.parent.parent.parent.parent.name != 'Python.framework' or not resolved.name.startswith('python'):
+            return False
+        alias = resolved.parent.parent / 'Resources/Python.app/Contents/MacOS/Python'
+        if not alias.is_file():
+            return False
+        for process, expected in ((supervisor, wrapper), (child, inner)):
+            if (not process.argv or process.argv[0] not in (str(interpreter), str(alias))
+                    or process.argv[1:] != expected[1:]
+                    or (process.env and 'VIRTUAL_ENV' in process.env
+                        and Path(process.env['VIRTUAL_ENV']).resolve() != venv.resolve())):
+                return False
+        import psutil
+        from gateway.status import get_process_start_time
+        def live():
+            for process in (supervisor, child):
+                p = psutil.Process(process.pid)
+                uids = p.uids()
+                if ((uids.real, uids.effective, uids.saved) != (os.getuid(),) * 3
+                        or p.ppid() != process.ppid
+                        or get_process_start_time(process.pid) != process.birth
+                        or not os.path.samefile(alias, p.exe())):
+                    return False
+            return True
+        return live() and _loaded_wrapper_attested(service, wrapper, supervisor.pid) and live()
+    except (OSError, ValueError, AttributeError, psutil.Error):
+        return False
+
+
 def _verify_owner(service, pid, birth, table):
     p = table.get(pid)
     if not p or p.birth != birth or pid in _protected_pids(table):
@@ -173,12 +258,14 @@ def _verify_owner(service, pid, birth, table):
     supervisor_pid = service.supervisor_pid if service.supervisor_pid is not None else pid
     supervisor_birth = service.supervisor_birth if service.supervisor_pid is not None else birth
     supervisor = table.get(supervisor_pid)
+    aliases = bool(supervisor and (supervisor.argv != expected_wrapper or p.argv != expected_inner)
+                   and _framework_alias_attested(service, supervisor, p, expected_wrapper, expected_inner))
     if (not supervisor or supervisor.birth != supervisor_birth
             or supervisor_pid in _protected_pids(table)
-            or supervisor.argv != expected_wrapper or supervisor.cwd != cwd
+            or (supervisor.argv != expected_wrapper and not aliases) or supervisor.cwd != cwd
             or not supervisor.env or Path(supervisor.env.get('CLOVER_HOME', '/')).resolve() != service.home):
         raise LifecycleRefused('Supervisor ownership is unknown')
-    if (p.cwd != cwd or p.argv != expected_inner
+    if (p.cwd != cwd or (p.argv != expected_inner and not aliases)
             or pid not in _collect_children(table, {supervisor_pid})
             or (expected_wrapper != expected_inner and pid == supervisor_pid)
             or not p.env or Path(p.env.get('CLOVER_HOME', '/')).resolve() != service.home):
