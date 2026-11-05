@@ -15795,6 +15795,10 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
 
         try:
             info = consume_ticket(ticket)
+            # Fail closed until scoped device authorization is wired through
+            # each RPC and live event; a mobile ticket is never an owner ticket.
+            if info.get("device_principal") is not None or info.get("provider") == "mobile-device":
+                return "ticket_invalid", "ticket"
             # The ticket binds a server-minted {user_id, provider}; stamp it
             # onto the WS object so ``gateway_ws`` can hand it to the gateway
             # transport, where it is the sole identity authority for

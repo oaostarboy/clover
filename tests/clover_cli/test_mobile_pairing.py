@@ -151,7 +151,9 @@ async def test_gateway_accepts_master_and_device_token_but_not_revoked(isolated_
     try:
         h = lambda t: {"Authorization": f"Bearer {t}"}
         assert (await client.get("/v1/models", headers=h(KEY))).status == 200
-        assert (await client.get("/v1/models", headers=h(res["token"]))).status == 200
+        # The iOS client does not use this API-models endpoint; paired-device
+        # credentials are limited to the observed session-history routes.
+        assert (await client.get("/v1/models", headers=h(res["token"]))).status == 401
         assert (await client.get("/v1/models", headers=h("nope"))).status == 401
         # SSE route rejects before streaming when the token is bad.
         assert (await client.post("/api/sessions/s1/chat/stream", headers=h("nope"), json={})).status == 401

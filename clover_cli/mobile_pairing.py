@@ -17,7 +17,10 @@ import hmac
 import json
 import os
 import secrets
+import sqlite3
 import threading
+from contextlib import contextmanager
+from dataclasses import dataclass
 import time
 import uuid
 from pathlib import Path
@@ -46,6 +49,7 @@ def strict_https_origin(value: Any) -> Optional[str]:
 
 
 UNUSED_CODE_TTL_SECONDS = 10 * 60
+ACTIVE_TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60
 LAST_SEEN_THROTTLE_SECONDS = 60
 TOKEN_PREFIX = "cdt_"
 MAX_NAME_LEN = 60
@@ -53,6 +57,17 @@ MAX_NAME_LEN = 60
 
 def _hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+DEVICE_CAPABILITIES = frozenset({"chat", "history", "media", "model_selection"})
+
+
+@dataclass(frozen=True)
+class DevicePrincipal:
+    device_id: str
+    profile: str
+    expires_at: float
+    capabilities: frozenset[str]
 
 
 class DeviceStore:
@@ -68,6 +83,26 @@ class DeviceStore:
         self._lock = threading.Lock()
         self._cache: Optional[List[Dict[str, Any]]] = None
         self._mtime: Optional[float] = None
+
+    @contextmanager
+    def _transaction(self):
+        # SQLite's write lock serializes the complete read/modify/atomic-replace
+        # transaction across processes, not merely across DeviceStore instances.
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self.path.with_suffix(self.path.suffix + ".lock.sqlite3")
+        with self._lock:
+            connection = sqlite3.connect(str(lock_path), timeout=30)
+            try:
+                os.chmod(lock_path, 0o600)
+                connection.execute("BEGIN IMMEDIATE")
+                self._cache = None
+                yield
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+            finally:
+                connection.close()
 
     def _load(self) -> List[Dict[str, Any]]:
         try:
@@ -93,17 +128,21 @@ class DeviceStore:
         self._mtime = self.path.stat().st_mtime_ns
 
     def _expired(self, d: Dict[str, Any], now: float) -> bool:
-        return d.get("last_seen_at") is None and now - float(d.get("created_at", 0)) > UNUSED_CODE_TTL_SECONDS
+        return (now - float(d.get("created_at", 0)) >= ACTIVE_TOKEN_TTL_SECONDS
+                or (d.get("last_seen_at") is None and now - float(d.get("created_at", 0)) > UNUSED_CODE_TTL_SECONDS))
 
     def _active(self, d: Dict[str, Any], now: float) -> bool:
         return not d.get("revoked") and not self._expired(d, now)
 
     def create(self, name: str = "iPhone") -> Dict[str, Any]:
         """Create a device; returns the public record plus the one-time plaintext ``token``."""
+        from clover_cli.profiles import get_active_profile_name
+
         token = TOKEN_PREFIX + secrets.token_urlsafe(32)
         now = self._clock()
         name = (name or "").strip()[:MAX_NAME_LEN] or "iPhone"
         rec = {
+            "profile": get_active_profile_name(),
             "id": uuid.uuid4().hex[:12],
             "name": name,
             "created_at": now,
@@ -111,7 +150,7 @@ class DeviceStore:
             "token_hash": _hash(token),
             "revoked": False,
         }
-        with self._lock:
+        with self._transaction():
             devices = list(self._load())
             # Drop dead entries (revoked / never-used expired) so the file stays small.
             devices = [d for d in devices if self._active(d, now)]
@@ -130,11 +169,11 @@ class DeviceStore:
 
     def list(self) -> List[Dict[str, Any]]:
         now = self._clock()
-        with self._lock:
+        with self._transaction():
             return [self.public(d, now) for d in self._load() if self._active(d, now)]
 
     def revoke(self, device_id: str) -> bool:
-        with self._lock:
+        with self._transaction():
             devices = list(self._load())
             kept = [d for d in devices if d.get("id") != device_id]
             if len(kept) == len(devices):
@@ -143,28 +182,45 @@ class DeviceStore:
             return True
 
     def verify(self, token: str) -> bool:
-        """True if ``token`` belongs to an active device; stamps last_seen (throttled)."""
+        return self.authenticate(token) is not None
+
+    def authenticate(self, token: str) -> Optional[DevicePrincipal]:
+        """Resolve a credential to a scoped principal without retaining the secret."""
         if not token or not token.startswith(TOKEN_PREFIX):
-            return False
+            return None
         digest = _hash(token)
         now = self._clock()
-        with self._lock:
+        with self._transaction():
             devices = self._load()
             match = None
             for d in devices:
-                # Compare every entry so timing does not reveal which one matched.
                 if hmac.compare_digest(str(d.get("token_hash", "")), digest) and self._active(d, now):
                     match = d
-            if match is None:
-                return False
+            # Legacy unscoped tokens cannot safely acquire inferred authority.
+            if match is None or not isinstance(match.get("profile"), str):
+                return None
             last = match.get("last_seen_at")
             if last is None or now - float(last) >= LAST_SEEN_THROTTLE_SECONDS:
                 match["last_seen_at"] = now
-                try:
-                    self._save(list(devices))
-                except OSError:
-                    pass
-            return True
+                self._save(list(devices))
+            return DevicePrincipal(match["id"], match["profile"],
+                                   float(match["created_at"]) + ACTIVE_TOKEN_TTL_SECONDS,
+                                   DEVICE_CAPABILITIES)
+
+    def principal_is_active(self, principal: DevicePrincipal) -> bool:
+        """Revalidate against persisted state on every authorized operation."""
+        if not isinstance(principal, DevicePrincipal):
+            return False
+        now = self._clock()
+        with self._transaction():
+            return any(
+                d.get("id") == principal.device_id
+                and d.get("profile") == principal.profile
+                and float(d.get("created_at", 0)) + ACTIVE_TOKEN_TTL_SECONDS == principal.expires_at
+                and principal.capabilities == DEVICE_CAPABILITIES
+                and self._active(d, now)
+                for d in self._load()
+            )
 
 
 _default_store: Optional[DeviceStore] = None
