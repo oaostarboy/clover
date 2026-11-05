@@ -1,8 +1,7 @@
 name: Candidate native held-turn update acceptance
 on:
   push:
-    branches: [ci/native-inflight-helper-final-8b02bff8]
-    paths: ['.github/native-proof/INFLIGHT_RUN_TRIGGER']
+    branches: [ci/windows-repair-inflight-ce418d93]
   workflow_dispatch:
     inputs:
       old_ref:
@@ -16,15 +15,15 @@ concurrency:
   group: candidate-inflight-${{ github.run_id }}
   cancel-in-progress: false
 env:
-  TARGET_REF: 8b02bff8c02c79bf177b9b3c07a382afef16a935
-  TARGET_TREE: c70c414514a3ce155a090d3baf22d2e396f0e66b
+  TARGET_REF: ce418d930a933b8ce19ea633b33031751b6e049a
+  TARGET_TREE: eba59422b21386d6b811885a7aad8647de4ef3b0
 jobs:
   native:
     name: ${{ matrix.os }} / ${{ matrix.base }} / ${{ matrix.entry }} / held-turn local IRC
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-2025]
+        os: [windows-2025]
         base: ${{ fromJSON(inputs.old_ref == 'v1.5.6' && '["v1.5.6"]' || inputs.old_ref == 'latest' && '["latest"]' || '["v1.5.6","latest"]') }}
         entry: [terminal, gateway]
     runs-on: ${{ matrix.os }}
