@@ -366,6 +366,11 @@ def main(a):
             health_watch = subprocess.Popen([str(live_python), str(HELPERS/'legacy156_large_state.py'),
                 'watch', '--home',str(home),'--evidence',str(evidence),'--target',a.target],
                 env=env,stdout=health_log,stderr=subprocess.STDOUT)
+        boundary_stop = evidence / 'socket-boundary.stop'
+        boundary = subprocess.Popen([sys.executable, str(HELPERS / 'socket_boundary.py'),
+            str(evidence / 'socket-boundary.jsonl'), str(boundary_stop)])
+        wait_for(lambda: (evidence / 'socket-boundary.jsonl').exists() and
+                 (evidence / 'socket-boundary.jsonl').stat().st_size > 0, 30)
         update = None
         update_log = (evidence / 'terminal-update.log').open('w')
         if a.entry == 'terminal':
@@ -496,6 +501,13 @@ def main(a):
             rollback='frozen-156-fault-stop-passed' if large_lane else 'covered-by-platform-large-lane',
             large_state_measured=large_lane, final_source_after_fault_injection=a.old if large_lane else a.target))
     finally:
+        if 'boundary' in locals():
+            boundary_stop.touch()
+            try:
+                boundary.wait(timeout=25)
+            except subprocess.TimeoutExpired:
+                boundary.terminate()
+                boundary.wait(timeout=10)
         if health_watch is not None and health_watch.poll() is None:
             health_watch.terminate()
         provider.release.set()
