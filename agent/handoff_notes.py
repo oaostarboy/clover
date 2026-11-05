@@ -386,7 +386,10 @@ def write_notes(delegation_id: str, text: str) -> Optional[Path]:
         fd, tmp = tempfile.mkstemp(prefix=f".{delegation_id}.", suffix=".tmp", dir=str(directory))
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                os.fchmod(handle.fileno(), 0o600)
+                # Windows uses the inherited directory ACL; chmod cannot set it.
+                # On POSIX keep the descriptor-based permission enforcement.
+                if os.name != "nt":
+                    os.fchmod(handle.fileno(), 0o600)
                 handle.write(body)
             os.replace(tmp, target)
         except BaseException:
@@ -776,7 +779,10 @@ def attach_known(path: Any, bullets: Sequence[str]) -> bool:
         fd, tmp = tempfile.mkstemp(prefix=".known.", suffix=".tmp", dir=str(target.parent))
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                os.fchmod(handle.fileno(), 0o600)
+                # Windows uses the inherited directory ACL; chmod cannot set it.
+                # On POSIX keep the descriptor-based permission enforcement.
+                if os.name != "nt":
+                    os.fchmod(handle.fileno(), 0o600)
                 handle.write(body)
             os.replace(tmp, target)
         except BaseException:
