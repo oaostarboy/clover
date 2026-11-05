@@ -65,7 +65,7 @@ def suite_command(repo, file, expression, xml):
     if expression:
         command += ['-k', expression]
     if file == SUITES['report-only'][0]:
-        command += ['-vv', '-o', 'faulthandler_timeout=30']
+        command += ['-vv', '-o', 'faulthandler_timeout=0', '-p', 'report_diag_plugin']
     return command
 
 
@@ -179,6 +179,18 @@ def main():
     fixture.write_bytes(original.replace(needle, replacement))
     (args.evidence / 'report-fixture-original.py').write_bytes(original)
     (args.evidence / 'report-fixture-overlay.py').write_bytes(fixture.read_bytes())
+    # Each child writes its own timed Python stacks directly to evidence;
+    # the canonical per-file runner otherwise buffers its stdout until exit.
+    plugin = args.repo / 'report_diag_plugin.py'
+    destination = str(args.evidence.resolve())
+    plugin.write_text(
+        'import faulthandler, os\n'
+        '_stream = open(os.path.join(' + repr(destination) + ', "child-stacks-%s.log" % os.getpid()), "w")\n'
+        'def pytest_configure(config):\n'
+        '    faulthandler.dump_traceback_later(30, repeat=True, file=_stream)\n'
+        'def pytest_unconfigure(config):\n'
+        '    faulthandler.cancel_dump_traceback_later()\n'
+        '    _stream.close()\n', encoding='utf-8')
     suites = {'report-only': SUITES['report-only']}
     results = []
     failed = False
@@ -208,6 +220,7 @@ def main():
         (args.evidence / 'native-suites.json').write_text(json.dumps(results, indent=2))
         print(json.dumps(result), flush=True)
     fixture.write_bytes(original)
+    plugin.unlink(missing_ok=True)
     raise SystemExit(1 if failed else 0)
 
 
