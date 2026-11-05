@@ -6228,6 +6228,22 @@ def _run_npm_install_deterministic(
     self-reinforcing cycle where web devDeps never install and a stale dist
     is served on every update (PR #65595).
     """
+    from clover_cli.node_workspace import npm_workspace_lock
+
+    with npm_workspace_lock(cwd):
+        return _run_npm_install_deterministic_unlocked(
+            npm, cwd, extra_args=extra_args, capture_output=capture_output, env=env
+        )
+
+
+def _run_npm_install_deterministic_unlocked(
+    npm: str,
+    cwd: Path,
+    *,
+    extra_args: tuple[str, ...] = (),
+    capture_output: bool = True,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
     # unicode-animations' postinstall animates to /dev/tty (bypasses
     # --silent/capture_output). It no-ops when CI is set — same as the TUI
     # install path and nix/lib.nix npm ci hooks.

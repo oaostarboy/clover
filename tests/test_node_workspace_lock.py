@@ -1,0 +1,63 @@
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+import pytest
+
+from clover_cli import node_workspace as nw
+
+
+def test_scope_and_reentrancy(tmp_path):
+    (tmp_path / '.git').mkdir()
+    (tmp_path / 'package.json').write_text('{}')
+    child = tmp_path / 'web'
+    child.mkdir()
+    (child / 'package.json').write_text('{}')
+    assert nw.workspace_root(child) == tmp_path
+    with nw.npm_workspace_lock(tmp_path):
+        with nw.npm_workspace_lock(child, timeout=.1):
+            pass
+
+
+def test_unsupported_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.setattr(nw, 'fcntl', None)
+    monkeypatch.setattr(nw, 'msvcrt', None)
+    with pytest.raises(RuntimeError):
+        with nw.npm_workspace_lock(tmp_path):
+            pytest.fail('entered without a lock')
+
+
+def test_process_timeout_independence_and_crash_release(tmp_path):
+    first = tmp_path / 'first'
+    second = tmp_path / 'second'
+    first.mkdir()
+    second.mkdir()
+    (first / '.git').mkdir()
+    (second / '.git').mkdir()
+    ready = tmp_path / 'ready'
+    code = 'from clover_cli.node_workspace import npm_workspace_lock; from pathlib import Path; import sys,time;\nwith npm_workspace_lock(Path(sys.argv[1])):\n Path(sys.argv[2]).touch(); time.sleep(60)'
+    proc = subprocess.Popen([sys.executable, '-c', code, str(first), str(ready)])
+    try:
+        deadline = time.monotonic() + 20
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        assert ready.exists()
+        marker = first / 'marker'
+        with pytest.raises(TimeoutError):
+            with nw.npm_workspace_lock(first, timeout=.2):
+                marker.touch()
+        assert not marker.exists()
+        with nw.npm_workspace_lock(second, timeout=.2):
+            pass
+    finally:
+        proc.kill()
+        proc.wait(timeout=10)
+    with nw.npm_workspace_lock(first, timeout=1):
+        pass
+    with pytest.raises(ValueError):
+        with nw.npm_workspace_lock(first):
+            raise ValueError()
+    with nw.npm_workspace_lock(first, timeout=1):
+        pass
