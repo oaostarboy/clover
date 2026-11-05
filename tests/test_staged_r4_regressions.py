@@ -104,6 +104,21 @@ def test_wrong_fetched_ref_leaves_source_and_local_config_unchanged(tmp_path):
     assert before == ((target / 'pyproject.toml').read_bytes(), (target / '.git' / 'config').read_bytes())
 
 
+def test_config_migration_waits_for_staged_fetch(monkeypatch, tmp_path):
+    from clover_cli import _migration_target, config
+    home = tmp_path / 'home'
+    home.mkdir()
+    path = home / 'config.yaml'
+    original = b'display:\n  skin: default\n'
+    path.write_bytes(original)
+    monkeypatch.setenv('CLOVER_HOME', str(home))
+    monkeypatch.setattr(_migration_target, '_target', tmp_path)
+    monkeypatch.setattr(_migration_target, '_identities', ('stage', 'target', 'new', 'old'))
+    monkeypatch.setattr(_migration_target, '_prepared_commit', None)
+    config.load_config()
+    assert path.read_bytes() == original
+
+
 def test_fleet_plan_uses_bound_installation_identity(monkeypatch, tmp_path):
     from clover_cli import _migration_target, update_inventory
     target = tmp_path / 'target'

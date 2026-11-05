@@ -3889,6 +3889,9 @@ def _load_config_impl(*, want_deepcopy: bool, migrate: bool = True) -> Dict[str,
     # One cheap stat per load; rerun the ladder only when this profile's file
     # changes. The guard prevents migrations that themselves read config from
     # recursing into the startup check.
+    from clover_cli._migration_target import staged_preparation_pending
+    if staged_preparation_pending():
+        migrate = False
     path = get_config_path()
     try:
         st = path.stat()

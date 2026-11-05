@@ -73,6 +73,11 @@ def prepare_staged_fetch(branch):
     return _prepared_commit
 
 
+def staged_preparation_pending():
+    """True while a bound staged invocation has not validated its fetched tip."""
+    return _identities is not None and _prepared_commit is None
+
+
 def prepared_staged_commit():
     if _identities is None:
         return None
