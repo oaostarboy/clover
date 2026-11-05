@@ -1,0 +1,26 @@
+name: macOS exclusive socket lifecycle probe
+on:
+  workflow_dispatch:
+  push:
+    branches: [ci/macos-exclusive-socket-lane-m-20261105]
+    paths: [.github/native-proof/macos_exclusive_socket_probe.py, .github/workflows/macos-exclusive-socket-probe.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'aiohttp==3.12.15'
+      - name: Probe exclusive listener and immediate restart
+        run: python .github/native-proof/macos_exclusive_socket_probe.py | tee socket-probe.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-exclusive-socket-probe
+          path: socket-probe.json
+          if-no-files-found: warn
