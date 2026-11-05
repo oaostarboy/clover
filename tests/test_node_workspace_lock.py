@@ -29,6 +29,27 @@ def test_unsupported_fails_closed(tmp_path, monkeypatch):
             pytest.fail('entered without a lock')
 
 
+def test_unlock_failure_closes_descriptor_and_clears_registry(tmp_path, monkeypatch):
+    if nw.fcntl is None:
+        pytest.skip('POSIX flock fault injection')
+    real_flock = nw.fcntl.flock
+    captured = []
+
+    def broken_unlock(fd, operation):
+        if operation == nw.fcntl.LOCK_UN:
+            captured.append(fd)
+            raise OSError('injected unlock failure')
+        return real_flock(fd, operation)
+
+    monkeypatch.setattr(nw.fcntl, 'flock', broken_unlock)
+    with pytest.raises(OSError, match='injected unlock failure'):
+        with nw.npm_workspace_lock(tmp_path):
+            pass
+    assert 'fd' not in nw._registry[nw.workspace_root(tmp_path)]
+    with pytest.raises(OSError):
+        os.fstat(captured[0])
+
+
 def test_process_timeout_independence_and_crash_release(tmp_path):
     first = tmp_path / 'first'
     second = tmp_path / 'second'

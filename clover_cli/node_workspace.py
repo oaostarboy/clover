@@ -115,13 +115,15 @@ def npm_workspace_lock(cwd, timeout=600):
             finally:
                 state['depth'] = 0
         finally:
-            if acquired:
-                if fcntl is not None:
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-                else:
-                    os.lseek(fd, 0, os.SEEK_SET)
-                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-            state.pop('fd', None)
-            os.close(fd)
+            try:
+                if acquired:
+                    if fcntl is not None:
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                    else:
+                        os.lseek(fd, 0, os.SEEK_SET)
+                        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            finally:
+                state.pop('fd', None)
+                os.close(fd)
     finally:
         state['lock'].release()

@@ -2588,152 +2588,155 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
     #    Existing desktop behaviour runs npm from the workspace root.  Termux
     #    scopes the install to ui-tui so launch does not pull desktop/web
     #    dependencies into the hot path.
-    did_install = False
-    termux_startup = _is_termux_startup_environment()
-    termux_need_rebuild = False
-    if termux_startup and not tui_dev:
-        termux_need_rebuild = _tui_need_rebuild(tui_dir)
+    from clover_cli.node_workspace import npm_workspace_lock
 
-    skip_install_for_fresh_termux_bundle = (
-        termux_startup and not tui_dev and not termux_need_rebuild
-    )
-    if (
-        not skip_install_for_fresh_termux_bundle
-        and _tui_need_npm_install(tui_dir)
-    ):
-        npm = _node_bin("npm")
-        if not os.environ.get("CLOVER_QUIET"):
-            print("Installing TUI dependencies…")
-        npm_cwd = _workspace_root(tui_dir)
-        # --workspace ui-tui avoids resolving apps/desktop (Electron + node-pty).
-        # See #38772.
-        # When ui-tui/ has its own package-lock.json (e.g. curl install),
-        # _workspace_root() returns tui_dir itself.  Passing --workspace in
-        # that case fails because npm cannot find a workspace named "ui-tui"
-        # inside ui-tui/.  See #42973.
-        npm_workspace_args: tuple[str, ...] = () if npm_cwd == tui_dir else ("--workspace", "ui-tui")
-        if termux_startup:
-            npm_cwd, npm_workspace_args = _termux_workspace_install_context(
-                tui_dir,
-                include_child_workspaces=True,
-            )
-        npm_install_cmd = [
-            npm,
-            "install",
-            *npm_workspace_args,
-            # --include=dev: ui-tui's build toolchain (esbuild, typescript)
-            # lives in devDependencies. An inherited NODE_ENV=production
-            # (e.g. from a container shell or a parent TUI launch) or an
-            # npm `omit=dev` config would silently skip them and the TUI
-            # build would fail. See _run_npm_install_deterministic.
-            "--include=dev",
-            "--silent",
-            "--no-fund",
-            "--no-audit",
-            "--progress=false",
-        ]
+    with npm_workspace_lock(tui_dir):
+        did_install = False
+        termux_startup = _is_termux_startup_environment()
+        termux_need_rebuild = False
+        if termux_startup and not tui_dev:
+            termux_need_rebuild = _tui_need_rebuild(tui_dir)
 
-        def _run_tui_install() -> subprocess.CompletedProcess:
-            from clover_constants import with_clover_node_path
+        skip_install_for_fresh_termux_bundle = (
+            termux_startup and not tui_dev and not termux_need_rebuild
+        )
+        if (
+            not skip_install_for_fresh_termux_bundle
+            and _tui_need_npm_install(tui_dir)
+        ):
+            npm = _node_bin("npm")
+            if not os.environ.get("CLOVER_QUIET"):
+                print("Installing TUI dependencies…")
+            npm_cwd = _workspace_root(tui_dir)
+            # --workspace ui-tui avoids resolving apps/desktop (Electron + node-pty).
+            # See #38772.
+            # When ui-tui/ has its own package-lock.json (e.g. curl install),
+            # _workspace_root() returns tui_dir itself.  Passing --workspace in
+            # that case fails because npm cannot find a workspace named "ui-tui"
+            # inside ui-tui/.  See #42973.
+            npm_workspace_args: tuple[str, ...] = () if npm_cwd == tui_dir else ("--workspace", "ui-tui")
+            if termux_startup:
+                npm_cwd, npm_workspace_args = _termux_workspace_install_context(
+                    tui_dir,
+                    include_child_workspaces=True,
+                )
+            npm_install_cmd = [
+                npm,
+                "install",
+                *npm_workspace_args,
+                # --include=dev: ui-tui's build toolchain (esbuild, typescript)
+                # lives in devDependencies. An inherited NODE_ENV=production
+                # (e.g. from a container shell or a parent TUI launch) or an
+                # npm `omit=dev` config would silently skip them and the TUI
+                # build would fail. See _run_npm_install_deterministic.
+                "--include=dev",
+                "--silent",
+                "--no-fund",
+                "--no-audit",
+                "--progress=false",
+            ]
 
-            # Managed tree first on PATH: if the EBADENGINE repair below
-            # provisioned a managed Node, npm's shebang/lifecycle scripts must
-            # resolve that node, not the mismatched system one.
-            return subprocess.run(
-                npm_install_cmd,
-                cwd=str(npm_cwd),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+            def _run_tui_install() -> subprocess.CompletedProcess:
+                from clover_constants import with_clover_node_path
+
+                # Managed tree first on PATH: if the EBADENGINE repair below
+                # provisioned a managed Node, npm's shebang/lifecycle scripts must
+                # resolve that node, not the mismatched system one.
+                return subprocess.run(
+                    npm_install_cmd,
+                    cwd=str(npm_cwd),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    env=_npm_lifecycle_env(with_clover_node_path()),
+                    stdin=subprocess.DEVNULL,
+                )
+
+            result = _run_tui_install()
+            if result.returncode != 0:
+                # An npm outside the root package.json's `engines.npm` range fails
+                # here before doing any work; repair once (upgrade a Clover-managed
+                # npm in place, or provision a managed runtime when the npm belongs
+                # to the user) and retry rather than dumping EBADENGINE at the user.
+                from clover_cli.npm_engine import maybe_repair_npm_engine
+
+                combined_output = f"{result.stdout or ''}\n{result.stderr or ''}"
+                repaired_npm = maybe_repair_npm_engine(npm, combined_output)
+                if repaired_npm:
+                    npm = repaired_npm
+                    npm_install_cmd[0] = repaired_npm
+                    result = _run_tui_install()
+            if result.returncode != 0:
+                combined = f"{result.stdout or ''}\n{result.stderr or ''}".strip()
+                preview = "\n".join(combined.splitlines()[-30:])
+                print("npm install failed.")
+                if preview:
+                    print(preview)
+                sys.exit(1)
+            did_install = True
+
+        if tui_dev:
+            # Keep the local @clover/ink package exports in sync with source.
+            # --dev runs src/entry.tsx directly, but @clover/ink resolves through
+            # packages/clover-ink/dist/entry-exports.js. If that dist bundle is
+            # stale after a pull, newer hooks/components can exist in src while
+            # being missing at runtime (e.g. useCursorAdvance). Prebuild it here.
+            npm = _node_bin("npm")
+            ink_dir = tui_dir / "packages" / "clover-ink"
+            result = subprocess.run(
+                [npm, "run", "build"],
+                cwd=str(ink_dir),
+                capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                env=_npm_lifecycle_env(with_clover_node_path()),
+                env=_npm_lifecycle_env(),
                 stdin=subprocess.DEVNULL,
             )
+            if result.returncode != 0:
+                combined = f"{result.stdout or ''}{result.stderr or ''}".strip()
+                preview = "\n".join(combined.splitlines()[-30:])
+                print("TUI dev prebuild failed.")
+                if preview:
+                    print(preview)
+                sys.exit(1)
 
-        result = _run_tui_install()
-        if result.returncode != 0:
-            # An npm outside the root package.json's `engines.npm` range fails
-            # here before doing any work; repair once (upgrade a Clover-managed
-            # npm in place, or provision a managed runtime when the npm belongs
-            # to the user) and retry rather than dumping EBADENGINE at the user.
-            from clover_cli.npm_engine import maybe_repair_npm_engine
+            tsx = tui_dir / "node_modules" / ".bin" / "tsx"
+            if tsx.exists():
+                return [str(tsx), "src/entry.tsx"], tui_dir
+            return [npm, "start"], tui_dir
 
-            combined_output = f"{result.stdout or ''}\n{result.stderr or ''}"
-            repaired_npm = maybe_repair_npm_engine(npm, combined_output)
-            if repaired_npm:
-                npm = repaired_npm
-                npm_install_cmd[0] = repaired_npm
-                result = _run_tui_install()
-        if result.returncode != 0:
-            combined = f"{result.stdout or ''}\n{result.stderr or ''}".strip()
-            preview = "\n".join(combined.splitlines()[-30:])
-            print("npm install failed.")
-            if preview:
-                print(preview)
-            sys.exit(1)
-        did_install = True
+        # Desktop/dev launches retain the historical "always rebuild" behaviour.
+        # Termux cold starts use the freshness check because esbuild startup is
+        # expensive on old mobile CPUs.
+        should_build = True
+        if termux_startup:
+            should_build = did_install or termux_need_rebuild
 
-    if tui_dev:
-        # Keep the local @clover/ink package exports in sync with source.
-        # --dev runs src/entry.tsx directly, but @clover/ink resolves through
-        # packages/clover-ink/dist/entry-exports.js. If that dist bundle is
-        # stale after a pull, newer hooks/components can exist in src while
-        # being missing at runtime (e.g. useCursorAdvance). Prebuild it here.
-        npm = _node_bin("npm")
-        ink_dir = tui_dir / "packages" / "clover-ink"
-        result = subprocess.run(
-            [npm, "run", "build"],
-            cwd=str(ink_dir),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=_npm_lifecycle_env(),
-            stdin=subprocess.DEVNULL,
-        )
-        if result.returncode != 0:
-            combined = f"{result.stdout or ''}{result.stderr or ''}".strip()
-            preview = "\n".join(combined.splitlines()[-30:])
-            print("TUI dev prebuild failed.")
-            if preview:
-                print(preview)
-            sys.exit(1)
+        if should_build:
+            npm = _node_bin("npm")
+            result = subprocess.run(
+                [npm, "run", "build"],
+                cwd=str(tui_dir),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=_npm_lifecycle_env(),
+                stdin=subprocess.DEVNULL,
+            )
+            if result.returncode != 0:
+                combined = f"{result.stdout or ''}{result.stderr or ''}".strip()
+                preview = "\n".join(combined.splitlines()[-30:])
+                print("TUI build failed.")
+                if preview:
+                    print(preview)
+                sys.exit(1)
 
-        tsx = tui_dir / "node_modules" / ".bin" / "tsx"
-        if tsx.exists():
-            return [str(tsx), "src/entry.tsx"], tui_dir
-        return [npm, "start"], tui_dir
-
-    # Desktop/dev launches retain the historical "always rebuild" behaviour.
-    # Termux cold starts use the freshness check because esbuild startup is
-    # expensive on old mobile CPUs.
-    should_build = True
-    if termux_startup:
-        should_build = did_install or termux_need_rebuild
-
-    if should_build:
-        npm = _node_bin("npm")
-        result = subprocess.run(
-            [npm, "run", "build"],
-            cwd=str(tui_dir),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=_npm_lifecycle_env(),
-            stdin=subprocess.DEVNULL,
-        )
-        if result.returncode != 0:
-            combined = f"{result.stdout or ''}{result.stderr or ''}".strip()
-            preview = "\n".join(combined.splitlines()[-30:])
-            print("TUI build failed.")
-            if preview:
-                print(preview)
-            sys.exit(1)
-
-    node = _node_bin("node")
-    return [node, "--expose-gc", str(tui_dir / "dist" / "entry.js")], tui_dir
+        node = _node_bin("node")
+        return [node, "--expose-gc", str(tui_dir / "dist" / "entry.js")], tui_dir
 
 
 def _normalize_tui_toolsets(toolsets: object) -> list[str]:
@@ -6007,6 +6010,8 @@ def _compute_web_ui_content_hash(project_root: Path, web_dir: Path) -> str:
             if not spec.match_file(str((Path(dirpath) / d).relative_to(project_root)))
         ]
         for fn in sorted(filenames):
+            if fn == '.clover-npm-workspace.lock':
+                continue
             fp = Path(dirpath) / fn
             rel = str(fp.relative_to(project_root))
             if not spec.match_file(rel):
@@ -6426,6 +6431,17 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
 
 
 def _do_build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
+    # The outer web-build lock, when used, is always acquired first.  Keep the
+    # workspace lock through the freshness check, install, build, and stamp.
+    if not (web_dir / "package.json").exists():
+        return True
+    from clover_cli.node_workspace import npm_workspace_lock
+
+    with npm_workspace_lock(web_dir):
+        return _do_build_web_ui_locked(web_dir, fatal=fatal)
+
+
+def _do_build_web_ui_locked(web_dir: Path, *, fatal: bool = False) -> bool:
     """Build the web UI frontend if npm is available.
 
     Args:
@@ -6663,6 +6679,8 @@ def _compute_desktop_content_hash(project_root: Path) -> str:
         ]
 
         for fn in sorted(filenames):
+            if fn == '.clover-npm-workspace.lock':
+                continue
             fp = Path(dirpath) / fn
             rel = str(fp.relative_to(project_root))
             if not spec.match_file(rel):
@@ -8303,149 +8321,152 @@ def cmd_gui(args: argparse.Namespace):
             print(f"→ Skipping desktop package build (--skip-build); using {packaged_executable}")
     else:
         assert npm is not None
-        # Check the content-hash stamp before doing any build work.
-        # If the source tree hasn't changed since the last successful build,
-        # skip the npm install + build entirely (saves a ton of useless work).
-        # --force-build overrides the stamp and always rebuilds.
-        build_needed = force_build or _desktop_build_needed(
-            desktop_dir, PROJECT_ROOT, source_mode=source_mode
-        )
-        if not build_needed:
-            build_label = "source build" if source_mode else "packaged app"
-            print(f"✓ Desktop {build_label} is up to date (content stamp matches)")
-        else:
-            print("→ Installing desktop workspace dependencies...")
-            # Put the Clover-managed Node on PATH so npm's child scripts (which
-            # shell out to bare `node`, e.g. electron-winstaller's
-            # select-7z-arch.js) resolve it even when the parent PATH is
-            # stripped — the desktop updater chain (Desktop → clover-setup →
-            # clover update) loses shell PATH customizations. Wrapping the
-            # NixOS build env keeps its PYTHON hint while restoring managed Node
-            # ahead of a bare PATH (same idiom as the `clover update` path).
-            nixos_env = with_clover_node_path(_nixos_build_env())
-            install_result = _run_npm_install_deterministic(npm, PROJECT_ROOT, capture_output=False, env=nixos_env)
-            if install_result.returncode != 0:
-                if not _electron_pkg_staged_missing_dist(PROJECT_ROOT):
-                    print("✗ Desktop dependency install failed")
-                    print(f"  Run manually:  cd {PROJECT_ROOT} && npm ci")
-                    sys.exit(install_result.returncode or 1)
-                repaired = _try_redownload_electron_dist(PROJECT_ROOT, env)
-                if repaired:
-                    print("  ⚠ Dependency install failed with a missing Electron dist; "
-                          "repopulated it and continuing.")
-                else:
-                    print("  ⚠ Dependency install failed with a missing Electron dist; "
-                          "continuing to the build so electron-builder can attempt "
-                          "the Electron fetch itself.")
+        from clover_cli.node_workspace import npm_workspace_lock
 
-            build_label = "source build" if source_mode else "packaged app"
-            print(f"→ Building desktop {build_label}...")
-            build_script = "build" if source_mode else "pack"
-            if _force_adhoc_macos_signing(env, source_mode=source_mode):
-                print("  → No Developer ID configured; ad-hoc signing this local rebuild "
-                      "(CSC_IDENTITY_AUTO_DISCOVERY=false)")
-            npm_build_env = _npm_lifecycle_env(env)
-            if not source_mode:
-                # A running desktop instance launched from release/win-unpacked
-                # holds Clover.exe locked on Windows, so the pack can't replace
-                # it ("Access is denied" / ERR_ELECTRON_BUILDER_CANNOT_EXECUTE).
-                # Stop it first so the rebuild — including the installer's
-                # headless --update rebuild — succeeds instead of failing cryptically.
-                stopped = _stop_desktop_processes_locking_build(desktop_dir)
-                if stopped:
-                    print(f"  ⚠ Stopped running desktop app to free the build output (pid {', '.join(map(str, stopped))})")
-            build_kwargs = {
-                "cwd": desktop_dir,
-                "env": npm_build_env,
-                "check": False,
-                "stdin": subprocess.DEVNULL,
-            }
-            if sys.platform == "win32":
-                build_kwargs["shell"] = True
-            build_result = subprocess.run(
-                [npm, "run", build_script], **build_kwargs
+        with npm_workspace_lock(PROJECT_ROOT):
+            # Check the content-hash stamp before doing any build work.
+            # If the source tree hasn't changed since the last successful build,
+            # skip the npm install + build entirely (saves a ton of useless work).
+            # --force-build overrides the stamp and always rebuilds.
+            build_needed = force_build or _desktop_build_needed(
+                desktop_dir, PROJECT_ROOT, source_mode=source_mode
             )
-            if (
-                build_result.returncode != 0
-                and not source_mode
-                and _desktop_packaged_executable(desktop_dir) is None
-            ):
-                # Corrupt cached Electron zip → partial unpack → ENOENT on rename.
-                # stdlib zipfile won't catch the common concat-junk case, so purge
-                # and retry once; @electron/get SHASUM is the real gate.
-                #
-                # Gate on a MISSING packaged executable: that is the signature of
-                # the corrupt-download class this recovery exists for. A late
-                # failure such as macOS code signing leaves the executable in
-                # place — redownloading Electron can't repair it, so the purge +
-                # retry would only add another slow, identical failure (#40187).
-                purged: list[Path] = []
-                restored = False
-                if not _electron_dist_ok(PROJECT_ROOT):
-                    purged = _purge_electron_build_cache(desktop_dir)
-                    restored = _redownload_electron_dist(PROJECT_ROOT, env)
-                if restored:
-                    print("  ⚠ Desktop build failed; refreshed the Electron download and retrying once...")
-                    for p in purged:
-                        print(f"    - {p}")
-                    # The purge can't remove a win-unpacked tree whose Clover.exe
-                    # is still locked by a running instance; stop it before retry.
-                    _stop_desktop_processes_locking_build(desktop_dir)
-                    build_result = subprocess.run(
-                        [npm, "run", build_script], **build_kwargs
-                    )
-            if (
-                build_result.returncode != 0
-                and not source_mode
-                and not env.get("ELECTRON_MIRROR")
-                and _desktop_packaged_executable(desktop_dir) is None
-            ):
-                print("  ⚠ Desktop build still failing; the Electron download from "
-                      "GitHub looks blocked. Re-downloading via a public mirror "
-                      "(npmmirror.com)... (set ELECTRON_MIRROR to use another mirror)")
-                mirror = _ELECTRON_FALLBACK_MIRROR
-                mirror_env = dict(npm_build_env)
-                mirror_env["ELECTRON_MIRROR"] = mirror
-                if not _electron_dist_ok(PROJECT_ROOT):
-                    _redownload_electron_dist(PROJECT_ROOT, env, mirror=mirror)
-                _stop_desktop_processes_locking_build(desktop_dir)
-                mirror_kwargs = {**build_kwargs, "stdin": subprocess.DEVNULL}
-                mirror_kwargs["env"] = mirror_env
-                build_result = subprocess.run([npm, "run", build_script], **mirror_kwargs)
-            if build_result.returncode != 0:
-                print("✗ Desktop GUI build failed")
-                print(f"  Run manually:  cd apps/desktop && npm run {build_script}")
+            if not build_needed:
+                build_label = "source build" if source_mode else "packaged app"
+                print(f"✓ Desktop {build_label} is up to date (content stamp matches)")
+            else:
+                print("→ Installing desktop workspace dependencies...")
+                # Put the Clover-managed Node on PATH so npm's child scripts (which
+                # shell out to bare `node`, e.g. electron-winstaller's
+                # select-7z-arch.js) resolve it even when the parent PATH is
+                # stripped — the desktop updater chain (Desktop → clover-setup →
+                # clover update) loses shell PATH customizations. Wrapping the
+                # NixOS build env keeps its PYTHON hint while restoring managed Node
+                # ahead of a bare PATH (same idiom as the `clover update` path).
+                nixos_env = with_clover_node_path(_nixos_build_env())
+                install_result = _run_npm_install_deterministic(npm, PROJECT_ROOT, capture_output=False, env=nixos_env)
+                if install_result.returncode != 0:
+                    if not _electron_pkg_staged_missing_dist(PROJECT_ROOT):
+                        print("✗ Desktop dependency install failed")
+                        print(f"  Run manually:  cd {PROJECT_ROOT} && npm ci")
+                        sys.exit(install_result.returncode or 1)
+                    repaired = _try_redownload_electron_dist(PROJECT_ROOT, env)
+                    if repaired:
+                        print("  ⚠ Dependency install failed with a missing Electron dist; "
+                              "repopulated it and continuing.")
+                    else:
+                        print("  ⚠ Dependency install failed with a missing Electron dist; "
+                              "continuing to the build so electron-builder can attempt "
+                              "the Electron fetch itself.")
+
+                build_label = "source build" if source_mode else "packaged app"
+                print(f"→ Building desktop {build_label}...")
+                build_script = "build" if source_mode else "pack"
+                if _force_adhoc_macos_signing(env, source_mode=source_mode):
+                    print("  → No Developer ID configured; ad-hoc signing this local rebuild "
+                          "(CSC_IDENTITY_AUTO_DISCOVERY=false)")
+                npm_build_env = _npm_lifecycle_env(env)
+                if not source_mode:
+                    # A running desktop instance launched from release/win-unpacked
+                    # holds Clover.exe locked on Windows, so the pack can't replace
+                    # it ("Access is denied" / ERR_ELECTRON_BUILDER_CANNOT_EXECUTE).
+                    # Stop it first so the rebuild — including the installer's
+                    # headless --update rebuild — succeeds instead of failing cryptically.
+                    stopped = _stop_desktop_processes_locking_build(desktop_dir)
+                    if stopped:
+                        print(f"  ⚠ Stopped running desktop app to free the build output (pid {', '.join(map(str, stopped))})")
+                build_kwargs = {
+                    "cwd": desktop_dir,
+                    "env": npm_build_env,
+                    "check": False,
+                    "stdin": subprocess.DEVNULL,
+                }
                 if sys.platform == "win32":
-                    print("  If this says \"Access is denied\" on Clover.exe, close any")
-                    print("  running Clover desktop window and retry.")
-                print("  If the log shows Electron download retries, rebuild via a mirror:")
-                print("    ELECTRON_MIRROR=<mirror-base-url> clover desktop --force-build")
-                sys.exit(build_result.returncode or 1)
-            packaged_executable = _desktop_packaged_executable(desktop_dir)
-            if not source_mode:
-                # Locally-built apps are ad-hoc signed; make them relaunchable after
-                # an in-place self-update (otherwise macOS reports "Clover is
-                # damaged"). No-op on non-macOS and on real-identity builds.
-                _desktop_macos_relaunchable_fixup(desktop_dir)
-
-                # Windows integrity gate (#69179): never declare the rebuild a
-                # success on a Clover.exe Windows cannot load (truncated PE from
-                # a corrupt cached Electron zip, wrong-arch tree, interrupted
-                # rcedit rewrite). Roll back to the .bak tree preserved by
-                # before-pack.mjs when possible, then fail loudly so the
-                # updater's retry-once rebuilds from a fresh Electron download
-                # instead of silently shipping the broken exe.
-                verified_executable, rolled_back = _ensure_desktop_exe_launchable(
-                    desktop_dir, packaged_executable
+                    build_kwargs["shell"] = True
+                build_result = subprocess.run(
+                    [npm, "run", build_script], **build_kwargs
                 )
-                if packaged_executable is not None and (
-                    rolled_back or verified_executable is None
+                if (
+                    build_result.returncode != 0
+                    and not source_mode
+                    and _desktop_packaged_executable(desktop_dir) is None
                 ):
-                    sys.exit(1)
-                packaged_executable = verified_executable
+                    # Corrupt cached Electron zip → partial unpack → ENOENT on rename.
+                    # stdlib zipfile won't catch the common concat-junk case, so purge
+                    # and retry once; @electron/get SHASUM is the real gate.
+                    #
+                    # Gate on a MISSING packaged executable: that is the signature of
+                    # the corrupt-download class this recovery exists for. A late
+                    # failure such as macOS code signing leaves the executable in
+                    # place — redownloading Electron can't repair it, so the purge +
+                    # retry would only add another slow, identical failure (#40187).
+                    purged: list[Path] = []
+                    restored = False
+                    if not _electron_dist_ok(PROJECT_ROOT):
+                        purged = _purge_electron_build_cache(desktop_dir)
+                        restored = _redownload_electron_dist(PROJECT_ROOT, env)
+                    if restored:
+                        print("  ⚠ Desktop build failed; refreshed the Electron download and retrying once...")
+                        for p in purged:
+                            print(f"    - {p}")
+                        # The purge can't remove a win-unpacked tree whose Clover.exe
+                        # is still locked by a running instance; stop it before retry.
+                        _stop_desktop_processes_locking_build(desktop_dir)
+                        build_result = subprocess.run(
+                            [npm, "run", build_script], **build_kwargs
+                        )
+                if (
+                    build_result.returncode != 0
+                    and not source_mode
+                    and not env.get("ELECTRON_MIRROR")
+                    and _desktop_packaged_executable(desktop_dir) is None
+                ):
+                    print("  ⚠ Desktop build still failing; the Electron download from "
+                          "GitHub looks blocked. Re-downloading via a public mirror "
+                          "(npmmirror.com)... (set ELECTRON_MIRROR to use another mirror)")
+                    mirror = _ELECTRON_FALLBACK_MIRROR
+                    mirror_env = dict(npm_build_env)
+                    mirror_env["ELECTRON_MIRROR"] = mirror
+                    if not _electron_dist_ok(PROJECT_ROOT):
+                        _redownload_electron_dist(PROJECT_ROOT, env, mirror=mirror)
+                    _stop_desktop_processes_locking_build(desktop_dir)
+                    mirror_kwargs = {**build_kwargs, "stdin": subprocess.DEVNULL}
+                    mirror_kwargs["env"] = mirror_env
+                    build_result = subprocess.run([npm, "run", build_script], **mirror_kwargs)
+                if build_result.returncode != 0:
+                    print("✗ Desktop GUI build failed")
+                    print(f"  Run manually:  cd apps/desktop && npm run {build_script}")
+                    if sys.platform == "win32":
+                        print("  If this says \"Access is denied\" on Clover.exe, close any")
+                        print("  running Clover desktop window and retry.")
+                    print("  If the log shows Electron download retries, rebuild via a mirror:")
+                    print("    ELECTRON_MIRROR=<mirror-base-url> clover desktop --force-build")
+                    sys.exit(build_result.returncode or 1)
+                packaged_executable = _desktop_packaged_executable(desktop_dir)
+                if not source_mode:
+                    # Locally-built apps are ad-hoc signed; make them relaunchable after
+                    # an in-place self-update (otherwise macOS reports "Clover is
+                    # damaged"). No-op on non-macOS and on real-identity builds.
+                    _desktop_macos_relaunchable_fixup(desktop_dir)
 
-            # Build succeeded — write the stamp so next run can skip
-            _write_desktop_build_stamp(PROJECT_ROOT, source_mode=source_mode)
+                    # Windows integrity gate (#69179): never declare the rebuild a
+                    # success on a Clover.exe Windows cannot load (truncated PE from
+                    # a corrupt cached Electron zip, wrong-arch tree, interrupted
+                    # rcedit rewrite). Roll back to the .bak tree preserved by
+                    # before-pack.mjs when possible, then fail loudly so the
+                    # updater's retry-once rebuilds from a fresh Electron download
+                    # instead of silently shipping the broken exe.
+                    verified_executable, rolled_back = _ensure_desktop_exe_launchable(
+                        desktop_dir, packaged_executable
+                    )
+                    if packaged_executable is not None and (
+                        rolled_back or verified_executable is None
+                    ):
+                        sys.exit(1)
+                    packaged_executable = verified_executable
+
+                # Build succeeded — write the stamp so next run can skip
+                _write_desktop_build_stamp(PROJECT_ROOT, source_mode=source_mode)
 
     # Register the app in the system launcher / Applications / Start Menu,
     # so Clover shows up in the application menu with its icon.
