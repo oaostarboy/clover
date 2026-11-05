@@ -41,6 +41,9 @@ from typing import Optional
 
 from clover_cli.config import get_clover_home
 from clover_constants import venv_python_path
+from clover_cli.macos_update_transaction import (
+    source_update_scope, begin_source_mutation, finish_source_mutation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1901,6 +1904,7 @@ def _restore_state_db_from_snapshot(state_path: Path, snap_state: Path) -> bool:
     return bool(restored.get("valid"))
 
 
+@source_update_scope
 def _update_via_zip(args, *, had_desktop_app_before_update: bool = False) -> bool:
     """Update Clover Cognition by downloading a ZIP archive.
 
@@ -1939,6 +1943,7 @@ def _update_via_zip(args, *, had_desktop_app_before_update: bool = False) -> boo
         )
         _m().sys.exit(1)
     _abort_zip_update_if_dirty_tree()
+    begin_source_mutation(_m().PROJECT_ROOT)
     zip_url = (
         f""
     )
@@ -4360,20 +4365,20 @@ def _macos_service_already_restored(label):
         return False
 
 
+@source_update_scope
 def _refresh_node_artifacts(had_desktop_app_before_update, *, skip_build_on_node_failure=False):
     """Refresh workspace artifacts while verified Darwin services are quiescent."""
-    from clover_cli.macos_update_launchd import darwin_workspace_window
-
-    with darwin_workspace_window(_m().PROJECT_ROOT) as operations:
-        node_failures = _update_node_dependencies()
-        if node_failures and skip_build_on_node_failure:
-            desktop_build_ok = False
-        else:
-            _m()._build_web_ui(_m().PROJECT_ROOT / "web")
-            desktop_build_ok = _rebuild_desktop_after_update(
-                _m().PROJECT_ROOT / "apps" / "desktop",
-                had_desktop_app_before_update=had_desktop_app_before_update,
-            )
+    begin_source_mutation(_m().PROJECT_ROOT)
+    node_failures = _update_node_dependencies()
+    if node_failures and skip_build_on_node_failure:
+        desktop_build_ok = False
+    else:
+        _m()._build_web_ui(_m().PROJECT_ROOT / "web")
+        desktop_build_ok = _rebuild_desktop_after_update(
+            _m().PROJECT_ROOT / "apps" / "desktop",
+            had_desktop_app_before_update=had_desktop_app_before_update,
+        )
+    operations = finish_source_mutation()
     if operations is not None:
         _macos_restored_services.update((s.label, s) for s in operations.restored.values())
     return node_failures, desktop_build_ok
@@ -8575,6 +8580,7 @@ def _rebuild_desktop_after_update(
     return True
 
 
+@source_update_scope
 def _cmd_update_impl(args, gateway_mode: bool):
     """Body of ``cmd_update`` — kept separate so the wrapper can always
     restore stdio even on ``sys.exit``."""
@@ -8717,6 +8723,10 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         )
                     )
                     sys.exit(2)
+
+    # Inventory is captured above while services still run. Pause before any
+    # checkout/overlay/runtime mutation, not merely before npm starts.
+    begin_source_mutation(_m().PROJECT_ROOT)
 
     # Pre-update backup — runs before any git/file mutation so users can
     # always roll back to the exact state they had before this update.

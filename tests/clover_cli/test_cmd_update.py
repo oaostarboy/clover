@@ -586,9 +586,14 @@ class TestCmdUpdateBranchFallback:
         from contextlib import contextmanager
         from clover_cli import main as hm, update_cmd, macos_update_launchd
 
-        mock_run.side_effect = _make_run_side_effect(branch="main", verify_ok=True, commit_count="0")
+        git_run = _make_run_side_effect(branch="main", verify_ok=True, commit_count="0")
         shas = iter(["aaaaaaa", "bbbbbbb", "bbbbbbb", "ccccccc"])
         events = []
+        def run(command, *args, **kwargs):
+            if any(action in command for action in ("checkout", "merge", "reset", "stash")):
+                assert events and events[0] == "enter", "git mutated before quiescence"
+            return git_run(command, *args, **kwargs)
+        mock_run.side_effect = run
         @contextmanager
         def window(root):
             events.append("enter")
@@ -1267,6 +1272,7 @@ class TestNodeRuntimeNpmResolution:
         still runs (mocked _desktop_build_needed=True), but it now finds
         the packaged exe alive rather than missing.
         """
+        import os
         import zipfile
 
         from clover_cli import main as hm
@@ -1326,6 +1332,12 @@ class TestNodeRuntimeNpmResolution:
         from contextlib import contextmanager
         from clover_cli import macos_update_launchd
         workspace_events = []
+        real_rename = os.rename
+        def assert_quiescent_rename(src, dst):
+            if os.fspath(src) == os.fspath(project_root / 'apps'):
+                assert workspace_events == ['enter'], 'ZIP replaced live tree before quiescence'
+            return real_rename(src, dst)
+        monkeypatch.setattr(os, 'rename', assert_quiescent_rename)
         @contextmanager
         def workspace_window(root):
             assert root == project_root
