@@ -1,0 +1,81 @@
+name: Candidate native held-turn update acceptance
+on:
+  push:
+    branches: [ci/native-inflight-candidate-8b02bff8]
+  workflow_dispatch:
+    inputs:
+      old_ref:
+        description: 'Optional old base: v1.5.6 or latest; blank tests both'
+        required: false
+        type: choice
+        options: ['', v1.5.6, latest]
+permissions:
+  contents: read
+concurrency:
+  group: candidate-inflight-${{ github.run_id }}
+  cancel-in-progress: false
+env:
+  TARGET_REF: 8b02bff8c02c79bf177b9b3c07a382afef16a935
+  TARGET_TREE: c70c414514a3ce155a090d3baf22d2e396f0e66b
+jobs:
+  native:
+    name: ${{ matrix.os }} / ${{ matrix.base }} / ${{ matrix.entry }} / held-turn local IRC
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+        base: ${{ fromJSON(inputs.old_ref == 'v1.5.6' && '["v1.5.6"]' || inputs.old_ref == 'latest' && '["latest"]' || '["v1.5.6","latest"]') }}
+        entry: [terminal, gateway]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 80
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+      BASE: ${{ matrix.base }}
+      ENTRY: ${{ matrix.entry }}
+      OS: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.sha }}
+          path: helpers
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.TARGET_REF }}
+          fetch-depth: 0
+          path: source
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          enable-cache: false
+      - name: Real installed service and actual update with held provider reply
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          old=b3cf7133dc0610b04417fb83cd5d6ef2214b0347
+          if [[ "$BASE" == latest ]]; then old=9271c360f4519fc30887bbab7777c76970d4318f; fi
+          test "$(git -C "$GITHUB_WORKSPACE/source" rev-parse "$TARGET_REF^{tree}")" = "$TARGET_TREE"
+          git -C "$GITHUB_WORKSPACE/source" cat-file -e "$old^{commit}"
+          if [[ "$OS" == windows-2025 ]]; then
+            uv run --no-project --with psutil python helpers/.github/native-proof/legacy156_windows.py \
+              --source "$GITHUB_WORKSPACE/source" --old "$old" --entry "$ENTRY" \
+              --target "$TARGET_REF" --tree "$TARGET_TREE" \
+              --fixed-base 9271c360f4519fc30887bbab7777c76970d4318f \
+              --evidence "$RUNNER_TEMP/evidence"
+          else
+            python3 helpers/.github/native-proof/legacy156_macos.py \
+              --source "$GITHUB_WORKSPACE/source" --old "$old" --entry "$ENTRY" \
+              --target "$TARGET_REF" --tree "$TARGET_TREE" --evidence "$RUNNER_TEMP/evidence"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: inflight-${{ matrix.os }}-${{ matrix.base }}-${{ matrix.entry }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/evidence
+          include-hidden-files: true
+          if-no-files-found: error
