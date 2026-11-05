@@ -8470,12 +8470,17 @@ def _rebuild_desktop_after_update(
     # source_mode=False — mirror that here. Any error in the pre-check falls
     # through to the subprocess.
     skip_desktop_build = False
-    try:
-        skip_desktop_build = not _m()._desktop_build_needed(
-            desktop_dir, _m().PROJECT_ROOT, source_mode=False
-        )
-    except Exception:
-        skip_desktop_build = False
+    from clover_cli.node_workspace import npm_workspace_lock
+
+    # Release before launching the child: it acquires this lock for its build.
+    # Lock failures must propagate, not be mistaken for an up-to-date build.
+    with npm_workspace_lock(_m().PROJECT_ROOT):
+        try:
+            skip_desktop_build = not _m()._desktop_build_needed(
+                desktop_dir, _m().PROJECT_ROOT, source_mode=False
+            )
+        except Exception:
+            skip_desktop_build = False
     # Build or register launchers using freshly pulled code.
     try:
         import importlib

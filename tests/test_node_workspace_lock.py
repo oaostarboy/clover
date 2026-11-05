@@ -21,6 +21,20 @@ def test_scope_and_reentrancy(tmp_path):
             pass
 
 
+def test_alias_and_workspace_members_share_canonical_lock(tmp_path):
+    root = tmp_path / 'root'
+    member = root / 'apps' / 'web'
+    member.mkdir(parents=True)
+    (root / 'package.json').write_text('{"workspaces":["apps/*"]}')
+    (member / 'package.json').write_text('{}')
+    alias = tmp_path / 'alias'
+    alias.symlink_to(root, target_is_directory=True)
+    assert nw.workspace_root(alias / 'apps' / 'web') == root
+    with nw.npm_workspace_lock(root):
+        with nw.npm_workspace_lock(alias / 'apps' / 'web', timeout=.2):
+            pass
+
+
 def test_unsupported_fails_closed(tmp_path, monkeypatch):
     monkeypatch.setattr(nw, 'fcntl', None)
     monkeypatch.setattr(nw, 'msvcrt', None)
