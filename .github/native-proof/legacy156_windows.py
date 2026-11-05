@@ -78,7 +78,7 @@ def wait_update_exit(home, update, evidence, *, seconds=1800):
     return rc
 
 
-def wait_update_receipt(home, evidence, began, old, target, *, seconds=1800):
+def wait_update_receipt(home, evidence, began, old, target, *, seconds=2400):
     """Wait for the logical run, not a shim parent's provisional exit zero."""
     path = home / 'logs/update_receipts/latest.json'
     def completed():
@@ -429,7 +429,7 @@ def main(a):
             from candidate_inflight_policy import desktop_build_processes
             build_samples = []
             clear = 0
-            deadline = time.monotonic() + 900
+            deadline = time.monotonic() + 1800
             while clear < 3:
                 processes = [p.info for p in psutil.process_iter(['pid', 'cmdline'])]
                 active = desktop_build_processes(processes, source)
