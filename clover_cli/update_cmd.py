@@ -738,7 +738,7 @@ def _validate_critical_modules_import(root) -> tuple[bool, str | None, str | Non
             safe_paths.append(str(path))
         probe = f"import sys; sys.path[:0] = {safe_paths!r}\n" + probe
         interpreter = sys.executable
-        command = [interpreter, '-I', '-S', '-c', probe]
+        command = [interpreter, '-I', '-S', '-B', '-c', probe]
         probe_cwd = stage_root
     else:
         command = None
