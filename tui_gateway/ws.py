@@ -41,6 +41,8 @@ _log = logging.getLogger(__name__)
 # to flush a WS frame before we mark the transport dead. Protects handler
 # threads from a wedged socket.
 _WS_WRITE_TIMEOUT_S = 10.0
+# Close idle mobile connections promptly after revocation or expiry.
+_DEVICE_REVALIDATE_INTERVAL_S = 2.0
 _WS_LOG_PAYLOAD_PREVIEW = 240
 
 # Per-token streaming frames are coalesced: buffered and flushed as a batch on
@@ -257,6 +259,24 @@ class WSTransport:
                 for line in lines:
                     if self._closed:
                         return
+                    identity = self.auth_identity
+                    if isinstance(identity, dict) and (
+                        identity.get("provider") == "mobile-device"
+                        or identity.get("device_principal") is not None
+                    ):
+                        from clover_cli.mobile_pairing import DevicePrincipal, get_device_store
+                        principal = identity.get("device_principal")
+                        try:
+                            active = isinstance(principal, DevicePrincipal) and await asyncio.to_thread(
+                                get_device_store().principal_is_active, principal
+                            )
+                        except Exception:
+                            _log.warning("device principal revalidation failed peer=%s", self._peer, exc_info=True)
+                            active = False
+                        if not active:
+                            self._closed = True
+                            await self._ws.close(code=4401)
+                            return
                     await self._ws.send_text(line)
             except Exception as exc:
                 # Latch while still holding the writer lock so queued batches
@@ -419,7 +439,28 @@ async def handle_ws(
 
         while True:
             try:
-                raw = await ws.receive_text()
+                identity = transport.auth_identity
+                is_device = isinstance(identity, dict) and (
+                    identity.get("provider") == "mobile-device"
+                    or identity.get("device_principal") is not None
+                )
+                if is_device:
+                    try:
+                        raw = await asyncio.wait_for(ws.receive_text(), timeout=_DEVICE_REVALIDATE_INTERVAL_S)
+                    except asyncio.TimeoutError:
+                        from tui_gateway.device_auth import device_principal, DeviceAccessDenied
+                        try:
+                            await asyncio.to_thread(device_principal, transport)
+                        except DeviceAccessDenied:
+                            async with transport._send_lock:
+                                if not transport.closed:
+                                    transport.close()
+                                    await ws.close(code=4401)
+                            disconnect_reason = "device_revoked_or_expired"
+                            break
+                        continue
+                else:
+                    raw = await ws.receive_text()
             except _WebSocketDisconnect as exc:
                 disconnect_reason = (
                     "client_disconnect("

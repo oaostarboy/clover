@@ -3032,6 +3032,12 @@ def handle_request(req: dict) -> dict | None:
         return normalized
 
     rid, method, params = normalized
+    from tui_gateway.device_auth import authorize_request, DeviceAccessDenied
+    try:
+        params = authorize_request(current_transport(), method, params, _sessions,
+                                   launch_home=_clover_home)
+    except DeviceAccessDenied as exc:
+        return _err(rid, 4030, str(exc))
     fn = _methods.get(method)
     if not fn:
         return _err(rid, -32601, f"unknown method: {method}")
@@ -3151,16 +3157,13 @@ def dispatch(req: dict, transport: Optional[Transport] = None,
             return normalized
 
         _rid, method, _params = normalized
-        # Defense in depth while mobile RPC authorization is incomplete: even if
-        # a device ticket reaches this dispatcher, never treat it as an owner.
-        # This guard must not be relaxed until method capabilities, resolved
-        # session profiles and outbound revocation are all enforced.
-        identity = getattr(t, "auth_identity", None)
-        if isinstance(identity, dict) and (
-            identity.get("provider") == "mobile-device"
-            or identity.get("device_principal") is not None
-        ):
-            return _err(_rid, 4030, "device RPC access is not enabled")
+        # Check before scheduling and again in handle_request after any queue
+        # delay. Never promote a device transport to owner authority.
+        from tui_gateway.device_auth import authorize_request, DeviceAccessDenied
+        try:
+            authorize_request(t, method, _params, _sessions, launch_home=_clover_home)
+        except DeviceAccessDenied as exc:
+            return _err(_rid, 4030, str(exc))
         if method not in _LONG_HANDLERS:
             return handle_request(req)
 
@@ -3551,6 +3554,11 @@ def _sess_nowait(params, rid):
     sid = params.get("session_id") or ""
     s = _sessions.get(sid)
     if s:
+        from tui_gateway.device_auth import DeviceAccessDenied, ensure_session_owned
+        try:
+            ensure_session_owned(current_transport(), s, launch_home=_clover_home)
+        except DeviceAccessDenied as exc:
+            return (None, _err(rid, 4030, str(exc)))
         return (s, None)
     # A session-scoped RPC hit a runtime id the gateway no longer holds
     # (detached on WS disconnect and orphan-reaped, LRU-evicted, or torn down
@@ -13816,6 +13824,18 @@ def _respond(rid, params, key, *, allow_expired=False):
 def _(rid, params: dict) -> dict:
     key, value = params.get("key", ""), params.get("value", "")
     session = _sessions.get(params.get("session_id", ""))
+    # Never let a device fall through to the global configuration branch if
+    # its live session disappears between dispatch authorization and execution.
+    from tui_gateway.device_auth import device_principal, ensure_session_owned, DeviceAccessDenied
+    try:
+        if device_principal(current_transport()) is not None:
+            if key != "model" or session is None:
+                raise DeviceAccessDenied("live session required for model selection")
+            ensure_session_owned(current_transport(), session, launch_home=_clover_home)
+            # Override persist_switch_by_default, including deferred switches.
+            value = f"{value} --session"
+    except DeviceAccessDenied as exc:
+        return _err(rid, 4030, str(exc))
 
     if key == "model":
         try:
