@@ -3151,6 +3151,16 @@ def dispatch(req: dict, transport: Optional[Transport] = None,
             return normalized
 
         _rid, method, _params = normalized
+        # Defense in depth while mobile RPC authorization is incomplete: even if
+        # a device ticket reaches this dispatcher, never treat it as an owner.
+        # This guard must not be relaxed until method capabilities, resolved
+        # session profiles and outbound revocation are all enforced.
+        identity = getattr(t, "auth_identity", None)
+        if isinstance(identity, dict) and (
+            identity.get("provider") == "mobile-device"
+            or identity.get("device_principal") is not None
+        ):
+            return _err(_rid, 4030, "device RPC access is not enabled")
         if method not in _LONG_HANDLERS:
             return handle_request(req)
 
