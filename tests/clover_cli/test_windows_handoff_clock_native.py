@@ -50,7 +50,10 @@ def test_measured_windows_child_beacon_keeps_strict_birth_boundary(tmp_path, mon
         measured = chain[0]
         assert measured['pid'] == child.pid
         assert measured['parent_pid'] > 0
-        created = datetime.fromisoformat(measured['created_utc']).timestamp()
+        # The verifier validates both representations, then uses the raw
+        # native birth. ISO formatting rounds to microseconds and can round
+        # upward past the beacon even for the very same process birth.
+        created = bridge._birth(measured)
         assert abs(created - birth) <= .001
         beacon_path = home / watcher.BEACON_NAME
         beacon = json.loads(beacon_path.read_text())
