@@ -1,7 +1,7 @@
 """Fail-closed checks for candidate in-flight native driver outcomes."""
 import pytest
 
-from candidate_inflight_policy import require_first_update_progress, require_guard_status, desktop_build_processes
+from candidate_inflight_policy import require_first_update_progress, require_guard_status, desktop_build_processes, require_config_preserved
 
 
 def test_unchanged_source_cannot_be_retried_into_pass():
@@ -32,3 +32,12 @@ def test_desktop_build_wait_only_matches_disposable_install():
         {"pid": 3, "cmdline": ["C:/fixture/source/venv/Scripts/python.exe", "-m", "clover_cli.main", "gateway", "run"]},
     ]
     assert desktop_build_processes(processes, "C:/fixture/source") == [1]
+
+
+def test_original_config_values_survive_new_defaults():
+    before = {'terminal': {'cwd': '/fixture', 'backend': 'local'}, 'streaming': {'enabled': False}}
+    require_config_preserved(before, {'terminal': {'cwd': '/fixture', 'backend': 'local', 'new': 1}, 'streaming': {'enabled': False}, 'new': 2})
+    with pytest.raises(AssertionError):
+        require_config_preserved(before, {'terminal': {'cwd': '/other', 'backend': 'local'}, 'streaming': {'enabled': False}})
+    with pytest.raises(AssertionError):
+        require_config_preserved(before, {'terminal': {'cwd': '/fixture'}, 'streaming': {'enabled': False}})

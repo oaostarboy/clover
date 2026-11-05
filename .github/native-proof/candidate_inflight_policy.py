@@ -16,6 +16,16 @@ def require_guard_status(actual, expected, held_state=None):
     assert actual == expected, (actual, expected)
 
 
+def require_config_preserved(before, after):
+    if isinstance(before, dict):
+        assert isinstance(after, dict)
+        for key, value in before.items():
+            assert key in after, f'missing config key {key}'
+            require_config_preserved(value, after[key])
+    else:
+        assert type(before) is type(after) and before == after, (before, after)
+
+
 def desktop_build_processes(processes, source):
     source = str(source).replace('\\', '/').rstrip('/').lower() + '/'
     matches = []

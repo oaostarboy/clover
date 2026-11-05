@@ -1,7 +1,7 @@
 name: Candidate native held-turn update acceptance
 on:
   push:
-    branches: [ci/native-inflight-windows-bounded-8b02bff8]
+    branches: [ci/native-inflight-config-proof-8b02bff8]
   workflow_dispatch:
 permissions:
   contents: read
@@ -18,8 +18,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: windows-2025, base: latest, entry: gateway}
-          - {os: windows-2025, base: v1.5.6, entry: terminal}
+          - {os: macos-15, base: v1.5.6, entry: terminal}
+          - {os: macos-15, base: v1.5.6, entry: gateway}
+          - {os: macos-15, base: latest, entry: terminal}
+          - {os: macos-15, base: latest, entry: gateway}
+          - {os: windows-2025, base: latest, entry: terminal}
+          - {os: windows-2025, base: v1.5.6, entry: gateway}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 110
     env:

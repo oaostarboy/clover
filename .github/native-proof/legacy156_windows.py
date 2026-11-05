@@ -275,6 +275,10 @@ def child(a):
         result = write_state(a.label)
     elif a.mode == 'verify':
         result = verify_state(read_json(a.records))
+    elif a.mode == 'config':
+        import yaml
+        result = yaml.safe_load((home / 'config.yaml').read_text(encoding='utf-8'))
+        assert isinstance(result, dict) and result
     elif a.mode == 'sqlite':
         result = identity()
         if WINDOWS:
@@ -368,6 +372,9 @@ def main(a):
         ('platform_toolsets.api_server', '[terminal]'), ('streaming.enabled', 'false'),
         ('auxiliary.free_only', 'true')]:
         run([bin, 'config', 'set', key, value], 'config-' + key)
+    config_before = call('config', 'config-before')
+    assert config_before['model']['default'] == 'native-fixture'
+    assert config_before['terminal']['cwd'] == str(scratch)
     (home / '.env').write_text('API_SERVER_ENABLED=true\nAPI_SERVER_KEY=native-macos-fixture-only\nAPI_SERVER_PORT=18791\nAPI_SERVER_HOST=127.0.0.1\nOPENAI_API_KEY=fixture-not-a-secret\nIRC_SERVER=127.0.0.1\nIRC_PORT=16667\nIRC_USE_TLS=false\nIRC_CHANNEL=#clover\nIRC_NICKNAME=cloverbot\nIRC_ALLOWED_USERS=ant\n')
     effect, receiver = evidence / 'effects.txt', evidence / 'received.txt'
     token, reply = 'native-effect-' + os.environ['GITHUB_RUN_ID'], 'native-reply-' + os.environ['GITHUB_RUN_ID']
@@ -611,6 +618,10 @@ def main(a):
             '--sha', a.target, '--tree', a.tree, '--output', evidence / 'installed-after.json'], 'source-identity')
         call('sqlite', 'sqlite-after')
         call('verify', 'state-after', '--records', evidence / 'records.json')
+        from candidate_inflight_policy import require_config_preserved
+        config_after = call('config', 'config-after')
+        require_config_preserved(config_before, config_after)
+        dump(evidence / 'config-preservation.json', dict(status='PASS', comparison='all original keys and values; new defaults allowed'))
         dump(evidence / 'inflight-after-successor.json', witness.verify(pending, home, effect, receiver))
         receipt = home / 'logs/update_receipts/latest.json'
         shutil.copy2(receipt, evidence / 'update-receipt.json')
