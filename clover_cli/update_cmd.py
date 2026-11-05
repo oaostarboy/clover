@@ -11562,7 +11562,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             from clover_cli.update_receipt import finalize_update_receipt
 
             _receipt_path = finalize_update_receipt(
-                "partial" if gateway_fleet_restart_incomplete else "success",
+                "partial" if (gateway_fleet_restart_incomplete or node_failures or not desktop_build_ok) else "success",
                 fleet=_fleet_snapshot,
             )
             if _receipt_path is not None:
@@ -11578,6 +11578,8 @@ def _cmd_update_impl(args, gateway_mode: bool):
             # ``clover update`` still runs the catch-up restart.
             sys.exit(1)
         _clear_fleet_restart_pending_marker()
+        if node_failures or not desktop_build_ok:
+            sys.exit(1)
 
     except _shim_quarantine_error_type() as e:
         # Fail-closed shim contention (#87331): strict quarantine refused
@@ -11585,7 +11587,8 @@ def _cmd_update_impl(args, gateway_mode: bool):
         _refuse_update_for_contended_shims(e)
     except subprocess.CalledProcessError as e:
         stage = _format_update_failure_stage(e)
-        if _should_zip_fallback_on_update_error(e):
+        from clover_cli._migration_target import target_root
+        if target_root() is None and _should_zip_fallback_on_update_error(e):
             print(f"⚠ {stage}: {e}")
             print("→ Falling back to ZIP download...")
             print()
