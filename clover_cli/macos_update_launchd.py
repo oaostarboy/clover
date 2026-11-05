@@ -59,8 +59,14 @@ def _process_table():
     import psutil
     from gateway.status import get_process_start_time
     table = {}
+    current_uid = os.geteuid()
     for p in psutil.process_iter():
         try:
+            # Inspect only processes that may run as this user.  UID evidence
+            # must be readable; an unknown principal is not safely unrelated.
+            uids = p.uids()
+            if uids.real != current_uid and uids.effective != current_uid:
+                continue
             birth = get_process_start_time(p.pid)
             if p.status() == psutil.STATUS_ZOMBIE:
                 continue
