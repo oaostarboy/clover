@@ -1,7 +1,7 @@
 name: Candidate native held-turn update acceptance
 on:
   push:
-    branches: [ci/native-inflight-retry-8b02bff8]
+    branches: [ci/native-inflight-macos-bind-diag-8b02bff8]
   workflow_dispatch:
 permissions:
   contents: read
@@ -18,9 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: windows-2025, base: latest, entry: terminal}
-          - {os: windows-2025, base: latest, entry: gateway}
-          - {os: macos-15, base: latest, entry: gateway}
+          - {os: macos-15, base: latest, entry: terminal}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 80
     env:
@@ -52,6 +50,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/evidence"
+          # Passive native socket evidence; this never manipulates the service.
+          (
+            while :; do
+              date -u '+%Y-%m-%dT%H:%M:%SZ'
+              netstat -an -p tcp | grep '18791' || true
+              lsof -nP -iTCP:18791 || true
+              sleep 2
+            done
+          ) > "$RUNNER_TEMP/evidence/socket-observer.log" 2>&1 &
+          observer=$!
+          trap 'kill "$observer" 2>/dev/null || true' EXIT
           old=b3cf7133dc0610b04417fb83cd5d6ef2214b0347
           if [[ "$BASE" == latest ]]; then old=9271c360f4519fc30887bbab7777c76970d4318f; fi
           test "$(git -C "$GITHUB_WORKSPACE/source" rev-parse "$TARGET_REF^{tree}")" = "$TARGET_TREE"
