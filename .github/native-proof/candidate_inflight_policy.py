@@ -16,12 +16,15 @@ def require_guard_status(actual, expected, held_state=None):
     assert actual == expected, (actual, expected)
 
 
-def require_config_preserved(before, after):
+def require_config_preserved(before, after, *, _root=True):
     if isinstance(before, dict):
         assert isinstance(after, dict)
         for key, value in before.items():
             assert key in after, f'missing config key {key}'
-            require_config_preserved(value, after[key])
+            if _root and key == '_config_version':
+                assert type(value) is int and type(after[key]) is int and after[key] >= value
+            else:
+                require_config_preserved(value, after[key], _root=False)
     else:
         assert type(before) is type(after) and before == after, (before, after)
 

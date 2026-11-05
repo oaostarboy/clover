@@ -41,3 +41,9 @@ def test_original_config_values_survive_new_defaults():
         require_config_preserved(before, {'terminal': {'cwd': '/other', 'backend': 'local'}, 'streaming': {'enabled': False}})
     with pytest.raises(AssertionError):
         require_config_preserved(before, {'terminal': {'cwd': '/fixture'}, 'streaming': {'enabled': False}})
+
+
+def test_config_schema_version_may_advance_but_never_regress():
+    require_config_preserved({'_config_version': 41, 'terminal': {'backend': 'local'}}, {'_config_version': 42, 'terminal': {'backend': 'local'}})
+    with pytest.raises(AssertionError):
+        require_config_preserved({'_config_version': 41}, {'_config_version': 40})

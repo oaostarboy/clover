@@ -621,7 +621,7 @@ def main(a):
         from candidate_inflight_policy import require_config_preserved
         config_after = call('config', 'config-after')
         require_config_preserved(config_before, config_after)
-        dump(evidence / 'config-preservation.json', dict(status='PASS', comparison='all original keys and values; new defaults allowed'))
+        dump(evidence / 'config-preservation.json', dict(status='PASS', comparison='original settings unchanged; new defaults and monotonic schema version allowed'))
         dump(evidence / 'inflight-after-successor.json', witness.verify(pending, home, effect, receiver))
         receipt = home / 'logs/update_receipts/latest.json'
         shutil.copy2(receipt, evidence / 'update-receipt.json')
