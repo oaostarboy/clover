@@ -464,7 +464,9 @@ def main(a):
         proof.check_receipt(read_json(receipt), began, a.old, a.target)
         from candidate_inflight_policy import require_guard_status
         expected_guard = 'legacy-proceed' if a.old == 'b3cf7133dc0610b04417fb83cd5d6ef2214b0347' else 'capable'
-        require_guard_status(read_json(receipt)['delivery_restart_guard']['status'], expected_guard)
+        guard_status = read_json(receipt).get('delivery_restart_guard', {}).get('status')
+        held_state = read_json(evidence / 'barrier-update-observation.json')['state']
+        require_guard_status(guard_status, expected_guard, held_state)
         assert not any((home / n).exists() for n in ('fleet_restart_pending', '.update-incomplete')), 'stale restart markers remain'
         shutil.copy2(service['path'], evidence / 'installed-after.plist')
         if large_lane:

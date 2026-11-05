@@ -421,6 +421,23 @@ def main(a):
         before = wait_for(initial, 180)
         threading.Thread(target=tracer,daemon=True).start()
         assert irc.joined.wait(60), 'installed gateway did not join local IRC'
+        # The old installation may launch its own asynchronous desktop build.
+        # Let it finish naturally before beginning a held turn; never bypass the
+        # updater's other-process guard or kill an owned process to force a pass.
+        if WINDOWS:
+            import psutil
+            from candidate_inflight_policy import desktop_build_processes
+            build_samples = []
+            clear = 0
+            deadline = time.monotonic() + 900
+            while clear < 3:
+                processes = [p.info for p in psutil.process_iter(['pid', 'cmdline'])]
+                active = desktop_build_processes(processes, source)
+                build_samples.append(dict(observed=time.time(), pids=active))
+                dump(evidence / 'desktop-build-quiescence.json', build_samples)
+                clear = 0 if active else clear + 1
+                assert time.monotonic() < deadline, 'old installation desktop build did not quiesce'
+                time.sleep(2)
         request('/api/sessions', {'id': 'native-inflight', 'title': 'native controlled turn'})
         received, errors = [], []
         def turn():
