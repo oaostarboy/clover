@@ -40,6 +40,11 @@ def _drained_status(home, pid, birth, requested):
         )
         if not owned:
             raise LifecycleRefused('Gateway status does not belong to the expected process')
+        from clover_cli.update_delivery_guard import CAPABILITY
+        if state.get('update_restart_capability') != CAPABILITY:
+            raise LifecycleRefused(
+                'Gateway delivery-through-ack drain is not established; '
+                'leave the running service untouched and finish its replies before maintenance')
         updated = datetime.fromisoformat(state['updated_at'])
         if updated.tzinfo is None:
             return False

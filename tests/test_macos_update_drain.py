@@ -15,7 +15,7 @@ def test_owned_drain_waits_for_reply_and_cleans_own_marker(tmp_path, monkeypatch
         ticks.append('status')
         return {
             'kind': 'clover-gateway', 'pid': 123, 'start_time': 'birth-123',
-            'clover_home': str(tmp_path), 'gateway_state': 'draining',
+            'clover_home': str(tmp_path), 'gateway_state': 'draining', 'update_restart_capability': 'reply-carriers-through-ack-v1',
             'active_agents': 1 if len(ticks) < 3 else 0,
             'updated_at': datetime.now(timezone.utc).isoformat(),
         }
@@ -40,7 +40,7 @@ def test_wrong_status_owner_refuses_and_releases_only_own_drain(tmp_path, monkey
     from clover_cli import macos_update_lifecycle as lifecycle
     from gateway.drain_control import drain_request_path
     state = {'kind': 'clover-gateway', 'pid': 123, 'start_time': 'birth',
-             'clover_home': str(tmp_path), 'gateway_state': 'draining',
+             'clover_home': str(tmp_path), 'gateway_state': 'draining', 'update_restart_capability': 'reply-carriers-through-ack-v1',
              'active_agents': 0, 'updated_at': datetime.now(timezone.utc).isoformat()}
     state.update(change)
     monkeypatch.setattr(lifecycle, '_birth', lambda pid: 'birth')
@@ -61,7 +61,7 @@ def test_missing_fresh_zero_work_ack_does_not_admit_mutation(tmp_path, monkeypat
     from gateway.drain_control import drain_request_path
     def status(home):
         state = {'kind': 'clover-gateway', 'pid': 123, 'start_time': 'birth',
-                 'clover_home': str(tmp_path), 'gateway_state': 'draining',
+                 'clover_home': str(tmp_path), 'gateway_state': 'draining', 'update_restart_capability': 'reply-carriers-through-ack-v1',
                  'active_agents': 0, 'updated_at': datetime.now(timezone.utc).isoformat()}
         state.update(change)
         return state
