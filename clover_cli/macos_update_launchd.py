@@ -267,6 +267,8 @@ def discover_services(root):
         if not found:
             continue
         domain, supervisor_pid = found[0]
+        if supervisor_pid is None:
+            raise LifecycleRefused('Loaded idle launchd registration cannot be safely replaced')
         try:
             data = plist.read_bytes()
             service = Service(root, home, label, domain, plist, data, True, None, None)
@@ -314,6 +316,10 @@ class LaunchdOperations:
         supervisor_pid = service.supervisor_pid if service.supervisor_pid is not None else service.pid
         if (loaded, pid) != (service.loaded, supervisor_pid):
             raise LifecycleRefused('launchd owner changed')
+        if loaded and pid is None:
+            raise LifecycleRefused(
+                'Loaded idle launchd registration has no provable live configuration; '
+                'refusing to unload or replace it')
         if pid is not None:
             _verify_owner(service, service.pid, service.birth, _process_table())
 

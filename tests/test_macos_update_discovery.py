@@ -55,11 +55,13 @@ def test_refuses_duplicate_domain(discovery):
     with pytest.raises(m.LifecycleRefused): m.discover_services(root)
 
 
-def test_no_pid_is_still_registered(discovery):
+def test_idle_registration_refuses_before_unloading(discovery):
     root, _, _, state = discovery
     state['domains']['gui'] = None; state['table'].clear()
-    service, = m.discover_services(root)
-    assert service.loaded and service.pid is None
+    with pytest.raises(m.LifecycleRefused, match='idle'):
+        m.discover_services(root)
+    # An idle job has no live process with which to verify loaded config.
+    assert state['domains'] == {'gui': None}
 
 
 def test_unmanaged_gateway_refuses(discovery):

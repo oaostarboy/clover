@@ -580,9 +580,10 @@ class TestCmdUpdateBranchFallback:
         captured = capsys.readouterr()
         assert "Already up to date!" not in captured.out
 
+    @pytest.mark.parametrize('node_failures', [[], ['web']])
     @patch("shutil.which", return_value=None)
     @patch("subprocess.run")
-    def test_git_node_refresh_is_inside_workspace_window(self, mock_run, _which, mock_args, monkeypatch):
+    def test_git_node_refresh_is_inside_workspace_window(self, mock_run, _which, mock_args, monkeypatch, node_failures, tmp_path):
         from contextlib import contextmanager
         from clover_cli import main as hm, update_cmd, macos_update_launchd
 
@@ -601,11 +602,26 @@ class TestCmdUpdateBranchFallback:
                 yield None
             finally:
                 events.append("restore")
-            raise SystemExit(0)  # Stop before any real post-build restart.
         def npm():
             assert events == ["enter"], "npm ran outside the lifecycle window"
             events.append("npm")
-            return []
+            return node_failures
+        marker_home = tmp_path / 'marker-home'
+        marker_home.mkdir()
+        monkeypatch.setattr(update_cmd, 'get_clover_home', lambda: marker_home)
+        write_marker = update_cmd._write_gateway_update_exit_code
+        def stop_after_marker(ok):
+            assert events[-1] == 'restore'
+            write_marker(ok)
+            raise SystemExit(0)  # Stop before live restart discovery.
+        monkeypatch.setattr(update_cmd, '_write_gateway_update_exit_code', stop_after_marker)
+        monkeypatch.setattr(update_cmd, '_check_and_apply_config_migration', lambda **kw: None)
+        monkeypatch.setattr(update_cmd, '_print_curator_first_run_notice', lambda: None)
+        monkeypatch.setattr(update_cmd, '_print_curator_recent_run_notice', lambda: None)
+        monkeypatch.setattr('tools.skills_sync.sync_skills', lambda **kw: dict(
+            copied=[], updated=[], user_modified=[], cleaned=[], relocated=[]))
+        monkeypatch.setattr('clover_cli.profiles.seed_profile_skills', lambda *a, **kw: dict(
+            copied=[], updated=[], user_modified=[]))
         monkeypatch.setattr(macos_update_launchd, "darwin_workspace_window", window)
         monkeypatch.setattr(update_cmd, "_update_node_dependencies", npm)
         monkeypatch.setattr(update_cmd, "_rebuild_desktop_after_update", lambda *a, **k: events.append("desktop") or True)
@@ -624,9 +640,10 @@ class TestCmdUpdateBranchFallback:
         monkeypatch.setattr(hm, "_refresh_active_lazy_features", lambda *a, **k: True)
         monkeypatch.setattr(update_cmd, "_validate_critical_modules_import", lambda *a: (True, None, None))
         with pytest.raises(SystemExit) as result:
-            cmd_update(mock_args)
+            update_cmd._cmd_update_impl(mock_args, gateway_mode=True)
         assert result.value.code == 0
         assert events == ["enter", "npm", "web", "desktop", "restore"]
+        assert (marker_home / '.update_exit_code').read_text() == ('1' if node_failures else '0')
 
     def test_update_non_interactive_runs_safe_config_migrations(self, mock_args, capsys):
         """Dashboard/web updates apply non-interactive migrations before restart."""

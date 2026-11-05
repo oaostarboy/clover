@@ -10410,11 +10410,11 @@ def _cmd_update_impl(args, gateway_mode: bool):
         #
         # Writing the marker here — after git pull + pip install succeed but
         # before we attempt the restart — ensures the new gateway sees it
-        # regardless of how we die. Gated on desktop_build_ok (#88251): a
-        # Desktop rebuild failure must not be reported as "0" — the gateway's
+        # regardless of how we die. Both Node refresh and Desktop must pass:
+        # a dependency/build failure must not be reported as "0" — the gateway's
         # /update watcher (gateway/run.py) polls this file.
         if gateway_mode:
-            _write_gateway_update_exit_code(desktop_build_ok)
+            _write_gateway_update_exit_code(desktop_build_ok and not node_failures)
 
         gateway_fleet_restart_incomplete = False
         gateway_restart_phase_errors: list[str] = []
