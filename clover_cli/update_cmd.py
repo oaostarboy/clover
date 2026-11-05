@@ -8592,7 +8592,11 @@ def _cmd_update_impl(args, gateway_mode: bool):
     restore stdio even on ``sys.exit``."""
     _macos_restored_services.clear()
     from clover_cli.update_delivery_guard import require_delivery_safe_update
-    require_delivery_safe_update()
+    from clover_cli._migration_target import target_root
+    if target_root() is not None:
+        require_delivery_safe_update(strict=True)
+    else:
+        require_delivery_safe_update()
 
     # A managed-runtime refresh can replace site-packages before the normal
     # ``.[all]`` install runs. Snapshot while the old environment can still
@@ -9124,16 +9128,16 @@ def _cmd_update_impl(args, gateway_mode: bool):
         if swept:
             print("  (removed %d aborted-fetch pack temp file(s))" % len(swept))
 
-        print("→ Fetching updates...")
-        fetch_result = _fetch_branch_tracking(
-            git_cmd, _m().PROJECT_ROOT, "origin", branch
-        )
-        if fetch_result.returncode != 0:
-            _print_fetch_failure(fetch_result.stderr)
-            sys.exit(1)
-
-        from clover_cli._migration_target import verified_fetch_ref
-        _staged_fetch_commit = verified_fetch_ref(branch)
+        from clover_cli._migration_target import prepared_staged_commit
+        _staged_fetch_commit = prepared_staged_commit()
+        if _staged_fetch_commit is None:
+            print("→ Fetching updates...")
+            fetch_result = _fetch_branch_tracking(
+                git_cmd, _m().PROJECT_ROOT, "origin", branch
+            )
+            if fetch_result.returncode != 0:
+                _print_fetch_failure(fetch_result.stderr)
+                sys.exit(1)
 
         # Get current branch (returns literal "HEAD" when detached)
         result = subprocess.run(
@@ -9302,7 +9306,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # 0), so keep it, but treat the shallow NUMBER as unknown and recover
         # the real one via the GitHub compare API when possible.
         result = subprocess.run(
-            git_cmd + ["rev-list", f"HEAD..origin/{branch}", "--count"],
+            git_cmd + ["rev-list", f"HEAD..{_staged_fetch_commit or f'origin/{branch}'}", "--count"],
             cwd=_m().PROJECT_ROOT,
             capture_output=True,
             text=True, encoding="utf-8", errors="replace",
@@ -9321,7 +9325,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             ).stdout.strip()
             == "true"
         )
-        if commit_count > 0 and apply_is_shallow:
+        if commit_count > 0 and apply_is_shallow and _staged_fetch_commit is None:
             from clover_cli.banner import _github_compare_behind
 
             head_sha = subprocess.run(
@@ -9352,7 +9356,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # Non-fork checkouts have no upstream question: origin IS the official
         # repo, so "Already up to date!" is fully verified there.
         upstream_checked = True
-        if commit_count == 0 and is_fork and branch == "main":
+        if commit_count == 0 and is_fork and branch == "main" and _staged_fetch_commit is None:
             pre_sync_sha = _capture_head_sha(git_cmd, _m().PROJECT_ROOT)
             upstream_checked = _m()._sync_with_upstream_if_needed(
                 git_cmd,
@@ -9873,7 +9877,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         _m()._refresh_bootstrap_cache_scripts(branch)
 
         # Fork upstream sync logic (only for main branch on forks)
-        if is_fork and branch == "main":
+        if is_fork and branch == "main" and _staged_fetch_commit is None:
             _m()._sync_with_upstream_if_needed(
                 git_cmd,
                 _m().PROJECT_ROOT,

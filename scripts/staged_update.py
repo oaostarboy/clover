@@ -53,7 +53,7 @@ def main(argv=None):
         # Eliminate inherited Git/Python startup controls. Every Git subprocess,
         # including ordinary updater calls, inherits these command-scope settings.
         for key in list(os.environ):
-            if key.startswith(('GIT_', 'PYTHON', 'LD_', 'DYLD_')):
+            if key.startswith(('GIT_', 'PYTHON', 'LD_', 'DYLD_', 'CLOVER_UPDATE_')):
                 os.environ.pop(key, None)
         os.environ.update({'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
                            'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_TERMINAL_PROMPT': '0',

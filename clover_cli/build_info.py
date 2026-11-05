@@ -106,17 +106,24 @@ def _resolve_git_head_sha(project_root: Path) -> Optional[str]:
     return None
 
 
-def _resolve_code_identity() -> dict:
-    """Read the checkout's code identity from disk right now (no caching)."""
+def _resolve_code_identity(project_root: Optional[Path] = None) -> dict:
+    """Read an explicitly selected checkout's identity without caching."""
     sha: Optional[str] = None
     source = "unknown"
-    project_root = _PROJECT_ROOT
+    supplied_root = project_root is not None
+    project_root = Path(project_root) if supplied_root else _PROJECT_ROOT
     resolved = _resolve_git_head_sha(project_root)
     if resolved:
         sha = resolved
         source = "git"
     if sha is None:
-        baked = get_build_sha(short=0)
+        if supplied_root:
+            try:
+                baked = (project_root / '.clover_build_sha').read_text(encoding='utf-8').strip() or None
+            except (OSError, UnicodeError):
+                baked = None
+        else:
+            baked = get_build_sha(short=0)
         if baked:
             sha = baked
             source = "build-file"
@@ -137,6 +144,11 @@ def _resolve_code_identity() -> dict:
         "version": version,
         "source": source,
     }
+
+
+def checkout_identity(project_root: Path) -> dict:
+    """Return the on-disk identity of a specific checkout, uncached."""
+    return _resolve_code_identity(project_root)
 
 
 def get_code_identity(refresh: bool = False) -> dict:

@@ -58,6 +58,14 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _installation_identity(*, refresh: bool = False) -> dict:
+    from clover_cli._migration_target import target_root
+    from clover_cli.build_info import checkout_identity, get_code_identity
+
+    root = target_root()
+    return checkout_identity(root) if root is not None else get_code_identity(refresh=refresh)
+
+
 class UpdateReceipt:
     """Collects the observable facts of one ``clover update`` run."""
 
@@ -77,9 +85,7 @@ class UpdateReceipt:
             "fleet": [],
         }
         try:
-            from clover_cli.build_info import get_code_identity
-
-            self.data["pre_update"] = get_code_identity()
+            self.data["pre_update"] = _installation_identity()
         except Exception:
             pass
 
@@ -144,9 +150,7 @@ class UpdateReceipt:
         self.data["outcome"] = outcome
         self.data["finished_at"] = _utc_now_iso()
         try:
-            from clover_cli.build_info import get_code_identity
-
-            self.data["post_update"] = get_code_identity(refresh=True)
+            self.data["post_update"] = _installation_identity(refresh=True)
         except Exception:
             pass
 
@@ -513,9 +517,7 @@ def collect_fleet_versions(
     _pre_restart = {int(p) for p in (pre_restart_pids or []) if isinstance(p, int)}
     results: list[dict[str, Any]] = []
     try:
-        from clover_cli.build_info import get_code_identity
-
-        expected_sha = (get_code_identity(refresh=True) or {}).get("sha")
+        expected_sha = (_installation_identity(refresh=True) or {}).get("sha")
     except Exception:
         expected_sha = None
 

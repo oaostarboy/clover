@@ -185,9 +185,11 @@ def collect_runtime_inventory() -> UpdatePlan:
 
     # --- expected code identity (pre-pull) --------------------------------
     try:
-        from clover_cli.build_info import get_code_identity
+        from clover_cli.build_info import checkout_identity, get_code_identity
+        from clover_cli._migration_target import target_root
 
-        identity = get_code_identity(refresh=True)
+        root = target_root()
+        identity = checkout_identity(root) if root is not None else get_code_identity(refresh=True)
         plan.expected_sha = identity.get("sha")
         plan.expected_version = identity.get("version")
     except Exception as exc:

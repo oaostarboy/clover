@@ -10875,19 +10875,26 @@ def cmd_update(args):
     # None = not a SystemExit-shaped outcome; real exceptions keep the
     # normal raise path so their traceback still prints.
     _update_handoff_exit_code: int | None = None
+    _staged_bound = False
     try:
-        from clover_cli._migration_target import revalidate_target
+        from clover_cli._migration_target import revalidate_target, target_root
+        _staged_bound = target_root() is not None
         revalidate_target()
         # Read-only pre-check BEFORE the updater changes anything (no pause,
         # backup, stash or pull has happened yet): on a block, explain why in
         # plain words and exit 2 ("declined, nothing changed"). Skipped in the
         # Windows hand-off child, which continues an update already under way.
-        if os.environ.get(_UPDATE_REEXEC_ENV) != "1":
+        if target_root() is not None or os.environ.get(_UPDATE_REEXEC_ENV) != "1":
             from clover_cli import update_preflight as _preflight
 
             _pf_report = _preflight.gate_cli_update(args, gateway_mode=gateway_mode)
             if _pf_report is not None and _pf_report.blocked:
                 sys.exit(_preflight.PREFLIGHT_EXIT_BLOCKED)
+        if _staged_bound:
+            from clover_cli.update_delivery_guard import require_delivery_safe_update
+            from clover_cli._migration_target import prepare_staged_fetch
+            require_delivery_safe_update(strict=True)
+            prepare_staged_fetch(_resolve_update_branch(args))
         _self()._cmd_update_impl(args, gateway_mode=gateway_mode)
     except SystemExit as _update_exit:
         # Receipt boundary (#91283 review): the impl has many early
@@ -10957,7 +10964,8 @@ def cmd_update(args):
         # — the same treatment #79040's cron workaround applies. No-op on
         # every non-hand-off invocation: the marker env is set solely by
         # _reexec_dependency_sync_off_windows_shim when it spawns the child.
-        if _update_handoff_exit_code is not None and os.environ.get(_UPDATE_REEXEC_ENV) == "1":
+        if (_update_handoff_exit_code is not None and not _staged_bound
+                and os.environ.get(_UPDATE_REEXEC_ENV) == "1"):
             logger.debug(
                 "Update hand-off child %s exiting via os._exit(%s)",
                 os.getpid(), _update_handoff_exit_code,

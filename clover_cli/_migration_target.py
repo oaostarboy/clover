@@ -12,6 +12,7 @@ import threading
 
 _target = None
 _identities = None
+_prepared_commit = None
 _lock = threading.Lock()
 
 
@@ -53,6 +54,31 @@ def verified_fetch_ref(branch):
     if git('merge-base', '--is-ancestor', 'HEAD', stage_commit).returncode:
         raise ValueError('staged migration requires a fast-forward')
     return stage_commit
+
+
+def prepare_staged_fetch(branch):
+    """Fetch and pin the selected staged commit under the caller's update lock."""
+    global _prepared_commit
+    if _identities is None or branch != 'main':
+        raise ValueError('staged migration requires a bound target on main')
+    target = _identities[1]
+    result = subprocess.run(
+        ['git', '-C', str(target), 'fetch', 'origin',
+         '+refs/heads/main:refs/remotes/origin/main'],
+        text=True, capture_output=True, stdin=subprocess.DEVNULL, check=False,
+    )
+    if result.returncode:
+        raise ValueError('staged fetch failed: ' + result.stderr.strip())
+    _prepared_commit = verified_fetch_ref(branch)
+    return _prepared_commit
+
+
+def prepared_staged_commit():
+    if _identities is None:
+        return None
+    if _prepared_commit is None:
+        raise ValueError('staged source has not been prepared')
+    return _prepared_commit
 
 
 def _physical_root(root):
@@ -104,7 +130,7 @@ def bind_target(stage, target, expected_stage_commit, expected_target_commit):
     Identities must come from a trusted caller, never from the checkout itself.
     Nested or concurrent bindings are rejected, even to the same target.
     """
-    global _target, _identities
+    global _target, _identities, _prepared_commit
     if not _lock.acquire(blocking=False):
         raise RuntimeError('a migration target is already bound')
     try:
@@ -121,5 +147,6 @@ def bind_target(stage, target, expected_stage_commit, expected_target_commit):
         finally:
             _target = None
             _identities = None
+            _prepared_commit = None
     finally:
         _lock.release()

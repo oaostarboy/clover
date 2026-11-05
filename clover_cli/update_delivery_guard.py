@@ -279,7 +279,7 @@ def _unsafe_gateways() -> list[str]:
     return reasons
 
 
-def require_delivery_safe_update() -> dict:
+def require_delivery_safe_update(*, strict: bool = False) -> dict:
     """Permit missing legacy capability only after positive owner validation.
 
     Released callers may ignore the return value. Unknown identity still exits
@@ -290,7 +290,7 @@ def require_delivery_safe_update() -> dict:
         reasons = _unsafe_gateways()
     except Exception:
         defer_unsafe_restart('Gateway discovery could not establish runtime ownership.')
-    unsafe = [reason for reason in reasons if not reason.startswith('legacy: ')]
+    unsafe = reasons if strict else [reason for reason in reasons if not reason.startswith('legacy: ')]
     if unsafe:
         defer_unsafe_restart('; '.join(unsafe))
     status = 'legacy-proceed' if reasons else 'capable'
