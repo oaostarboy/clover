@@ -1,7 +1,7 @@
 name: Windows repair fresh installed proof
 on:
   push:
-    branches: [ci/windows-report-stackdiag-ce418d93]
+    branches: [ci/windows-installed-timings-bounded]
 permissions:
   contents: read
 env:

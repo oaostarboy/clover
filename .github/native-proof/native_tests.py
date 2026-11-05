@@ -166,31 +166,13 @@ def main():
     # python/python3 grammar. Resolve bare python to this disposable venv.
     test_env = {**os.environ, 'CLOVER_TEST_FILE_RETRIES': '0',
                 'PATH': str(Path(sys.executable).parent) + os.pathsep + os.environ.get('PATH', '')}
-    # Diagnostic overlay only: the original source remains pinned, but this
-    # temporary fixture suppresses an unrelated host toolchain subprocess.
-    # Preserve both bytes in evidence; this is not an immutable-source pass.
-    fixture = args.repo / 'tests/gateway/test_workstream_acceptance.py'
-    original = fixture.read_bytes()
-    newline = b'\r\n' if b'def isolated_terminal_owner():\r\n' in original else b'\n'
-    needle = b'def isolated_terminal_owner():' + newline
-    assert original.count(needle) == 1
-    replacement = (b'def isolated_terminal_owner(monkeypatch):' + newline +
-                   b'    monkeypatch.setattr("tools.env_probe.get_environment_probe_line", lambda **_kw: "")' + newline)
-    fixture.write_bytes(original.replace(needle, replacement))
-    (args.evidence / 'report-fixture-original.py').write_bytes(original)
-    (args.evidence / 'report-fixture-overlay.py').write_bytes(fixture.read_bytes())
-    # Each child writes its own timed Python stacks directly to evidence;
-    # the canonical per-file runner otherwise buffers its stdout until exit.
+    # Copy observation-only plugin into disposable installed source; never
+    # replace or alter fixture bytes or production modules on disk.
     plugin = args.repo / 'report_diag_plugin.py'
-    destination = str(args.evidence.resolve())
-    plugin.write_text(
-        'import faulthandler, os\n'
-        '_stream = open(os.path.join(' + repr(destination) + ', "child-stacks-%s.log" % os.getpid()), "w")\n'
-        'def pytest_configure(config):\n'
-        '    faulthandler.dump_traceback_later(30, repeat=True, file=_stream)\n'
-        'def pytest_unconfigure(config):\n'
-        '    faulthandler.cancel_dump_traceback_later()\n'
-        '    _stream.close()\n', encoding='utf-8')
+    if plugin.exists():
+        raise FileExistsError(plugin)
+    shutil.copyfile(Path(__file__).with_name('report_timing_plugin.py'), plugin)
+    test_env['REPORT_TIMING_DIR'] = str(args.evidence.resolve())
     suites = {'report-only': SUITES['report-only']}
     results = []
     failed = False
@@ -219,7 +201,6 @@ def main():
         results.append(result)
         (args.evidence / 'native-suites.json').write_text(json.dumps(results, indent=2))
         print(json.dumps(result), flush=True)
-    fixture.write_bytes(original)
     plugin.unlink(missing_ok=True)
     raise SystemExit(1 if failed else 0)
 
