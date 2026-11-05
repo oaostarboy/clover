@@ -42,6 +42,32 @@ def rig(tmp_path, monkeypatch):
     return m.LaunchdOperations(), service, state, status
 
 
+@pytest.mark.parametrize('change', ['pid', 'birth', 'plist', 'home', 'domain'])
+def test_dedup_receipt_revalidates_real_adapter(rig, monkeypatch, change):
+    from clover_cli import update_cmd as update
+    ops, service, state, status = rig
+    service = replace(service, supervisor_pid=service.pid, supervisor_birth=service.birth)
+    monkeypatch.setattr(update._m(), 'PROJECT_ROOT', service.installation_root)
+    monkeypatch.setattr(update, '_macos_restored_services', {service.label: service})
+    assert update._macos_service_already_restored(service.label)
+    if change == 'pid':
+        state['pid'] = 121
+    elif change == 'birth':
+        state['processes'][120] = replace(state['processes'][120], birth=9999)
+    elif change == 'plist':
+        service.plist.write_bytes(b'changed')
+    elif change == 'home':
+        state['processes'][120] = replace(state['processes'][120], env={'CLOVER_HOME': '/wrong'})
+    else:
+        original = m._launchctl
+        def wrong_domain(*args):
+            if args[0] == 'print':
+                return m.CommandResult(113, '', 'Could not find service')
+            return original(*args)
+        monkeypatch.setattr(m, '_launchctl', wrong_domain)
+    assert not update._macos_service_already_restored(service.label)
+
+
 def test_validate_and_exact_bootout(rig):
     ops, service, state, _ = rig
     ops.validate(service)

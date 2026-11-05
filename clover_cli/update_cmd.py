@@ -4338,19 +4338,44 @@ def _record_npm_lockfile_hash(clover_root: Path) -> None:
     except OSError:
         logger.debug("Could not write npm lockfile hash cache")
 
+_macos_restored_services = {}
+
+
+def _macos_service_already_restored(label):
+    """Revalidate the exact successor before omitting a second restart."""
+    service = _macos_restored_services.get(label)
+    if service is None:
+        return False
+    try:
+        if (service.label != label or _m().PROJECT_ROOT.resolve() != service.installation_root
+                or not service.loaded or not service.home or not service.domain
+                or not service.pid or service.pid <= 0 or not service.birth
+                or not service.supervisor_pid or service.supervisor_pid <= 0
+                or not service.supervisor_birth):
+            return False
+        from clover_cli.macos_update_launchd import LaunchdOperations
+        LaunchdOperations().validate(service)
+        return True
+    except Exception:
+        return False
+
+
 def _refresh_node_artifacts(had_desktop_app_before_update, *, skip_build_on_node_failure=False):
     """Refresh workspace artifacts while verified Darwin services are quiescent."""
     from clover_cli.macos_update_launchd import darwin_workspace_window
 
-    with darwin_workspace_window(_m().PROJECT_ROOT):
+    with darwin_workspace_window(_m().PROJECT_ROOT) as operations:
         node_failures = _update_node_dependencies()
         if node_failures and skip_build_on_node_failure:
-            return node_failures, False
-        _m()._build_web_ui(_m().PROJECT_ROOT / "web")
-        desktop_build_ok = _rebuild_desktop_after_update(
-            _m().PROJECT_ROOT / "apps" / "desktop",
-            had_desktop_app_before_update=had_desktop_app_before_update,
-        )
+            desktop_build_ok = False
+        else:
+            _m()._build_web_ui(_m().PROJECT_ROOT / "web")
+            desktop_build_ok = _rebuild_desktop_after_update(
+                _m().PROJECT_ROOT / "apps" / "desktop",
+                had_desktop_app_before_update=had_desktop_app_before_update,
+            )
+    if operations is not None:
+        _macos_restored_services.update((s.label, s) for s in operations.restored.values())
     return node_failures, desktop_build_ok
 
 
@@ -7385,17 +7410,22 @@ def _restart_macos_launchd_gateways(
         wait_for_launchd_gateway_supervision,
     )
 
-    # --- Current profile: unchanged single-service path ---------------------
-    _restarted, _failed = _restart_launchd_gateway_after_update(
-        supervision_verify=True
-    )
-    restarted_services.extend(_restarted)
-    failed_or_stale_units.extend(_failed)
     current_label = get_launchd_label()
+    if _macos_service_already_restored(current_label):
+        restarted_services.append(current_label)
+    else:
+        _restarted, _failed = _restart_launchd_gateway_after_update(
+            supervision_verify=True
+        )
+        restarted_services.extend(_restarted)
+        failed_or_stale_units.extend(_failed)
 
     # --- Sibling profiles ---------------------------------------------------
     for label in launchd_gateway_labels_for_install():
         if label == current_label:
+            continue
+        if _macos_service_already_restored(label):
+            restarted_services.append(label)
             continue
         try:
             # Locate = liveness + domain in one domain-explicit probe; the
@@ -8548,6 +8578,7 @@ def _rebuild_desktop_after_update(
 def _cmd_update_impl(args, gateway_mode: bool):
     """Body of ``cmd_update`` — kept separate so the wrapper can always
     restore stdio even on ``sys.exit``."""
+    _macos_restored_services.clear()
     from clover_cli.update_delivery_guard import require_delivery_safe_update
     require_delivery_safe_update()
 
