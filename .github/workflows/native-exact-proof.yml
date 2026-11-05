@@ -1,7 +1,7 @@
-name: Bounded Windows receipt crash diagnostic
+name: Bounded Windows native exception capture
 on:
   push:
-    branches: [ci/windows-permissions-crash-ab]
+    branches: [ci/windows-native-debug-bounded]
 permissions:
   contents: read
 jobs:
@@ -16,11 +16,11 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.11.9'
-      - name: Install baseline source and exact dependencies
+      - name: Install frozen baseline
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $out = Join-Path $env:RUNNER_TEMP 'crash-probe'; New-Item -ItemType Directory -Force $out | Out-Null
+          $out=Join-Path $env:RUNNER_TEMP 'crash-probe'; New-Item -ItemType Directory -Force $out | Out-Null
           git worktree add --detach "$env:RUNNER_TEMP/base" ce418d930a933b8ce19ea633b33031751b6e049a
           if ($LASTEXITCODE -ne 0) { throw 'checkout failed' }
           python -m pip install -r .github/windows-crash-dependencies.txt
@@ -31,52 +31,47 @@ jobs:
           python -m pip freeze | Out-File "$out/dependencies.txt"
           python -VV 2>&1 | Out-File "$out/python.txt"
           git rev-parse HEAD | Out-File "$out/source.txt"
-          python -c "import inspect,_pytest.faulthandler; print(inspect.getsource(_pytest.faulthandler))" | Out-File "$out/pytest-faulthandler.txt"
           Pop-Location
-      - name: Controlled timeout comparison with scoped WER dumps
+      - name: Check and provision Microsoft Sysinternals ProcDump
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           $out=Join-Path $env:RUNNER_TEMP 'crash-probe'
-          $source=Join-Path $env:RUNNER_TEMP 'base'
-          $env:PYTHONPATH=$source; $env:PYTHONFAULTHANDLER='1'; $env:CLOVER_SAFE_MODE='1'; $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
-          $key='HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\python.exe'
-          $reg='HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\python.exe'
-          $backup=Join-Path $env:RUNNER_TEMP 'python-dumps-backup.reg'
-          $existed=Test-Path $key; $configured=$false; $mayRestore=$false
-          try {
-            try {
-              if ($existed) { & reg.exe export $reg $backup /y | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'registry backup failed' } }
-              $mayRestore=$true
-              New-Item -Path $key -Force | Out-Null
-              New-ItemProperty -Path $key -Name DumpFolder -PropertyType ExpandString -Value "$env:RUNNER_TEMP\owned-dumps" -Force | Out-Null
-              New-ItemProperty -Path $key -Name DumpType -PropertyType DWord -Value 1 -Force | Out-Null
-              New-ItemProperty -Path $key -Name DumpCount -PropertyType DWord -Value 4 -Force | Out-Null
-              New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\owned-dumps" | Out-Null
-              $configured=$true
-            } catch { "WER setup unavailable: $_" | Out-File "$out/wer-setup-error.txt" }
-            Push-Location $source
-            foreach ($timeout in @(30,0)) {
-              $name="timer-$timeout"; $env:CLOVER_HOME=Join-Path $env:RUNNER_TEMP "home-$name"
-              New-Item -ItemType Directory -Force $env:CLOVER_HOME | Out-Null
-              $start=Get-Date
-              $args_=@('-m','pytest','-p','pytest_asyncio.plugin','tests/clover_cli/test_windows_update_receipt_handoff.py::test_immutable_legacy_publisher_uses_proven_parent_phase_not_child_clock_tick','-vv','-s','--durations=0','-o',"faulthandler_timeout=$timeout")
-              $p=Start-Process -FilePath (Get-Command python).Source -ArgumentList $args_ -RedirectStandardOutput "$out/$name.log" -RedirectStandardError "$out/$name.err" -PassThru -NoNewWindow
-              if (-not $p.WaitForExit(600000)) { & taskkill /PID $p.Id /T /F | Out-Null; $rc=124 } else { $rc=$p.ExitCode }
-              @{case=$name; pid=$p.Id; exit=$rc; start=$start.ToUniversalTime().ToString('o'); end=(Get-Date).ToUniversalTime().ToString('o'); wer=$configured} | ConvertTo-Json -Compress | Add-Content "$out/results.jsonl"
-              try { Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$start; Id=1000,1001} -ErrorAction Stop | Where-Object { $_.Message -match "python.exe" -and ($_.Message -match "(?i)(0x$($p.Id.ToString('x'))\b|\b$($p.Id)\b)") } | Format-List TimeCreated,Id,ProviderName,Message | Out-File "$out/$name-events.txt" } catch { "No matching application events: $_" | Out-File "$out/$name-events.txt" }
-              Get-ChildItem "$env:RUNNER_TEMP\owned-dumps" -Filter "python.exe.$($p.Id).dmp" -ErrorAction SilentlyContinue | Copy-Item -Destination $out
-            }
-            Pop-Location
-            Get-Command cdb,windbg,procdump -ErrorAction SilentlyContinue | Select-Object Name,Source | Out-File "$out/debug-tools.txt"
-          } finally {
-            if ($mayRestore -and (Test-Path $key)) { Remove-Item $key -Recurse -Force }
-            if ($mayRestore -and $existed -and (Test-Path $backup)) { & reg.exe import $backup | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'registry restore failed' } }
+          Get-Command procdump,procdump64,cdb -ErrorAction SilentlyContinue | Select-Object Name,Source | Out-File "$out/debugger-before.txt"
+          $p=Get-Command procdump64,procdump -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $p) {
+            choco install procdump --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'ProcDump installation failed' }
+            $p=Get-Command procdump64,procdump -ErrorAction SilentlyContinue | Select-Object -First 1
           }
+          if (-not $p) { throw 'ProcDump not on PATH after install' }
+          $p.Source | Out-File "$out/procdump-path.txt"
+          "PROCDUMP_PATH=$($p.Source)" | Out-File $env:GITHUB_ENV -Append
+          $candidates=@('C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe','C:\Program Files\Windows Kits\10\Debuggers\x64\cdb.exe')
+          $candidates | ForEach-Object { "$_ : $(Test-Path $_)" } | Out-File "$out/cdb-availability.txt"
+      - name: Compare timer with scoped process capture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'crash-probe'; $source=Join-Path $env:RUNNER_TEMP 'base'
+          $env:PYTHONPATH=$source; $env:PYTHONFAULTHANDLER='1'; $env:CLOVER_SAFE_MODE='1'; $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
+          Push-Location $source
+          foreach ($timeout in @(30,0)) {
+            $name="timer-$timeout"; $env:CLOVER_HOME=Join-Path $env:RUNNER_TEMP "home-$name"
+            $dump=Join-Path $out "dumps-$name"; New-Item -ItemType Directory -Force $env:CLOVER_HOME,$dump | Out-Null
+            $args_=@('-accepteula','-e','-ma','-x',$dump,(Get-Command python).Source,'-m','pytest','-p','pytest_asyncio.plugin','tests/clover_cli/test_windows_update_receipt_handoff.py::test_immutable_legacy_publisher_uses_proven_parent_phase_not_child_clock_tick','-vv','-s','--durations=0','-o',"faulthandler_timeout=$timeout")
+            $start=Get-Date
+            $p=Start-Process -FilePath $env:PROCDUMP_PATH -ArgumentList $args_ -RedirectStandardOutput "$out/$name.log" -RedirectStandardError "$out/$name.err" -PassThru -NoNewWindow
+            if (-not $p.WaitForExit(600000)) { & taskkill /PID $p.Id /T /F | Out-Null; $rc=124 } else { $rc=$p.ExitCode }
+            @{case=$name; debugger_pid=$p.Id; exit=$rc; start=$start.ToUniversalTime().ToString('o'); end=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json -Compress | Add-Content "$out/results.jsonl"
+            $cdb=@('C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe','C:\Program Files\Windows Kits\10\Debuggers\x64\cdb.exe') | Where-Object {Test-Path $_} | Select-Object -First 1
+            if ($cdb) { Get-ChildItem $dump -Filter '*.dmp' | ForEach-Object { & $cdb -z $_.FullName -c '.ecxr; r; kv; lm; q' 2>&1 | Out-File "$out/$name-native.txt" } }
+          }
+          Pop-Location
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: windows-crash-diagnostic
+          name: windows-native-exception-evidence
           path: ${{ runner.temp }}/crash-probe/
           if-no-files-found: error
           retention-days: 7
