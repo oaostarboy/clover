@@ -39,6 +39,8 @@ def finish(item, timeout=320):
 old = root / 'baseline'
 shutil.copy(root / 'source/tests/agent/test_handoff_windows_permissions.py', old / 'tests/agent/test_windows_repair_probe.py')
 results = [finish(launch('old-red', ['tests/agent/test_windows_repair_probe.py'] + common, old), 90)]
+shutil.copy(root / 'helper/.github/native-proof/test_windows_handoff_native_probe.py', root / 'source/tests/agent/test_windows_handoff_native_probe.py')
+results.append(finish(launch('native-security', ['tests/agent/test_windows_handoff_native_probe.py'] + common, root / 'source'), 90))
 items = [launch(f'parallel-{i+1}', ['tests/gateway/test_workstream_acceptance.py', '-k', s] + common, root / 'source') for i,s in enumerate(selector)]
 results.extend(finish(item, 320) for item in items)
 (out/'results.json').write_text(json.dumps(results, indent=2))
