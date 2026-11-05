@@ -2345,7 +2345,7 @@ def _update_via_zip(args, *, had_desktop_app_before_update: bool = False) -> boo
         )
     except Exception as _receipt_exc:
         logger.debug("Update receipt finalize (zip path) failed: %s", _receipt_exc)
-    return desktop_build_ok
+    return desktop_build_ok and not node_failures
 
 def _stash_local_changes_if_needed(git_cmd: list[str], cwd: Path) -> Optional[str]:
     status = subprocess.run(
