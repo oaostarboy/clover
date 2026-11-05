@@ -4,6 +4,8 @@ No signals, forced kills, plist regeneration or detached restart fallback.
 OS seams stay small so ownership decisions run unchanged in portable tests.
 """
 from dataclasses import dataclass, replace
+from contextlib import contextmanager
+import sys
 import json
 import os
 from pathlib import Path
@@ -138,8 +140,10 @@ def _registration(service):
     path = re.search(r'^\s*path = (.+)$', result.stdout, re.M)
     if not path or Path(path[1]).resolve() != service.plist:
         raise LifecycleRefused('launchd plist identity differs')
-    pid = re.search(r'^\s*pid = (\d+)\s*$', result.stdout, re.M)
-    return True, int(pid[1]) if pid else None
+    matches = re.findall(r'^\s*pid = (\d+)\s*$', result.stdout, re.M)
+    if (len(matches) > 1 or (not matches and re.search(r'^\s*pid\s*=', result.stdout, re.M))):
+        raise LifecycleRefused('Ambiguous launchd PID')
+    return True, int(matches[0]) if matches else None
 
 
 def _verify_plist(service):
@@ -209,8 +213,97 @@ def _collect_children(table, seeds):
         found.update(descendants)
 
 
+def _possible_install_gateway(process, root):
+    """Classification for refusal is broader than admission's exact grammar.
+
+    An unsupported gateway flag must never turn an unowned runtime into an
+    apparently unrelated process. This grants no authority to signal it.
+    """
+    argv = process.argv
+    if not argv:
+        if process.cwd is not None and _inside(process.cwd, root):
+            raise LifecycleRefused('Unmanaged process command is unavailable')
+        return False
+    names = {Path(arg).name for arg in argv}
+    clover = bool(names & {'clover', 'cli.py', 'clover_cli.main',
+                          'clover_cli.stderr_timestamp'})
+    gateway = any(argv[i:i + 2] == ('gateway', 'run')
+                  for i in range(len(argv) - 1))
+    if not clover or not gateway:
+        return False
+    executable = Path(argv[0])
+    install_bound = (executable.is_absolute() and _inside(executable.parent, root))
+    return install_bound or (process.cwd is not None and _inside(process.cwd, root))
+
+
+def discover_services(root):
+    """Snapshot only launchd jobs whose profile, command and owner are proven."""
+    from clover_cli.gateway import get_launchd_plist_path, launchd_gateway_labels_for_install
+    from clover_cli.profiles import list_profiles
+
+    root = Path(root).resolve()
+    labels = launchd_gateway_labels_for_install()
+    profiles = list_profiles()
+    homes = {('ai.clover.gateway' if p.is_default else 'ai.clover.gateway-' + p.name):
+             Path(p.path).resolve() for p in profiles}
+    if len(homes) != len(profiles) or len(labels) != len(set(labels)):
+        raise LifecycleRefused('Ambiguous profile mapping')
+    table = _process_table()
+    services = []
+    owned = set()
+    for label in labels:
+        if label not in homes:
+            raise LifecycleRefused('Unknown service profile')
+        plist = (get_launchd_plist_path().parent / (label + '.plist')).resolve()
+        home = homes[label]
+        found = []
+        for domain in (f'gui/{os.getuid()}', f'user/{os.getuid()}'):
+            probe = Service(root, home, label, domain, plist, b'', False, None, None)
+            loaded, pid = _registration(probe)
+            if loaded:
+                found.append((domain, pid))
+        if len(found) > 1:
+            raise LifecycleRefused('Service registered in multiple domains')
+        if not found:
+            continue
+        domain, supervisor_pid = found[0]
+        try:
+            data = plist.read_bytes()
+            service = Service(root, home, label, domain, plist, data, True, None, None)
+            _verify_plist(service)
+            if supervisor_pid is not None:
+                supervisor = table[supervisor_pid]
+                status = json.loads((home / 'gateway_state.json').read_text())
+                pid, birth = status['pid'], status['start_time']
+                service = replace(service, pid=pid, birth=birth,
+                                  supervisor_pid=supervisor_pid, supervisor_birth=supervisor.birth)
+                _verify_owner(service, pid, birth, table)
+                owned.update((pid, supervisor_pid))
+            services.append(service)
+        except (OSError, ValueError, KeyError, TypeError, plistlib.InvalidFileException) as exc:
+            raise LifecycleRefused('Service identity is unavailable') from exc
+    for process in table.values():
+        if process.pid not in owned and _possible_install_gateway(process, root):
+            raise LifecycleRefused('Unmanaged installation gateway is running')
+    return services
+
+
+@contextmanager
+def darwin_workspace_window(root, *, timeout=120.0):
+    """Inhibit verified launchd services and wait for workspace writers."""
+    if sys.platform != 'darwin':
+        yield None
+        return
+    from clover_cli.macos_update_lifecycle import quiescent_services
+    services = discover_services(root)
+    operations = LaunchdOperations(roots=(root,))
+    with quiescent_services(services, operations, timeout=timeout):
+        yield operations
+
+
 class LaunchdOperations:
-    def __init__(self, *, restore_timeout=30.0):
+    def __init__(self, *, restore_timeout=30.0, roots=()):
+        self.roots = {Path(root).resolve() for root in roots}
         self.restore_timeout = restore_timeout
         self._attempted = set()
         self.restored = {}
@@ -226,7 +319,7 @@ class LaunchdOperations:
 
     def capture_builders(self, services):
         table = _process_table()
-        roots = {s.installation_root for s in services}
+        roots = self.roots | {s.installation_root for s in services}
         seeds = {p.pid for p in table.values() if _builder_matches(p, roots)}
         descendants = _collect_children(table, seeds)
         protected = _protected_pids(table)
@@ -237,7 +330,7 @@ class LaunchdOperations:
     def wait_quiescent(self, services, children, timeout):
         deadline = time.monotonic() + timeout
         tracked = {p.pid: p.birth for p in children}
-        roots = {s.installation_root for s in services}
+        roots = self.roots | {s.installation_root for s in services}
         while True:
             table = _process_table()
             for pid, birth in tracked.items():

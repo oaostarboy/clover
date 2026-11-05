@@ -2206,11 +2206,8 @@ def _update_via_zip(args, *, had_desktop_app_before_update: bool = False) -> boo
         print("  Re-run `clover update` to complete it.")
         _m().sys.exit(1)
 
-    node_failures = _update_node_dependencies()
-    _m()._build_web_ui(_m().PROJECT_ROOT / "web")
-    desktop_build_ok = _rebuild_desktop_after_update(
-        _m().PROJECT_ROOT / "apps" / "desktop",
-        had_desktop_app_before_update=had_desktop_app_before_update,
+    node_failures, desktop_build_ok = _refresh_node_artifacts(
+        had_desktop_app_before_update,
     )
 
     # Sync skills
@@ -4341,6 +4338,22 @@ def _record_npm_lockfile_hash(clover_root: Path) -> None:
     except OSError:
         logger.debug("Could not write npm lockfile hash cache")
 
+def _refresh_node_artifacts(had_desktop_app_before_update, *, skip_build_on_node_failure=False):
+    """Refresh workspace artifacts while verified Darwin services are quiescent."""
+    from clover_cli.macos_update_launchd import darwin_workspace_window
+
+    with darwin_workspace_window(_m().PROJECT_ROOT):
+        node_failures = _update_node_dependencies()
+        if node_failures and skip_build_on_node_failure:
+            return node_failures, False
+        _m()._build_web_ui(_m().PROJECT_ROOT / "web")
+        desktop_build_ok = _rebuild_desktop_after_update(
+            _m().PROJECT_ROOT / "apps" / "desktop",
+            had_desktop_app_before_update=had_desktop_app_before_update,
+        )
+    return node_failures, desktop_build_ok
+
+
 def _repair_node_deps_on_current_checkout(
     print_completion,
     *,
@@ -4361,7 +4374,10 @@ def _repair_node_deps_on_current_checkout(
     the web toolchain never landed), so this is a cheap no-op on healthy
     installs and a real repair after a failed one.
     """
-    node_failures = _update_node_dependencies()
+    node_failures, desktop_build_ok = _refresh_node_artifacts(
+        _desktop_app_present(_m().PROJECT_ROOT / "apps" / "desktop"),
+        skip_build_on_node_failure=True,
+    )
     if node_failures:
         print(f"  ⚠ Node.js refresh failed for: {', '.join(node_failures)}")
         print("    Fix npm and re-run `clover update`.")
@@ -4371,16 +4387,6 @@ def _repair_node_deps_on_current_checkout(
         if gateway_mode:
             _write_gateway_update_exit_code(False)
         return False
-    # Pair the refresh with the web build like every other
-    # _update_node_dependencies call site; it staleness-checks internally,
-    # so this is a no-op when nothing changed.
-    _m()._build_web_ui(_m().PROJECT_ROOT / "web")
-    desktop_build_ok = _rebuild_desktop_after_update(
-        _m().PROJECT_ROOT / "apps" / "desktop",
-        had_desktop_app_before_update=_desktop_app_present(
-            _m().PROJECT_ROOT / "apps" / "desktop"
-        ),
-    )
     _check_and_apply_config_migration(
         assume_yes=assume_yes,
         gateway_mode=gateway_mode,
@@ -9992,12 +9998,8 @@ def _cmd_update_impl(args, gateway_mode: bool):
             print("    Run `clover update` again — if it persists, reinstall:")
             print("    ")
 
-        node_failures = _update_node_dependencies()
-        _m()._build_web_ui(_m().PROJECT_ROOT / "web")
-
-        desktop_build_ok = _rebuild_desktop_after_update(
-            desktop_dir,
-            had_desktop_app_before_update=had_desktop_app_before_update,
+        node_failures, desktop_build_ok = _refresh_node_artifacts(
+            had_desktop_app_before_update,
         )
 
         print()

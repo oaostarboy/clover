@@ -580,6 +580,49 @@ class TestCmdUpdateBranchFallback:
         captured = capsys.readouterr()
         assert "Already up to date!" not in captured.out
 
+    @patch("shutil.which", return_value=None)
+    @patch("subprocess.run")
+    def test_git_node_refresh_is_inside_workspace_window(self, mock_run, _which, mock_args, monkeypatch):
+        from contextlib import contextmanager
+        from clover_cli import main as hm, update_cmd, macos_update_launchd
+
+        mock_run.side_effect = _make_run_side_effect(branch="main", verify_ok=True, commit_count="0")
+        shas = iter(["aaaaaaa", "bbbbbbb", "bbbbbbb", "ccccccc"])
+        events = []
+        @contextmanager
+        def window(root):
+            events.append("enter")
+            try:
+                yield None
+            finally:
+                events.append("restore")
+            raise SystemExit(0)  # Stop before any real post-build restart.
+        def npm():
+            assert events == ["enter"], "npm ran outside the lifecycle window"
+            events.append("npm")
+            return []
+        monkeypatch.setattr(macos_update_launchd, "darwin_workspace_window", window)
+        monkeypatch.setattr(update_cmd, "_update_node_dependencies", npm)
+        monkeypatch.setattr(update_cmd, "_rebuild_desktop_after_update", lambda *a, **k: events.append("desktop") or True)
+        monkeypatch.setattr(hm, "_build_web_ui", lambda *a: events.append("web"))
+        monkeypatch.setattr(hm, "_get_origin_url", lambda *a: "https://github.com/example/clover-c1.git")
+        monkeypatch.setattr(hm, "_run_pre_update_backup", lambda *a: None)
+        monkeypatch.setattr(hm, "_arm_restart_watcher_before_pause", lambda: None)
+        monkeypatch.setattr(update_cmd, "_capture_head_sha", lambda *a, **k: next(shas, "ccccccc"))
+        monkeypatch.setattr(hm, "_sync_with_upstream_if_needed", lambda *a, **k: None)
+        monkeypatch.setattr(hm, "_reload_updated_runtime_modules", lambda: None)
+        monkeypatch.setattr(hm, "_clear_bytecode_cache", lambda *a: 0)
+        monkeypatch.setattr(hm, "_record_bytecode_fingerprint", lambda: None)
+        monkeypatch.setattr(hm, "_refresh_bootstrap_cache_scripts", lambda *a: None)
+        for name in ("_upgrade_pip_before_lazy_refresh", "_restore_active_tool_dependencies", "_refresh_active_memory_provider_dependencies"):
+            monkeypatch.setattr(hm, name, lambda *a, **k: None)
+        monkeypatch.setattr(hm, "_refresh_active_lazy_features", lambda *a, **k: True)
+        monkeypatch.setattr(update_cmd, "_validate_critical_modules_import", lambda *a: (True, None, None))
+        with pytest.raises(SystemExit) as result:
+            cmd_update(mock_args)
+        assert result.value.code == 0
+        assert events == ["enter", "npm", "web", "desktop", "restore"]
+
     def test_update_non_interactive_runs_safe_config_migrations(self, mock_args, capsys):
         """Dashboard/web updates apply non-interactive migrations before restart."""
         with patch("shutil.which", return_value=None), patch(
@@ -1280,7 +1323,23 @@ class TestNodeRuntimeNpmResolution:
             "_validate_critical_modules_import",
             lambda *_args: (True, None, None),
         )
-        monkeypatch.setattr(update_cmd, "_update_node_dependencies", lambda: node_failures)
+        from contextlib import contextmanager
+        from clover_cli import macos_update_launchd
+        workspace_events = []
+        @contextmanager
+        def workspace_window(root):
+            assert root == project_root
+            workspace_events.append('enter')
+            try:
+                yield None
+            finally:
+                workspace_events.append('restore')
+        def node_refresh():
+            assert workspace_events == ['enter'], 'npm ran outside the lifecycle window'
+            workspace_events.append('npm')
+            return node_failures
+        monkeypatch.setattr(macos_update_launchd, 'darwin_workspace_window', workspace_window)
+        monkeypatch.setattr(update_cmd, "_update_node_dependencies", node_refresh)
         markers = []
         receipts = []
         monkeypatch.setattr(update_cmd, "_write_gateway_update_exit_code", markers.append)
@@ -1313,6 +1372,7 @@ class TestNodeRuntimeNpmResolution:
                 gateway_mode=True,
             )
 
+        assert workspace_events == ['enter', 'npm', 'restore']
         assert markers == [expected_ok]
         assert receipts == [expected_receipt]
         # Release-dir graft (#70337): the packaged exe SURVIVES the swap, so
