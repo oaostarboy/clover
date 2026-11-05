@@ -91,6 +91,7 @@ _STALE_PURGE_PROTECTED = frozenset(
         # These modules own open drain markers, captured launchd identities,
         # and the invocation ContextVar. Keep one owner through nested imports.
         "clover_cli.macos_update_transaction",
+        "clover_cli._migration_target",
         "clover_cli.macos_update_lifecycle",
         "clover_cli.macos_update_launchd",
         "clover_cli.clover_logging",
@@ -9131,6 +9132,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
             _print_fetch_failure(fetch_result.stderr)
             sys.exit(1)
 
+        from clover_cli._migration_target import verified_fetch_ref
+        _staged_fetch_commit = verified_fetch_ref(branch)
+
         # Get current branch (returns literal "HEAD" when detached)
         result = subprocess.run(
             git_cmd + ["rev-parse", "--abbrev-ref", "HEAD"],
@@ -9625,13 +9629,15 @@ def _cmd_update_impl(args, gateway_mode: bool):
             # `pull --ff-only origin <branch>` given the fresh tracking ref;
             # the divergence fallback below is unchanged.
             pull_result = subprocess.run(
-                git_cmd + ["merge", "--ff-only", f"origin/{branch}"],
+                git_cmd + ["merge", "--ff-only", _staged_fetch_commit or f"origin/{branch}"],
                 cwd=_m().PROJECT_ROOT,
                 capture_output=True,
                 text=True, encoding="utf-8", errors="replace",
                 stdin=subprocess.DEVNULL,
             )
             if pull_result.returncode != 0:
+                if _staged_fetch_commit is not None:
+                    raise RuntimeError('staged fast-forward failed; refusing fallback')
                 # ff-only failed — local and remote have diverged. Before
                 # assuming an upstream force-push, check WHY: a checkout on a
                 # custom branch (local commits on top of origin/<branch>) also

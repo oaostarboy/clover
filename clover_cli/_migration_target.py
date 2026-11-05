@@ -11,12 +11,48 @@ import subprocess
 import threading
 
 _target = None
+_identities = None
 _lock = threading.Lock()
 
 
 def target_root():
     """Return the currently bound installation root, if any."""
     return _target
+
+
+def revalidate_target():
+    """Recheck an active binding after the updater acquires its lock."""
+    if _identities is None:
+        return
+    stage, target, stage_commit, target_commit = _identities
+    _physical_root(stage)
+    _physical_root(target)
+    _verify_git(stage, stage_commit)
+    _verify_git(target, target_commit)
+
+
+def verified_fetch_ref(branch):
+    """Return the immutable stage object only if the fetched ref matches it."""
+    if _identities is None:
+        return None
+    if branch != 'main':
+        raise ValueError('staged migration only supports main')
+    _, target, stage_commit, _ = _identities
+    env = {'PATH': os.defpath, 'HOME': str(target / '.git'),
+           'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
+           'GIT_NO_REPLACE_OBJECTS': '1', 'LC_ALL': 'C'}
+    def git(*args):
+        return subprocess.run(['git', '-C', str(target), *args], env=env,
+                              text=True, capture_output=True, check=False)
+    fetched = git('rev-parse', '--verify', 'refs/remotes/origin/main^{commit}')
+    if fetched.returncode or fetched.stdout.strip() != stage_commit:
+        raise ValueError('fetched target does not match staged commit')
+    current = git('symbolic-ref', '--quiet', '--short', 'HEAD')
+    if current.returncode or current.stdout.strip() != branch:
+        raise ValueError('staged migration requires checkout on main')
+    if git('merge-base', '--is-ancestor', 'HEAD', stage_commit).returncode:
+        raise ValueError('staged migration requires a fast-forward')
+    return stage_commit
 
 
 def _physical_root(root):
@@ -68,7 +104,7 @@ def bind_target(stage, target, expected_stage_commit, expected_target_commit):
     Identities must come from a trusted caller, never from the checkout itself.
     Nested or concurrent bindings are rejected, even to the same target.
     """
-    global _target
+    global _target, _identities
     if not _lock.acquire(blocking=False):
         raise RuntimeError('a migration target is already bound')
     try:
@@ -79,9 +115,11 @@ def bind_target(stage, target, expected_stage_commit, expected_target_commit):
         _verify_git(stage, expected_stage_commit)
         _verify_git(target, expected_target_commit)
         _target = target
+        _identities = (stage, target, expected_stage_commit, expected_target_commit)
         try:
             yield target
         finally:
             _target = None
+            _identities = None
     finally:
         _lock.release()

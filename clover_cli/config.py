@@ -469,6 +469,9 @@ def _install_method_project_root(project_root: Optional[Path] = None) -> Path:
     """
     if project_root is not None:
         return project_root
+    from clover_cli._migration_target import target_root
+    if target_root() is not None:
+        return target_root()
     return Path(__file__).parent.parent.resolve()
 
 
@@ -780,6 +783,9 @@ def get_env_path() -> Path:
 
 def get_project_root() -> Path:
     """Get the project installation directory."""
+    from clover_cli._migration_target import target_root
+    if target_root() is not None:
+        return target_root()
     return Path(__file__).parent.parent.resolve()
 
 def _resolve_clover_uid_gid() -> tuple[Optional[int], Optional[int]]:

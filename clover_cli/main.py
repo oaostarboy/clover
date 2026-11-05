@@ -506,7 +506,8 @@ def _require_tty(command_name: str) -> None:
 
 
 # Add project root to path
-PROJECT_ROOT = Path(_project_root_str_fast())
+from clover_cli._migration_target import target_root as _migration_target_root
+PROJECT_ROOT = _migration_target_root() or Path(_project_root_str_fast())
 _ensure_project_root_on_path_fast()
 
 
@@ -10875,6 +10876,8 @@ def cmd_update(args):
     # normal raise path so their traceback still prints.
     _update_handoff_exit_code: int | None = None
     try:
+        from clover_cli._migration_target import revalidate_target
+        revalidate_target()
         # Read-only pre-check BEFORE the updater changes anything (no pause,
         # backup, stash or pull has happened yet): on a block, explain why in
         # plain words and exit 2 ("declined, nothing changed"). Skipped in the
