@@ -253,6 +253,18 @@ if ($env:UPDATE_PATH -eq 'chat') {
   if (-not (Select-String "$env:RUNNER_TEMP\irc.log" -Pattern '<< JOIN' -Quiet)) { throw 'Gateway never joined local IRC fixture' }
 }
 if ($Mode -ne 'fresh') {
+  # The installer may launch its own desktop build in this venv. Wait for that
+  # process to finish naturally; the product's ownership guard remains active.
+  $buildDeadline = (Get-Date).AddSeconds(1800)
+  do {
+    $builds = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+      $_.ExecutablePath -and $_.ExecutablePath.StartsWith("$env:INSTALL_DIR\venv\", [StringComparison]::OrdinalIgnoreCase) -and
+      $_.CommandLine -match '(?i)\bdesktop\b' -and $_.CommandLine -match '(?i)--build-only\b'
+    })
+    if ($builds.Count -eq 0) { break }
+    Start-Sleep -Seconds 5
+  } while ((Get-Date) -lt $buildDeadline)
+  if ($builds.Count -ne 0) { throw 'Installation-owned desktop build did not naturally finish within 1800s' }
   Invoke-Proof begin --output "$evidence\begin.json"
   $logStart = (Get-LogLines).Count
   # Reassert the exact running base immediately before the update trigger.
