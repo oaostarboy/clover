@@ -1208,7 +1208,13 @@ class TestNodeRuntimeNpmResolution:
             env=ANY,
         )
 
-    def test_git_failure_zip_fallback_rebuilds_missing_desktop(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize("node_failures, expected_ok, expected_receipt", [
+        ([], True, "success"),
+        (["web"], False, "partial"),
+    ])
+    def test_git_failure_zip_fallback_rebuilds_missing_desktop(
+        self, tmp_path, monkeypatch, node_failures, expected_ok, expected_receipt
+    ):
         """The Windows ZIP fallback keeps Desktop intact when replacing ``apps/``.
 
         Contract updated for the #70337/#87331 release-dir graft: the built
@@ -1274,7 +1280,11 @@ class TestNodeRuntimeNpmResolution:
             "_validate_critical_modules_import",
             lambda *_args: (True, None, None),
         )
-        monkeypatch.setattr(update_cmd, "_update_node_dependencies", lambda: [])
+        monkeypatch.setattr(update_cmd, "_update_node_dependencies", lambda: node_failures)
+        markers = []
+        receipts = []
+        monkeypatch.setattr(update_cmd, "_write_gateway_update_exit_code", markers.append)
+        monkeypatch.setattr("clover_cli.update_receipt.finalize_update_receipt", receipts.append)
         monkeypatch.setattr(update_cmd, "_print_curator_first_run_notice", lambda: None)
         monkeypatch.setattr(update_cmd, "_print_curator_recent_run_notice", lambda: None)
         monkeypatch.setattr(update_cmd, "_finish_dashboard_update_cleanup", lambda _failures: None)
@@ -1300,9 +1310,11 @@ class TestNodeRuntimeNpmResolution:
         ):
             update_cmd._cmd_update_impl(
                 SimpleNamespace(yes=True, force=True, force_venv=True, branch=None),
-                gateway_mode=False,
+                gateway_mode=True,
             )
 
+        assert markers == [expected_ok]
+        assert receipts == [expected_receipt]
         # Release-dir graft (#70337): the packaged exe SURVIVES the swap, so
         # the rebuild hook observed it present (False), and the bytes are the
         # original build — never deleted, never rebuilt from nothing.
