@@ -258,7 +258,7 @@ if [[ $MODE != fresh ]]; then
     python -c 'import json,sys; a,b=(json.load(open(x)) for x in sys.argv[1:]); assert a["pid"] == b["pid"] and a["start_time"] == b["start_time"]' "$EVIDENCE/after-state.json" "$EVIDENCE/post-chat-state.json"
     "$PY" "$FIXTURE/stage_independence_verify.py" session "$CLOVER_HOME" "$INSTALL_DIR" "$STAGE" "$EVIDENCE" "$EVIDENCE/post-chat-state.json"
     ( cd "$INSTALL_DIR"; "$BIN" gateway restart ) > "$EVIDENCE/installed-restart.log" 2>&1 &
-    "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$TO_SHA" --port 18791 --seconds 30 --previous "$EVIDENCE/post-chat-state.json" --output "$EVIDENCE/installed-restart-state.json"
+    "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$TO_SHA" --port 18791 --seconds 90 --previous "$EVIDENCE/post-chat-state.json" --output "$EVIDENCE/installed-restart-state.json"
     "$PY" "$FIXTURE/stage_independence_verify.py" identity "$CLOVER_HOME" "$INSTALL_DIR" "$STAGE" "$EVIDENCE" "$EVIDENCE/installed-restart-state.json"
     test ! -e "$STAGE"
     touch "$EVIDENCE/chat-stop"

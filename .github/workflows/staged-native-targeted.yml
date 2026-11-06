@@ -1,7 +1,7 @@
 name: Targeted staged native and ownership proof
 on:
   push:
-    branches: [ci/stage-independent-proof-r2-20261106]
+    branches: [ci/stage-independent-proof-r3-20261106]
   workflow_dispatch:
 permissions:
   contents: read
