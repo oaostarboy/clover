@@ -55,7 +55,8 @@ elif mode == 'session':
     config = home / 'config.yaml'
     before = (evidence / 'config-before.sha256').read_text().strip()
     after = hashlib.sha256(config.read_bytes()).hexdigest()
-    assert before == after, (before, after)
     (evidence / 'stage-session.json').write_text(json.dumps({'state': data, 'config_sha256_before': before, 'config_sha256_after': after}, default=str, indent=2))
+    (evidence / 'config-after-chat.yaml').write_bytes(config.read_bytes())
+    assert before == after, (before, after)
 else:
     raise ValueError(mode)
