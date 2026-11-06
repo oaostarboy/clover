@@ -4,23 +4,23 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: interrupted-recovery-${{ github.run_id }}
+  group: linux-ordinary-stage-independence-${{ github.run_id }}
   cancel-in-progress: false
 env:
-  TARGET_REF: 0a1b4dd7fe21942b7c1673c7d0bc45ca76fdf9a7
-  TARGET_TREE: e2f3fb0e87efd291554517e1b5e36c7ef5d85732
+  TARGET_REF: a62d59e895c723623fe0edc952e8c480bfc6f322
+  TARGET_TREE: e56d299cf8bf63fafea6f619c05a7590e1954685
   OLD_REF: v2.0.2.11
   OLD_SHA: 9271c360f4519fc30887bbab7777c76970d4318f
-  NEXT_REF: ci/native-next/integrated-0a1b4dd7
+  NEXT_REF: ci/native-next/integrated-a62d59e8
   SETUP: zyra
   UPDATE_PATH: cli
   PHASE: old2new
   NATIVE_STAGED_ENTRY: '1'
-  NATIVE_INTERRUPTED_RECOVERY: '1'
+  NATIVE_INTERRUPTED_RECOVERY: '0'
 jobs:
-  linux-controlled-crash:
+  linux-ordinary-stage-independence:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - name: Checkout helpers
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -43,14 +43,8 @@ jobs:
           python helpers/.github/native-proof/proof.py plan --repo source --old-ref "$OLD_REF" --target-ref "$TARGET_REF" --target-tree "$TARGET_TREE" --next-ref "$NEXT_REF" --output "$RUNNER_TEMP/evidence/plan.json"
           echo "NEXT_SHA=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF")" >> "$GITHUB_ENV"
           echo "NEXT_TREE=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF^{tree}")" >> "$GITHUB_ENV"
-      - name: Verify tracer capabilities before installation
-        shell: bash
-        run: |
-          command -v strace
-          strace --version
-          strace --kill-on-exit -I 1 -ff -ttt -e trace=process -o "$RUNNER_TEMP/evidence/strace-preflight" /usr/bin/true
-      - name: Controlled crash and recovery
-        timeout-minutes: 35
+      - name: Ordinary update and stage independence
+        timeout-minutes: 60
         shell: bash
         run: bash helpers/.github/native-proof/posix.sh old2new
       - name: Preserve installer diagnostics independently of shell traps
@@ -75,6 +69,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: linux-interrupted-recovery-${{ github.run_id }}
+          name: linux-ordinary-stage-independence-${{ github.run_id }}
           path: ${{ runner.temp }}/evidence
           if-no-files-found: error
