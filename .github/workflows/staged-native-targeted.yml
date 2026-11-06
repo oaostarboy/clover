@@ -1,0 +1,90 @@
+name: Targeted staged native and ownership proof
+on:
+  push:
+    branches: [ci/staged-native-targeted-d075-20261105]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: targeted-staged-${{ github.run_id }}
+  cancel-in-progress: false
+env:
+  TARGET_REF: 046234f768df13f53d7a11198a09f152e9e49124
+  TARGET_TREE: e673d8bc7fb968f7df08fd12679a0b7de14ab61f
+  OLD_REF: 9271c360f4519fc30887bbab7777c76970d4318f
+  OLD_SHA: 9271c360f4519fc30887bbab7777c76970d4318f
+  NEXT_REF: ci/native-next/staged-targeted-046234f7-20261105
+  SETUP: zyra
+  UPDATE_PATH: cli
+jobs:
+  native:
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            kind: linux-real-staged-entry
+          - os: macos-latest
+            kind: mac-native-ownership
+          - os: windows-latest
+            kind: windows-installer-ready
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout helpers
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: helpers
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Checkout source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: source
+          ref: ${{ env.TARGET_REF }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare source-bound plan
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/evidence"
+          git -C source fetch origin "+refs/heads/$NEXT_REF:refs/remotes/origin/$NEXT_REF"
+          python helpers/.github/native-proof/proof.py plan --repo source --old-ref "$OLD_REF" --target-ref "$TARGET_REF" --target-tree "$TARGET_TREE" --next-ref "$NEXT_REF" --output "$RUNNER_TEMP/evidence/plan.json"
+          echo "NEXT_SHA=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF")" >> "$GITHUB_ENV"
+          echo "NEXT_TREE=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF^{tree}")" >> "$GITHUB_ENV"
+      - name: Linux real staged entry
+        if: matrix.kind == 'linux-real-staged-entry'
+        shell: bash
+        env:
+          NATIVE_STAGED_ENTRY: '1'
+        run: bash helpers/.github/native-proof/posix.sh old2new
+      - name: macOS native ownership
+        if: matrix.kind == 'mac-native-ownership'
+        shell: bash
+        run: bash helpers/.github/native-proof/posix.sh new2next
+      - name: macOS denied process observations
+        if: always() && matrix.kind == 'mac-native-ownership'
+        shell: bash
+        run: |
+          if [ -x "$HOME/.clover/clover-c1/venv/bin/python" ]; then
+            "$HOME/.clover/clover-c1/venv/bin/python" helpers/.github/native-proof/macos-denied-observation.py "$RUNNER_TEMP/evidence/macos-denied-processes.json"
+          fi
+      - name: Windows installer readiness
+        if: matrix.kind == 'windows-installer-ready'
+        shell: pwsh
+        env:
+          NATIVE_WAIT_INSTALLER_BUILD: '1'
+        run: ./helpers/.github/native-proof/windows.ps1 -Mode new2next
+      - name: Record row
+        if: always()
+        shell: bash
+        env:
+          ROW_STATUS: ${{ job.status }}
+        run: python helpers/.github/native-proof/row.py
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: targeted-${{ matrix.kind }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: error

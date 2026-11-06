@@ -209,7 +209,11 @@ printf '\nAPI_SERVER_ENABLED=true\nAPI_SERVER_KEY=native-proof-dummy-key-123456\
 if [[ $MODE != fresh ]]; then
   "$PY" "$PROOF" begin --output "$EVIDENCE/begin.json"
   # This is gateway-mode CLI, not a claimed chat/Telegram transport test.
-  "$BIN" update --yes --gateway 2>&1 | tee "$EVIDENCE/update.log"
+  if [[ ${NATIVE_STAGED_ENTRY:-0} == 1 ]]; then
+    source "$GITHUB_WORKSPACE/helpers/.github/native-proof/run-staged-posix.sh"
+  else
+    "$BIN" update --yes --gateway
+  fi 2>&1 | tee "$EVIDENCE/update.log"
   "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$TO_SHA" --port 18791 --seconds 90 --previous "$EVIDENCE/before-state.json" --output "$EVIDENCE/after-state.json"
   "$PY" "$PROOF" receipt --home "$CLOVER_HOME" --begin "$EVIDENCE/begin.json" --old "$FROM_SHA" --target "$TO_SHA" --output "$EVIDENCE/update-receipt.json"
 else

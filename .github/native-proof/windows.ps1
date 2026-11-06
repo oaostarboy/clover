@@ -72,6 +72,9 @@ try {
   Save-NpmEvidence $evidence
 }
 if ($installerExit -ne 0) { throw 'installer failed' }
+if ($env:NATIVE_WAIT_INSTALLER_BUILD -eq '1') {
+  . "$helpers\.github\native-proof\wait-installer-build.ps1"
+}
 $script:py = "$env:INSTALL_DIR\venv\Scripts\python.exe"
 $env:CLOVER_BIN = "$env:INSTALL_DIR\venv\Scripts\clover.exe"
 function Invoke-Proof {
