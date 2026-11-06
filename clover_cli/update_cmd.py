@@ -11584,7 +11584,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
             from clover_cli.update_receipt import finalize_update_receipt
 
             _receipt_path = finalize_update_receipt(
-                "partial" if (gateway_fleet_restart_incomplete or node_failures or not desktop_build_ok) else "success",
+                "partial" if (gateway_fleet_restart_incomplete or
+                              (_staged_fetch_commit is not None and
+                               (node_failures or not desktop_build_ok))) else "success",
                 fleet=_fleet_snapshot,
             )
             if _receipt_path is not None:
@@ -11600,7 +11602,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
             # ``clover update`` still runs the catch-up restart.
             sys.exit(1)
         _clear_fleet_restart_pending_marker()
-        if node_failures or not desktop_build_ok:
+        # Staged migration has a strict complete-install contract. Ordinary
+        # updates retain their existing optional UI-build warning semantics.
+        if _staged_fetch_commit is not None and (node_failures or not desktop_build_ok):
             sys.exit(1)
 
     except _shim_quarantine_error_type() as e:
