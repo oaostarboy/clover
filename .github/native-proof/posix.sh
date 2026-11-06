@@ -204,8 +204,32 @@ if [[ $MODE != fresh ]]; then
   "$PY" "$PROOF" origin --repo "$INSTALL_DIR" --mirror "$RUNNER_TEMP/origin.git" --target "$TO_SHA"
 fi
 printf '\nAPI_SERVER_ENABLED=true\nAPI_SERVER_KEY=native-proof-dummy-key-123456\nAPI_SERVER_PORT=18791\nAPI_SERVER_HOST=127.0.0.1\n' >> "$CLOVER_HOME/.env"
+if [[ ${NATIVE_STAGED_ENTRY:-0} == 1 ]]; then
+  FIXTURE="$GITHUB_WORKSPACE/helpers/.github/native-proof"
+  python "$FIXTURE/stage_independence_chat.py" "$EVIDENCE" > "$EVIDENCE/chat-fixture.log" 2>&1 &
+  for _ in $(seq 1 200); do [[ -s "$EVIDENCE/chat-ports.json" ]] && break; sleep .1; done
+  test -s "$EVIDENCE/chat-ports.json"
+  IRC_PORT=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["irc"])' "$EVIDENCE/chat-ports.json")
+  MODEL_PORT=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["model"])' "$EVIDENCE/chat-ports.json")
+  printf 'IRC_SERVER=127.0.0.1\nIRC_PORT=%s\nIRC_USE_TLS=false\nIRC_CHANNEL=#clover\nIRC_NICKNAME=cloverbot\nIRC_ALLOWED_USERS=ant\nGATEWAY_ALLOW_ALL_USERS=true\nOPENAI_API_KEY=private-local-fixture-dummy-key\n' "$IRC_PORT" >> "$CLOVER_HOME/.env"
+  "$BIN" config set model.provider custom
+  "$BIN" config set model.default native-fixture
+  "$BIN" config set model.base_url "http://127.0.0.1:$MODEL_PORT/v1"
+  "$BIN" config set model.api_mode chat_completions
+  "$BIN" config set delegation.reasoning_effort low
+  sha256sum "$CLOVER_HOME/config.yaml" | cut -d' ' -f1 > "$EVIDENCE/config-before.sha256"
+  SITE=$("$PY" -c 'import sysconfig; print(sysconfig.get_path("purelib"))')
+  test ! -e "$SITE/sitecustomize.py"
+  cp "$FIXTURE/stage_independence_sitecustomize.py" "$SITE/sitecustomize.py"
+  export STAGE_ORIGIN_EVIDENCE="$EVIDENCE"
+fi
 "$BIN" gateway run > "$EVIDENCE/gateway-launch.log" 2>&1 &
 "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$FROM_SHA" --port 18791 --seconds 0 --output "$EVIDENCE/before-state.json"
+if [[ ${NATIVE_STAGED_ENTRY:-0} == 1 ]]; then
+  touch "$EVIDENCE/chat-pre"
+  for _ in $(seq 1 1200); do [[ -s "$EVIDENCE/chat-pre-reply.json" ]] && break; sleep .1; done
+  test -s "$EVIDENCE/chat-pre-reply.json"
+fi
 if [[ $MODE != fresh ]]; then
   "$PY" "$PROOF" begin --output "$EVIDENCE/begin.json"
   # This is gateway-mode CLI, not a claimed chat/Telegram transport test.
@@ -216,6 +240,26 @@ if [[ $MODE != fresh ]]; then
   fi 2>&1 | tee "$EVIDENCE/update.log"
   "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$TO_SHA" --port 18791 --seconds 90 --previous "$EVIDENCE/before-state.json" --output "$EVIDENCE/after-state.json"
   "$PY" "$PROOF" receipt --home "$CLOVER_HOME" --begin "$EVIDENCE/begin.json" --old "$FROM_SHA" --target "$TO_SHA" --output "$EVIDENCE/update-receipt.json"
+  if [[ ${NATIVE_STAGED_ENTRY:-0} == 1 ]]; then
+    STAGE="$RUNNER_TEMP/trusted-stage"
+    MOVED="$RUNNER_TEMP/trusted-stage-unavailable"
+    "$PY" "$FIXTURE/stage_independence_verify.py" identity "$CLOVER_HOME" "$INSTALL_DIR" "$STAGE" "$EVIDENCE" "$EVIDENCE/after-state.json"
+    python -c 'from pathlib import Path; import sys; s,t,v=map(lambda x:Path(x).resolve(),sys.argv[1:]); assert s.is_dir() and s != t and s != v and s not in t.parents and t not in s.parents and s not in v.parents and v not in s.parents' "$STAGE" "$INSTALL_DIR" "$INSTALL_DIR/venv"
+    test ! -e "$MOVED"
+    mv "$STAGE" "$MOVED"
+    test ! -e "$STAGE"
+    touch "$EVIDENCE/chat-post"
+    for _ in $(seq 1 1200); do [[ -s "$EVIDENCE/chat-post-reply.json" ]] && break; sleep .1; done
+    test -s "$EVIDENCE/chat-post-reply.json"
+    "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$TO_SHA" --port 18791 --seconds 0 --output "$EVIDENCE/post-chat-state.json"
+    python -c 'import json,sys; a,b=(json.load(open(x)) for x in sys.argv[1:]); assert a["pid"] == b["pid"] and a["start_time"] == b["start_time"]' "$EVIDENCE/after-state.json" "$EVIDENCE/post-chat-state.json"
+    "$PY" "$FIXTURE/stage_independence_verify.py" session "$CLOVER_HOME" "$INSTALL_DIR" "$STAGE" "$EVIDENCE" "$EVIDENCE/post-chat-state.json"
+    ( cd "$INSTALL_DIR"; "$BIN" gateway restart ) > "$EVIDENCE/installed-restart.log" 2>&1 &
+    "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$TO_SHA" --port 18791 --seconds 30 --previous "$EVIDENCE/post-chat-state.json" --output "$EVIDENCE/installed-restart-state.json"
+    "$PY" "$FIXTURE/stage_independence_verify.py" identity "$CLOVER_HOME" "$INSTALL_DIR" "$STAGE" "$EVIDENCE" "$EVIDENCE/installed-restart-state.json"
+    test ! -e "$STAGE"
+    touch "$EVIDENCE/chat-stop"
+  fi
 else
   "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$TO_SHA" --port 18791 --seconds 90 --output "$EVIDENCE/fresh-state.json"
 fi
