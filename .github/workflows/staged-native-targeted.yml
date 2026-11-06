@@ -1,0 +1,26 @@
+name: Read-only macOS ownership inspection
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install psutil
+      - name: Inspect without signaling or recording commands
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/mac-inspect"
+          python .github/mac-inspect/ownership.py --target "$RUNNER_TEMP/target" --venv "$RUNNER_TEMP/venv" --profile-home "$RUNNER_TEMP/profile" --output "$RUNNER_TEMP/mac-inspect/topology.json"
+          python .github/mac-inspect/alternatives.py "$RUNNER_TEMP/mac-inspect/alternatives.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-readonly-inspection
+          path: ${{ runner.temp }}/mac-inspect/
