@@ -160,6 +160,51 @@ def execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target, b
         kill_updater()
 
 
+def run_observed_recovery(binary, argv, env, home, cwd, prefix, pass_fds,
+                          inject, recover):
+    """Keep the owned tracer alive until recovery assertions have finished."""
+    import time
+    from interrupted_traced_updater import TraceSession
+    with TraceSession(binary, argv, env, home, cwd, prefix, pass_fds) as session:
+        start = time.time_ns()
+        result = inject(session.updater)
+        if session.tracer.poll() is not None:
+            raise Refusal('tracer exited before recovery observation')
+        recovery = recover(session, result)
+        if session.tracer.poll() is not None:
+            raise Refusal('tracer exited during recovery observation')
+        result['recovery'] = recovery
+        result['trace'] = {'pid': session.tracer.pid,
+                           'birth_ticks': session.tracer_start_ticks,
+                           'prefix': str(prefix), 'start_wall_ns': start,
+                           'end_wall_ns': time.time_ns()}
+    return result
+
+
+def verify_recovery(python, env, home, target, stage, evidence, old, commit):
+    """Finish every recovery and chat assertion before tracer cleanup."""
+    import subprocess
+    import time
+    fixture = Path(__file__).resolve().parent
+    def run(name, *args, timeout=180):
+        subprocess.run([str(python), str(fixture / name), *map(str, args)],
+                       env=dict(env), check=True, timeout=timeout)
+    after = evidence / 'interrupted-after-state.json'
+    run('interrupted_recovery.py', home, target, evidence, old, commit, timeout=180)
+    run('stage_independence_verify.py', 'identity', home, target, stage, evidence, after)
+    (evidence / 'chat-post').touch()
+    deadline = time.monotonic() + 120
+    reply = evidence / 'chat-post-reply.json'
+    while not reply.exists() or reply.stat().st_size == 0:
+        if time.monotonic() >= deadline:
+            raise Refusal('chat reply timeout')
+        time.sleep(0.1)
+    run('stage_independence_verify.py', 'session', home, target, stage, evidence, after)
+    run('interrupted_chat_verify.py', home, target, evidence)
+    (evidence / 'chat-stop').touch()
+    return {'verified': True, 'identity': True, 'session': True, 'chat': True}
+
+
 def main():
     import argparse
     import json
@@ -171,13 +216,16 @@ def main():
     from interrupted_source import pinned_hash
 
     parser = argparse.ArgumentParser()
-    for option in ('stage', 'runtime', 'home', 'target', 'evidence', 'old', 'commit', 'tree', 'dependencies'):
+    for option in ('stage', 'runtime', 'home', 'target', 'evidence', 'old', 'commit', 'tree', 'dependencies', 'python', 'recovery-commit'):
         parser.add_argument('--' + option, required=True)
     args = parser.parse_args()
     env = os.environ
     runner = Path(env['RUNNER_TEMP'])
     home, target, evidence, stage, runtime = map(Path, (args.home, args.target, args.evidence, args.stage, args.runtime))
     hosted_preflight(env, str(runner), str(home), str(target), str(evidence))
+    # Atomic gate: do not run a hosted fault until complete launch accounting is
+    # implemented and verified. Never silently turn trace collection into proof.
+    raise Refusal('hosted recovery held: launch accounting not yet verified')
     if (stage != runner / 'trusted-stage' or runtime != runner / 'trusted-runtime' / 'bin' / 'python'
             or stage.resolve() != stage or not Path(args.dependencies).is_absolute()):
         raise Refusal('untrusted stage or runtime path')
@@ -213,28 +261,33 @@ def main():
             str(config), '--', '--target', str(target), '--old-commit', args.old,
             '--stage-commit', args.commit, '--stage-tree', args.tree, '--home', str(home),
             '--dependency-path', args.dependencies]
-    updater = None
-    updater_birth = None
+    import shutil
+    binary = shutil.which('strace')
+    if not binary:
+        raise Refusal('strace is required for observed recovery')
     try:
-        updater = subprocess.Popen(argv, env=env.copy(), cwd=str(stage), pass_fds=(child.fileno(),))
-        child.close()
-        proc = psutil.Process(updater.pid)
-        updater_birth = identity.birth(updater.pid)
-        if (updater.pid <= 1 or proc.ppid() != os.getpid() or proc.exe() != str(runtime.resolve())
-                or proc.environ().get('CLOVER_HOME') != str(home) or proc.uids().real != os.getuid()
-                or identity.birth(updater.pid) != updater_birth):
-            raise Refusal('updater identity mismatch')
-        stream = parent.makefile('rwb', buffering=0)
-        try:
-            stream.write(f'bind {updater.pid}\n'.encode())
-            result = execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target,
-                                   home / '.clover-update-heartbeat.json', port=18791, tracked=[],
-                                   beacon_copy=evidence / 'interrupted-bound-beacon.json')
-        finally:
-            stream.close()
-        result['updater'] = {'pid': updater.pid, 'birth_ticks': updater_birth,
-                             'executable': str(runtime.resolve())}
-        (evidence / 'interrupted-fault.json').write_text(json.dumps(result, indent=2) + '\n')
+        def inject(updater):
+            child.close()
+            stream = parent.makefile('rwb', buffering=0)
+            try:
+                stream.write(f'bind {updater.pid}\n'.encode())
+                result = execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target,
+                                       home / '.clover-update-heartbeat.json', port=18791, tracked=[],
+                                       beacon_copy=evidence / 'interrupted-bound-beacon.json')
+            finally:
+                stream.close()
+            result['updater'] = {'pid': updater.pid, 'birth_ticks': updater.birth_ticks,
+                                 'executable': str(runtime.resolve())}
+            (evidence / 'interrupted-fault.json').write_text(json.dumps(result, indent=2) + '\n')
+            return result
+
+        def recover(session, result):
+            return verify_recovery(args.python, env, home, target, stage, evidence, args.old, args.recovery_commit)
+
+        result = run_observed_recovery(binary, argv, env.copy(), home, stage,
+                                       evidence / 'interrupted-process-trace', (child.fileno(),),
+                                       inject, recover)
+        (evidence / 'interrupted-observed.json').write_text(json.dumps(result, indent=2) + '\n')
     except BaseException as exc:
         (evidence / 'interrupted-fault-failure.json').write_text(json.dumps(
             {'injected': False, 'error': type(exc).__name__, 'detail': str(exc)}, indent=2) + '\n')
@@ -242,9 +295,6 @@ def main():
     finally:
         child.close()
         parent.close()
-        if updater is not None and updater.poll() is None and updater_birth is not None:
-            identity.signal_bound(updater.pid, updater_birth, __import__('signal').SIGKILL)
-            updater.wait(timeout=10)
 
 
 if __name__ == '__main__':
