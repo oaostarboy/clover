@@ -148,6 +148,10 @@ jobs:
       NEXT_SHA: ${{ needs.pins.outputs.next_sha }}
       NEXT_TREE: ${{ needs.pins.outputs.next_tree }}
       PHASE: ${{ matrix.phase }}
+      # First transition must run fresh staged code, not the loaded old updater.
+      NATIVE_STAGED_ENTRY: ${{ matrix.phase == 'old2new' && '1' || '0' }}
+      # The origin observer uses /proc; Mac needs its separate native proof.
+      NATIVE_STAGE_INDEPENDENCE: ${{ matrix.os == 'ubuntu-latest' && matrix.phase == 'old2new' && '1' || '0' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

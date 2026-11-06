@@ -3,6 +3,9 @@
 set -euo pipefail
 [[ ${GITHUB_ACTIONS:-} == true && ${RUNNER_ENVIRONMENT:-} == github-hosted ]]
 MODE=$1
+STAGE_PROOF=${NATIVE_STAGE_INDEPENDENCE:-${NATIVE_STAGED_ENTRY:-0}}
+[[ ${NATIVE_STAGED_ENTRY:-0} != 1 || $MODE == old2new ]]
+[[ $STAGE_PROOF != 1 || ${NATIVE_STAGED_ENTRY:-0} == 1 ]]
 PROOF="$GITHUB_WORKSPACE/helpers/.github/native-proof/proof.py"
 SOURCE="$GITHUB_WORKSPACE/source"
 EVIDENCE="$RUNNER_TEMP/evidence"
@@ -204,7 +207,7 @@ if [[ $MODE != fresh ]]; then
   "$PY" "$PROOF" origin --repo "$INSTALL_DIR" --mirror "$RUNNER_TEMP/origin.git" --target "$TO_SHA"
 fi
 printf '\nAPI_SERVER_ENABLED=true\nAPI_SERVER_KEY=native-proof-dummy-key-123456\nAPI_SERVER_PORT=18791\nAPI_SERVER_HOST=127.0.0.1\n' >> "$CLOVER_HOME/.env"
-if [[ ${NATIVE_STAGED_ENTRY:-0} == 1 ]]; then
+if [[ $STAGE_PROOF == 1 ]]; then
   FIXTURE="$GITHUB_WORKSPACE/helpers/.github/native-proof"
   python "$FIXTURE/stage_independence_chat.py" "$EVIDENCE" > "$EVIDENCE/chat-fixture.log" 2>&1 &
   for _ in $(seq 1 200); do [[ -s "$EVIDENCE/chat-ports.json" ]] && break; sleep .1; done
@@ -225,7 +228,7 @@ if [[ ${NATIVE_STAGED_ENTRY:-0} == 1 ]]; then
 fi
 "$BIN" gateway run > "$EVIDENCE/gateway-launch.log" 2>&1 &
 "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$FROM_SHA" --port 18791 --seconds 0 --output "$EVIDENCE/before-state.json"
-if [[ ${NATIVE_STAGED_ENTRY:-0} == 1 ]]; then
+if [[ $STAGE_PROOF == 1 ]]; then
   touch "$EVIDENCE/chat-pre"
   for _ in $(seq 1 1200); do [[ -s "$EVIDENCE/chat-pre-reply.json" ]] && break; sleep .1; done
   test -s "$EVIDENCE/chat-pre-reply.json"
@@ -242,7 +245,7 @@ if [[ $MODE != fresh ]]; then
   fi 2>&1 | tee "$EVIDENCE/update.log"
   "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$TO_SHA" --port 18791 --seconds 90 --previous "$EVIDENCE/before-state.json" --output "$EVIDENCE/after-state.json"
   "$PY" "$PROOF" receipt --home "$CLOVER_HOME" --begin "$EVIDENCE/begin.json" --old "$FROM_SHA" --target "$TO_SHA" --output "$EVIDENCE/update-receipt.json"
-  if [[ ${NATIVE_STAGED_ENTRY:-0} == 1 ]]; then
+  if [[ $STAGE_PROOF == 1 ]]; then
     STAGE="$RUNNER_TEMP/trusted-stage"
     MOVED="$RUNNER_TEMP/trusted-stage-unavailable"
     cp "$CLOVER_HOME/config.yaml" "$EVIDENCE/config-after-update.yaml"
