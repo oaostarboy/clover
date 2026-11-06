@@ -1,62 +1,39 @@
-name: Integrated candidate Windows native proof
+name: Disposable macOS user-domain isolation diagnostic
 on:
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: integrated-windows-${{ github.run_id }}
-  cancel-in-progress: false
-env:
-  TARGET_REF: a62d59e895c723623fe0edc952e8c480bfc6f322
-  TARGET_TREE: e56d299cf8bf63fafea6f619c05a7590e1954685
-  OLD_REF: v2.0.2.11
-  OLD_SHA: 9271c360f4519fc30887bbab7777c76970d4318f
-  NEXT_REF: ci/native-next/integrated-a62d59e8
-  SETUP: troy
-  UPDATE_PATH: chat
-  PHASE: new2next
 jobs:
-  windows-witness:
-    runs-on: windows-latest
-    timeout-minutes: 90
+  macos-user-domain:
+    runs-on: macos-15
+    timeout-minutes: 20
     steps:
-      - name: Checkout helpers
+      - name: Checkout diagnostic
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           path: helpers
-          fetch-depth: 0
           persist-credentials: false
-      - name: Checkout pinned source
+      - name: Checkout pinned product for identity only
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           path: source
-          ref: ${{ env.TARGET_REF }}
-          fetch-depth: 0
+          ref: a62d59e895c723623fe0edc952e8c480bfc6f322
           persist-credentials: false
-      - name: Prepare source-bound plan
+      - name: Verify source identity and run one diagnostic
+        timeout-minutes: 10
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/evidence"
-          git -C source fetch origin "+refs/heads/$NEXT_REF:refs/remotes/origin/$NEXT_REF"
-          python helpers/.github/native-proof/proof.py plan --repo source --old-ref "$OLD_REF" --target-ref "$TARGET_REF" --target-tree "$TARGET_TREE" --next-ref "$NEXT_REF" --output "$RUNNER_TEMP/evidence/plan.json"
-          echo "NEXT_SHA=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF")" >> "$GITHUB_ENV"
-          echo "NEXT_TREE=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF^{tree}")" >> "$GITHUB_ENV"
-      - name: Windows installer readiness and update witness
-        timeout-minutes: 75
-        shell: pwsh
-        env:
-          NATIVE_WAIT_INSTALLER_BUILD: '1'
-        run: ./helpers/.github/native-proof/windows.ps1 -Mode $env:PHASE
-      - name: Record row
-        if: always()
-        shell: bash
-        env:
-          ROW_STATUS: ${{ job.status }}
-        run: python helpers/.github/native-proof/row.py
+          git -C source rev-parse HEAD > "$RUNNER_TEMP/evidence/product-sha.txt"
+          git -C source rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/evidence/product-tree.txt"
+          test "$(git -C source rev-parse HEAD)" = a62d59e895c723623fe0edc952e8c480bfc6f322
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = e56d299cf8bf63fafea6f619c05a7590e1954685
+          shasum -a 256 helpers/.github/native-proof/macos_user_isolation_probe.py > "$RUNNER_TEMP/evidence/script-sha256.txt"
+          /usr/bin/python3 helpers/.github/native-proof/macos_user_isolation_probe.py
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: integrated-windows-${{ github.run_id }}
+          name: macos-user-isolation-${{ github.run_id }}
           path: ${{ runner.temp }}/evidence
           if-no-files-found: error
