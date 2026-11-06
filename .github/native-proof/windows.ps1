@@ -35,6 +35,9 @@ $source = "$env:GITHUB_WORKSPACE\source"
 $proof = "$helpers\.github\native-proof\proof.py"
 $evidence = "$env:RUNNER_TEMP\evidence"
 New-Item -ItemType Directory -Force $evidence | Out-Null
+. "$helpers\.github\native-proof\phase-checkpoints.ps1"
+Initialize-NativePhaseJournal $evidence $env:TARGET_REF
+trap { $phaseError = $_; Write-NativePhaseFailure; throw $phaseError }
 & python $proof preflight --repo $source --output "$evidence\plan.json"
 if ($LASTEXITCODE -ne 0) { throw 'Source pins moved since plan job' }
 $env:CLOVER_HOME = "$env:LOCALAPPDATA\clover"
@@ -66,14 +69,18 @@ function Save-NpmEvidence([string]$destination) {
     Copy-Item -Destination $npmEvidence -Recurse -Force -ErrorAction Continue
 }
 try {
+  Write-NativePhase 'installer' 'started'
   & "$env:RUNNER_TEMP\install.ps1" -Branch $env:NEXT_REF -Commit $from -NonInteractive -SkipComputerUse -CloverHome $env:CLOVER_HOME -InstallDir $env:INSTALL_DIR 2>&1 | Tee-Object "$evidence\install.log" | Out-Host
   $installerExit = $LASTEXITCODE
 } finally {
   Save-NpmEvidence $evidence
 }
 if ($installerExit -ne 0) { throw 'installer failed' }
+Write-NativePhase 'installer' 'completed'
 if ($env:NATIVE_WAIT_INSTALLER_BUILD -eq '1') {
+  Write-NativePhase 'installer-readiness' 'started'
   . "$helpers\.github\native-proof\wait-installer-build.ps1"
+  Write-NativePhase 'installer-readiness' 'completed'
 }
 $script:py = "$env:INSTALL_DIR\venv\Scripts\python.exe"
 $env:CLOVER_BIN = "$env:INSTALL_DIR\venv\Scripts\clover.exe"
@@ -321,8 +328,12 @@ if ($Mode -ne 'fresh') {
     $probeStartDeadline = (Get-Date).AddSeconds(10)
     while (-not (Test-Path $probeOutput) -and (Get-Date) -lt $probeStartDeadline) { Start-Sleep -Milliseconds 100 }
     if (-not (Test-Path $probeOutput)) { throw 'Read-only handoff sampler did not start' }
+    Write-NativePhase 'update-trigger' 'started'
     $exitCode = Invoke-PathUpdate "$env:SETUP $env:UPDATE_PATH $Mode"
+    Write-NativePhase 'update-trigger' 'completed'
+    Write-NativePhase 'update-chain' 'started'
     Wait-UpdateChainDone 1800
+    Write-NativePhase 'update-chain' 'completed'
   } catch {
     $updateFailure = $_
     throw
@@ -339,11 +350,16 @@ if ($Mode -ne 'fresh') {
   # Dependency sync can replace a vulnerable base Python with a private fixed
   # SQLite generation. Measure the completed update's venv again; never accept
   # an arbitrary generation-directory prefix or reuse the IRC interpreter.
+  Write-NativePhase 'gateway-python' 'started'
   Set-Variable -Name NativeProofGatewayPythonAfter -Scope Script -Option ReadOnly -Value (Get-NativeProofInstalledGatewayPython)
   $script:NativeProofGatewayPythonAfter | ConvertTo-Json -Depth 6 | Set-Content "$evidence\gateway-python-after-update.json" -Encoding utf8
+  Write-NativePhase 'gateway-python' 'completed'
+  Write-NativePhase 'stability' 'started'
   Assert-UpdateSucceeded "$env:SETUP $env:UPDATE_PATH $Mode" $logStart $exitCode ([int]$own.Pid)
+  Write-NativePhase 'stability' 'completed'
   $after = Read-ExactGateway
   if ($env:SETUP -eq 'troy') {
+    Write-NativePhase 'task-export' 'started'
     $taskDefinitionAfter = Export-ScheduledTask -TaskName 'Clover_Troy_Gateway' -ErrorAction Stop
     $taskDefinitionAfter | Set-Content "$evidence\task-definition-after.xml" -Encoding unicode -ErrorAction Stop
     $comparison = Compare-TaskDefinition $taskDefinitionBefore $taskDefinitionAfter
@@ -351,13 +367,17 @@ if ($Mode -ne 'fresh') {
     $comparison | Add-Member -NotePropertyName after_at -NotePropertyValue ([DateTimeOffset]::UtcNow.ToString('o'))
     $comparison | ConvertTo-Json -Depth 8 | Set-Content "$evidence\task-definition-comparison.json" -Encoding utf8 -ErrorAction Stop
     if (-not $comparison.unchanged) { throw 'Scheduled task definition changed' }
+    Write-NativePhase 'task-export' 'completed'
   }
   if ($after.pid -eq $before.pid -or $after.start_time -eq $before.start_time) { throw 'Gateway did not restart' }
   $after | ConvertTo-Json -Depth 10 | Set-Content "$evidence\after-state.json" -Encoding utf8
+  Write-NativePhase 'receipt' 'started'
   Invoke-Proof receipt --home $env:CLOVER_HOME --begin "$evidence\begin.json" --old $from --target $to --output "$evidence\update-receipt.json"
+  Write-NativePhase 'receipt' 'completed'
   $receiptVerifiedAt = [DateTimeOffset]::UtcNow.ToString('o')
   $receiptVerifiedTicks = [System.Diagnostics.Stopwatch]::GetTimestamp()
   if ($env:UPDATE_PATH -eq 'chat') {
+    Write-NativePhase 'post-chat' 'started'
     # This existing acknowledgement can arrive before receipt verification.
     $deadline = (Get-Date).AddSeconds(300)
     while ((Get-Date) -lt $deadline -and -not (Select-String "$env:RUNNER_TEMP\irc.log" -Pattern 'PRIVMSG.*Clover update finished' -Quiet)) { Start-Sleep 3 }
@@ -375,13 +395,16 @@ if ($Mode -ne 'fresh') {
       $postChat = Read-ExactGateway
       if ($postChat.pid -ne $after.pid -or $postChat.start_time -ne $after.start_time -or $postChat.code_sha -ne $to) { throw 'Gateway identity changed during post-receipt chat' }
       $postChat | ConvertTo-Json -Depth 10 | Set-Content "$evidence\post-chat-state.json" -Encoding utf8 -ErrorAction Stop
+      Write-NativePhase 'post-chat' 'completed'
     } finally {
       Copy-Item "$env:RUNNER_TEMP\irc.log" "$evidence\irc.log" -Force -ErrorAction Stop
     }
   }
 } else { $null = Measure-Liveness90 'fresh' }
+Write-NativePhase 'preservation' 'started'
 & $script:py "$helpers\.github\native-proof\preservation.py" verify --home $env:CLOVER_HOME --repo $env:INSTALL_DIR --evidence $evidence
 if ($LASTEXITCODE -ne 0) { throw 'Configuration or conversation preservation failed' }
+Write-NativePhase 'preservation' 'completed'
 Invoke-Proof identity --repo $env:INSTALL_DIR --sha $to --tree $toTree --output "$evidence\after-imports.json"
 if ($Mode -eq 'fresh') {
   & $script:py "$helpers\.github\native-proof\native_tests.py" --repo $env:INSTALL_DIR --evidence $evidence
