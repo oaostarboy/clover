@@ -29,8 +29,7 @@ def full_sha(value):
 def plan(repo, old_ref, target_ref, target_tree, next_ref):
     full_sha(target_ref)
     full_sha(target_tree)
-    if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?', old_ref):
-        raise ValueError('old_ref must be an explicit release tag')
+    full_sha(old_ref)
     if not next_ref.startswith('ci/native-next/'):
         raise ValueError('next_ref must be a unique ci/native-next/<run-name> branch')
     git(repo, 'check-ref-format', 'refs/heads/' + next_ref)
@@ -39,7 +38,9 @@ def plan(repo, old_ref, target_ref, target_tree, next_ref):
     target = git(repo, 'rev-parse', target_ref + '^{commit}')
     if target != target_ref or git(repo, 'rev-parse', target + '^{tree}') != target_tree:
         raise ValueError('candidate SHA/tree pin mismatch')
-    old = git(repo, 'rev-parse', 'refs/tags/' + old_ref + '^{commit}')
+    old = git(repo, 'rev-parse', old_ref + '^{commit}')
+    if old != old_ref:
+        raise ValueError('old commit pin mismatch')
     git(repo, 'merge-base', '--is-ancestor', old, target)
     try:
         nxt = git(repo, 'rev-parse', '--verify', '--quiet', 'refs/remotes/origin/' + next_ref + '^{commit}')
