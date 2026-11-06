@@ -57,6 +57,7 @@ jobs:
             bash helpers/.github/native-proof/posix.sh old2new
           else
             printf 'No installer-start diagnostic was recorded\n' > "$RUNNER_TEMP/evidence/install-collection-missing.txt"
+            exit 1
           fi
       - name: Record row
         if: always()
