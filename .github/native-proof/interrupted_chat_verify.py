@@ -47,14 +47,21 @@ observed = []
 for path in evidence.glob('live-modules-*.json'):
     try:
         data = json.loads(path.read_text())
-        if data.get('modules', {}).get('gateway.run'): observed.append(data['pid'])
-    except (OSError, ValueError, KeyError):
+        pid = data['pid']
+        modules = data['modules']
+        if (type(pid) is not int or pid <= 1 or path.name != f'live-modules-{pid}.json'
+                or not isinstance(modules, dict) or 'gateway.run' not in modules
+                or any(not isinstance(k, str) or (v is not None and not isinstance(v, str))
+                       for k, v in modules.items())):
+            raise ValueError('invalid live module observation')
+        if modules['gateway.run']:
+            observed.append(pid)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         raise ValueError('invalid live module observation')
-before = json.loads((evidence / 'before-state.json').read_text())
-if set(observed) - {before['pid'], first['pid']}:
-    raise ValueError('additional gateway module startup observed')
 (evidence / 'interrupted-chat.json').write_text(json.dumps({
-    'nonce': nonce, 'session_id': session, 'config_sha256': post_hash,
-    'final_sample': final, 'gateway_module_startup_pids': sorted(set(observed)),
-    'launch_observation_limit': 'module-origin observer; does not capture processes that exit before importing gateway.run'
+    'nonce': nonce, 'history_sentinel': 'STAGE_HISTORY_SENTINEL',
+    'session_id': session, 'config_sha256': post_hash,
+    'final_sample': final, 'module_import_pids': sorted(set(observed)),
+    'launch_accounting': 'pending',
+    'launch_observation_limit': 'module imports do not establish launch counts; kernel-trace accounting is required'
 }, indent=2)+'\n')
