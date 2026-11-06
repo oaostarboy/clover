@@ -12,6 +12,47 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
 class GuardTests(unittest.TestCase):
+    def test_bootstrap_failure_is_preserved_with_after_diagnostics(self):
+        self.assertTrue(hasattr(m, 'attempt_bootstrap'))
+        original = RuntimeError('original bootstrap refusal')
+        with patch.object(m, 'run', side_effect=original), patch.object(m, 'capture_bootstrap_diagnostics') as capture:
+            with self.assertRaises(RuntimeError) as raised:
+                m.attempt_bootstrap([], 600, 'io.clover.ci.probe.123', '/Users/cpv123/Library/LaunchAgents/probe.plist')
+            self.assertIs(raised.exception, original)
+            self.assertEqual([c.args[-1] for c in capture.call_args_list], ['before', 'after'])
+
+    def test_capture_filters_logs_and_survives_private_home_permissions(self):
+        import json
+        label = 'io.clover.ci.probe.123'
+        events = [{'eventMessage': 'unrelated SUPERSECRET'}, {'eventMessage': label + ' rejected password=SUPERSECRET'}]
+        def command(args, **kwargs):
+            if '/usr/bin/log' in args:
+                return subprocess.CompletedProcess(args, 0, json.dumps(events), '')
+            if '/usr/bin/python3' in args:
+                return subprocess.CompletedProcess(args, 0, json.dumps({'sha256': 'a' * 64, 'paths': []}), '')
+            return subprocess.CompletedProcess(args, 5, 'SUPERSECRET', 'SUPERSECRET')
+        with tempfile.TemporaryDirectory() as d, patch.object(m, 'E', pathlib.Path(d)), patch.object(m, 'run', side_effect=command), patch.object(pathlib.Path, 'read_bytes', side_effect=PermissionError('SUPERSECRET')):
+            m.capture_bootstrap_diagnostics([], 600, label, '/missing/private/probe.plist', 'after')
+            raw = (pathlib.Path(d) / 'bootstrap-after.json').read_text()
+            result = json.loads(raw)
+            self.assertNotIn('SUPERSECRET', raw)
+            self.assertEqual(result['plist_read_error_type'], 'PermissionError')
+            self.assertEqual(result['owner_metadata']['sha256'], 'a' * 64)
+            self.assertEqual(len(result['launchd_messages']), 1)
+            self.assertIn('[REDACTED]', result['launchd_messages'][0])
+            self.assertEqual(result['queries']['domain']['returncode'], 5)
+
+    def test_diagnostics_never_persist_unrelated_command_output(self):
+        with tempfile.TemporaryDirectory() as d:
+            plist = pathlib.Path(d) / 'probe.plist'
+            plist.write_bytes(b'<plist/>')
+            secret = 'SHOULD_NOT_APPEAR_SECRET'
+            with patch.object(m, 'run', return_value=subprocess.CompletedProcess([], 5, secret, secret)):
+                result = m.bootstrap_diagnostics([], 600, 'io.clover.ci.probe.123', str(plist), 'before')
+            self.assertNotIn(secret, repr(result))
+            self.assertEqual(result['plist_hex'], b'<plist/>'.hex())
+            self.assertEqual(result['queries']['domain']['returncode'], 5)
+
     def test_help_query_uses_local_directory_source(self):
         help_output = '\n    -read <path>\n    -create <record>\n    -delete <record>\n'
         with patch.object(m, 'run', return_value=subprocess.CompletedProcess([], 0, help_output, '')) as call:

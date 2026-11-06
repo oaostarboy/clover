@@ -45,6 +45,86 @@ def account_and_home_absent(result, home):
     path = pathlib.Path(home)
     return result.returncode != 0 and errors == {'eDSRecordNotFound'} and not path.exists() and not path.is_symlink()
 
+def bootstrap_diagnostics(as_user, uid, label, plist, phase):
+    """Read-only bounded observations; never retain untrusted raw command output."""
+    path = pathlib.Path(plist)
+    output = {'phase': phase, 'paths': {}, 'queries': {}}
+    try:
+        output['plist_hex'] = path.read_bytes().hex()
+    except OSError as exc:
+        output['plist_read_error_type'] = type(exc).__name__
+    for item in (path, path.parent, path.parent.parent, path.parent.parent.parent):
+        try:
+            s = item.lstat()
+            output['paths'][str(item)] = {'uid': s.st_uid, 'gid': s.st_gid, 'mode': oct(s.st_mode & 0o7777)}
+        except OSError as exc:
+            output['paths'][str(item)] = {'error_type': type(exc).__name__}
+    domain = 'user/' + str(uid)
+    commands = {'manager': ['managername'], 'domain': ['print', domain],
+                'disabled': ['print-disabled', domain], 'service': ['print', domain + '/' + label]}
+    for name, args in commands.items():
+        try:
+            result = run(as_user + ['/bin/launchctl'] + args, check=False, timeout=15)
+            # Return codes are reliable, while arbitrary output may contain unrelated data.
+            output['queries'][name] = {'returncode': result.returncode}
+            if name == 'manager' and result.stdout.strip() in ('Background', 'Aqua', 'LoginWindow', 'System'):
+                output['queries'][name]['name'] = result.stdout.strip()
+        except Exception as exc:
+            output['queries'][name] = {'error_type': type(exc).__name__}
+    return output
+
+def capture_bootstrap_diagnostics(as_user, uid, label, plist, phase):
+    """Diagnostics are read-only and cannot replace the original bootstrap error."""
+    if not re.fullmatch(r'io\.clover\.ci\.probe\.[0-9]{1,18}', label) or phase not in ('before', 'after'):
+        raise ValueError('invalid diagnostic identity')
+    output: dict[str, object] = {'phase': phase}
+    try:
+        output.update(bootstrap_diagnostics(as_user, uid, label, plist, phase))
+    except Exception as exc:
+        output['metadata_error_type'] = type(exc).__name__
+    # The runner cannot traverse the fixture's 0700 home. Read only fixed
+    # metadata through the already verified ordinary-user command boundary.
+    try:
+        code = "import pathlib,json,hashlib,sys; p=pathlib.Path(sys.argv[1]); print(json.dumps({'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'paths':[{'uid':x.lstat().st_uid,'gid':x.lstat().st_gid,'mode':oct(x.lstat().st_mode&4095)} for x in (p,p.parent,p.parent.parent,p.parent.parent.parent)]}))"
+        result = run(as_user + ['/usr/bin/python3', '-c', code, plist], check=False, timeout=30)
+        output['owner_metadata_status'] = result.returncode
+        if result.returncode == 0:
+            metadata = json.loads(result.stdout)
+            if re.fullmatch(r'[a-f0-9]{64}', metadata.get('sha256', '')):
+                output['owner_metadata'] = metadata
+    except Exception as exc:
+        output['owner_metadata_error_type'] = type(exc).__name__
+    if phase == 'after':
+        try:
+            predicate = 'process == "launchd" AND eventMessage CONTAINS "' + label + '"'
+            result = run(['/usr/bin/sudo', '-n', '/usr/bin/log', 'show', '--last', '3m', '--style', 'json', '--predicate', predicate], check=False, timeout=30)
+            output['launchd_log_status'] = result.returncode
+            if result.returncode == 0:
+                events = json.loads(result.stdout)
+                messages = []
+                for event in events if isinstance(events, list) else []:
+                    message = event.get('eventMessage', '')
+                    if isinstance(message, str) and label in message:
+                        message = re.sub(r'(?i)(bearer\s+|(?:token|password|secret|api_key)\s*[=:]\s*)\S+', r'\1[REDACTED]', message)
+                        messages.append(message[:2048])
+                output['launchd_messages'] = messages[:50]
+        except Exception as exc:
+            output['launchd_log_error_type'] = type(exc).__name__
+    try:
+        E.mkdir(parents=True, exist_ok=True)
+        (E / ('bootstrap-' + phase + '.json')).write_text(json.dumps(output, indent=2) + '\n')
+    except Exception as exc:
+        state['diagnostic_write_error_type'] = type(exc).__name__
+
+
+def attempt_bootstrap(as_user, uid, label, plist):
+    capture_bootstrap_diagnostics(as_user, uid, label, plist, 'before')
+    try:
+        return run(as_user + ['/bin/launchctl', 'bootstrap', 'user/' + str(uid), plist])
+    finally:
+        capture_bootstrap_diagnostics(as_user, uid, label, plist, 'after')
+
+
 def main():
     run_id = native_guard()
     suffix = run_id[-12:]
@@ -108,7 +188,7 @@ def main():
         if p.returncode: raise RuntimeError('plist write failed')
         save('before-bootstrap')
         bootstrap_attempted = True
-        run(as_user + ['/bin/launchctl', 'bootstrap', domain, plist])
+        attempt_bootstrap(as_user, uid, label, plist)
         result = run(as_user + ['/bin/launchctl', 'print', domain + '/' + label]).stdout
         match = re.search(r'\bpid\s*=\s*(\d+)', result)
         if not match: raise RuntimeError('launchd service has no PID')
