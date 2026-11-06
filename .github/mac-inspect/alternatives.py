@@ -33,7 +33,9 @@ for p in psutil.process_iter():
             same = after.create_time() == birth and list(after.uids()) == uids
         except (psutil.Error, OSError):
             same = False
-        rows.append({'pid': p.pid, 'birth': birth, 'uids': uids, 'psutil': status, 'ps_exit': r.returncode, 'ps_nonempty': bool(text), 'ps_placeholder': text in ('', '???', '?', '<defunct>'), 'identity_revalidated': same})
+        exe = p.exe()
+        base = Path(exe).name
+        rows.append({'pid': p.pid, 'birth': birth, 'uids': uids, 'psutil': status, 'ps_exit': r.returncode, 'ps_nonempty': bool(text), 'ps_placeholder': text in ('', '???', '?', '<defunct>'), 'ps_equals_exe_path': text == exe, 'ps_equals_exe_basename': text == base, 'ps_equals_bracketed_basename': text in ('(' + base + ')', '[' + base + ']'), 'ps_contains_whitespace': any(c.isspace() for c in text), 'identity_revalidated': same})
     except (psutil.Error, OSError, subprocess.SubprocessError):
         continue
 out.write_text(json.dumps({'kind': 'read-only availability probe; ps formatting does not prove exact argv', 'rows': rows}, indent=2))
