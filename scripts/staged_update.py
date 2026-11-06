@@ -45,8 +45,12 @@ def main(argv=None):
         if stage == target or stage in target.parents or target in stage.parents:
             raise ValueError('stage and target must be disjoint')
         for path in (stage, target):
-            if home == path or path in home.parents or home in path.parents:
-                raise ValueError('profile home must be separate from source checkouts')
+            # Default installs live at <profile-home>/clover-c1. The profile
+            # itself must never be inside a mutable source tree; a staged
+            # controller additionally stays outside the profile directory.
+            if (home == path or path in home.parents
+                    or (path == stage and home in path.parents)):
+                raise ValueError('profile home must be outside source; stage must be separate')
         if 'clover_cli.main' in sys.modules:
             raise ValueError('staged entry requires a fresh interpreter')
 

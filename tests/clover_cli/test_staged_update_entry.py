@@ -2,6 +2,7 @@
 from pathlib import Path
 import subprocess
 import sys
+import pytest
 
 
 def test_entry_refuses_startup_with_site_enabled(tmp_path):
@@ -12,7 +13,8 @@ def test_entry_refuses_startup_with_site_enabled(tmp_path):
     assert 'requires -I -S' in p.stderr
 
 
-def test_isolated_entry_pins_stage_before_importing_target(tmp_path):
+@pytest.mark.parametrize('nested_install', [False, True])
+def test_isolated_entry_pins_stage_before_importing_target(tmp_path, nested_install):
     """Fresh-process bootstrap contract; the fake CLI is only a witness."""
     import shutil
     source = Path(__file__).resolve().parents[2]
@@ -36,7 +38,9 @@ def test_isolated_entry_pins_stage_before_importing_target(tmp_path):
     git(stage, 'add', '.')
     git(stage, 'commit', '-qm', 'stage')
     commit, tree = git(stage, 'rev-parse', 'HEAD'), git(stage, 'rev-parse', 'HEAD^{tree}')
-    target = tmp_path / 'target'
+    home = tmp_path / 'profile'
+    home.mkdir()
+    target = home / 'clover-c1' if nested_install else tmp_path / 'target'
     subprocess.run(['git', 'clone', '-q', str(stage), str(target)], check=True)
     marker = tmp_path / 'old-code-executed'
     (target / 'clover_cli/__init__.py').write_text(f'open({str(marker)!r}, "w").write("bad")\n')
@@ -45,8 +49,6 @@ def test_isolated_entry_pins_stage_before_importing_target(tmp_path):
     git(target, 'add', '.')
     git(target, 'commit', '-qm', 'hostile target module')
     old = git(target, 'rev-parse', 'HEAD')
-    home = tmp_path / 'profile'
-    home.mkdir()
     args = [sys.executable, '-I', '-S', str(stage / 'scripts/staged_update.py'),
             '--target', str(target), '--old-commit', old,
             '--stage-commit', commit, '--stage-tree', tree, '--home', str(home)]
