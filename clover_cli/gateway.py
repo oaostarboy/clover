@@ -30,7 +30,8 @@ if os.name == "posix":
     if _missing:
         os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + os.pathsep.join(sorted(_missing))
 
-PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+from clover_cli._migration_target import target_root as _migration_target_root
+PROJECT_ROOT = _migration_target_root() or Path(__file__).parent.parent.resolve()
 
 from gateway.config import coerce_systemd_watchdog_seconds, load_gateway_config
 from gateway.status import terminate_pid
@@ -1144,8 +1145,10 @@ def _gateway_pid_belongs_to_install(pid: int) -> bool:
             cwd = Path(f"/proc/{pid}/cwd").resolve()
             return args[0] == "clover" and cwd == Path(PROJECT_ROOT).resolve()
         executable = Path(os.path.abspath(args[0]))
-        expected = Path(os.path.abspath(sys.executable))
-        if sys.prefix != sys.base_prefix:
+        from clover_cli._migration_target import target_python
+        bound_python = target_python()
+        expected = Path(os.path.abspath(bound_python or sys.executable))
+        if bound_python is not None or sys.prefix != sys.base_prefix:
             return executable.parent == expected.parent and (
                 executable == expected
                 or executable.name in {"python", "python3", "clover"}
@@ -3926,6 +3929,10 @@ def _detect_venv_dir() -> Path | None:
     directory names under PROJECT_ROOT.
     Returns ``None`` when no virtualenv can be found.
     """
+    from clover_cli._migration_target import target_python
+    target = target_python()
+    if target is not None:
+        return target.parent.parent
     # If we're running inside a virtualenv, sys.prefix points to it.
     if sys.prefix != sys.base_prefix:
         venv = Path(sys.prefix)
@@ -3951,6 +3958,10 @@ def _detect_venv_dir() -> Path | None:
 
 
 def get_python_path() -> str:
+    from clover_cli._migration_target import target_python
+    bound = target_python()
+    if bound is not None:
+        return str(bound)
     venv = _detect_venv_dir()
     if venv is not None:
         try:

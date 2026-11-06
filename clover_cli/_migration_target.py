@@ -21,6 +21,58 @@ def target_root():
     return _target
 
 
+def target_python():
+    """Return the bound target's lexical venv interpreter, or None unbound.
+
+    Never resolve the executable itself: separate venvs can share base Python.
+    External, missing, ambiguous, and symlinked venv directories are unsupported.
+    """
+    if _target is None:
+        return None
+    candidates = [_target / name for name in ('venv', '.venv')
+                  if (_target / name).exists() or (_target / name).is_symlink()]
+    if len(candidates) != 1:
+        raise ValueError('target requires exactly one local virtual environment')
+    venv = candidates[0]
+    if venv.is_symlink() or not venv.is_dir():
+        raise ValueError('target virtual environment must be a physical directory')
+    config = venv / 'pyvenv.cfg'
+    bindir = venv / ('Scripts' if os.name == 'nt' else 'bin')
+    python = bindir / ('python.exe' if os.name == 'nt' else 'python')
+    if (bindir.is_symlink() or not bindir.is_dir() or config.is_symlink()
+            or not config.is_file() or not python.is_file()):
+        raise ValueError('target virtual environment metadata or interpreter missing')
+    if hasattr(os, 'getuid') and any(p.stat().st_uid != os.getuid() for p in (venv, bindir, config)):
+        raise ValueError('target virtual environment is not owned by current user')
+    return python
+
+
+def validate_recovery_source():
+    """Refuse recovery until the bound checkout is at its prepared commit."""
+    if _identities is None:
+        return
+    target = _identities[1]
+    commit = prepared_staged_commit()
+    _physical_root(target)
+    _verify_git(target, commit)
+    package = target / 'clover_cli'
+    if package.is_symlink() or not package.is_dir():
+        raise ValueError('target recovery package is not a physical directory')
+    for relative in ('clover_cli/__init__.py', 'clover_cli/update_restart_recovery.py'):
+        path = target / relative
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('target recovery source is missing or symlinked')
+        result = subprocess.run(
+            ['git', '-C', str(target), 'ls-files', '--error-unmatch', '--', relative],
+            env={'PATH': os.defpath, 'HOME': str(target / '.git'),
+                 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
+                 'GIT_NO_REPLACE_OBJECTS': '1'},
+            capture_output=True, check=False,
+        )
+        if result.returncode:
+            raise ValueError('target recovery source is not tracked')
+
+
 def revalidate_target():
     """Recheck an active binding after the updater acquires its lock."""
     if _identities is None:

@@ -107,8 +107,9 @@ def main(argv=None):
         sys.path[:0] = [str(stage), *dependencies]
         os.chdir(stage)
         sys.argv = ['clover', 'update', '--yes', '--branch', 'main']
-        from clover_cli._migration_target import bind_target
+        from clover_cli._migration_target import bind_target, target_python
         with bind_target(stage, target, options.stage_commit, options.old_commit):
+            target_python()  # Refuse an unsupported runtime before importing updater code.
             from clover_cli import main as cli
             if not Path(cli.__file__).resolve().is_relative_to(stage):
                 raise ValueError('updater code did not load from pinned stage')

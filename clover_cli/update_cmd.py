@@ -3572,7 +3572,8 @@ def _gateway_pid_install_verdict(pid) -> str:
         return "unknown"
     # Same rule as the systemd unit check: ``venv/bin/python`` and
     # ``venv/bin/python3`` are one install; another venv is not.
-    expected = os.path.abspath(sys.executable)
+    from clover_cli._migration_target import target_python
+    expected = os.path.abspath(target_python() or sys.executable)
     if _systemd_interpreter_path_matches(executable, expected):
         return "own"
     # A lexical mismatch is not proof of a foreign install: the same venv
@@ -5348,6 +5349,10 @@ def _wait_for_windows_update_gateway_exit(
 
 def _update_venv_dir() -> Path:
     """Use one owned install target for repair, sync and holder checks."""
+    from clover_cli._migration_target import target_python
+    bound = target_python()
+    if bound is not None:
+        return bound.parent.parent
     from clover_cli.managed_uv import _default_live_venv
 
     return _default_live_venv(Path(_m().PROJECT_ROOT))
@@ -7169,7 +7174,8 @@ def _systemd_unit_owned_by_install(
     directory are interchangeable.
     Unknown or contradictory metadata is not permission to restart a unit.
     """
-    expected = os.path.abspath(interpreter or sys.executable)
+    from clover_cli._migration_target import target_python
+    expected = os.path.abspath(interpreter or target_python() or sys.executable)
     try:
         show = subprocess.run(
             scope_cmd + ["show", unit, "--property=Id,ExecStart,Environment,WorkingDirectory,FragmentPath", "--no-pager"],
@@ -7685,13 +7691,27 @@ def _recover_gateway_restart_after_abort(
             "skipped": skipped,
         }
 
+    from clover_cli._migration_target import target_python, target_root, validate_recovery_source
+    root = target_root()
+    if root is not None:
+        try:
+            validate_recovery_source()
+            python = target_python()
+        except (ValueError, OSError) as exc:
+            logger.warning("Unsafe target recovery source: %s", exc)
+            return _all_failed()
+    else:
+        python = None
     command = [
-        sys.executable,
+        str(python or sys.executable),
         "-m",
         "clover_cli.update_restart_recovery",
         "--stdin",
     ]
     env = os.environ.copy()
+    if root is not None:
+        for name in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"):
+            env.pop(name, None)
     env["CLOVER_UPDATE_RESTART_RECOVERY"] = "1"
     for marker in ("_CLOVER_GATEWAY", "CLOVER_GATEWAY", "CLOVER_GATEWAY_MODE"):
         env.pop(marker, None)
@@ -7719,8 +7739,9 @@ def _recover_gateway_restart_after_abort(
         "check": False,
         "env": env,
         "timeout": max(120, 30 + 90 * len(profiles)),
-        "stdin": subprocess.DEVNULL,
     }
+    if root is not None:
+        kwargs["cwd"] = root
     if sys.platform == "win32":
         kwargs["creationflags"] = (
             getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -8241,6 +8262,9 @@ def _with_current_gateway_interpreter(argv: list[str]) -> list[str]:
 
             return [get_python_path(), *argv[1:]]
         except Exception:
+            from clover_cli._migration_target import target_root
+            if target_root() is not None:
+                raise
             return argv
     return argv
 
@@ -8569,7 +8593,8 @@ def _rebuild_desktop_after_update(
         print("  ✓ Desktop app up to date")
         return True
 
-    desktop_build_cmd = [sys.executable, "-m", "clover_cli.main", "desktop", "--build-only"]
+    from clover_cli._migration_target import target_python, target_root
+    desktop_build_cmd = [str(target_python() or sys.executable), "-m", "clover_cli.main", "desktop", "--build-only"]
     # Capture the (very loud) Electron/vite build output into update.log
     # instead of streaming it to the terminal. On the rare nonzero exit,
     # retry once after waiting again for the venv — this covers a
@@ -8584,6 +8609,9 @@ def _rebuild_desktop_after_update(
     from clover_constants import with_clover_node_path
 
     build_env = with_clover_node_path()
+    if target_root() is not None:
+        for name in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"):
+            build_env.pop(name, None)
     build_result = _m()._run_logged_subprocess(
         desktop_build_cmd, cwd=_m().PROJECT_ROOT, env=build_env
     )
@@ -9938,7 +9966,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
         uv_bin = ensure_uv()
 
-        pip_cmd = [sys.executable, "-m", "pip"]
+        from clover_cli._migration_target import target_python
+        install_python = str(target_python() or sys.executable)
+        pip_cmd = [install_python, "-m", "pip"]
         if not uv_bin:
             uv_bin = _ensure_uv_for_termux(pip_cmd)
         install_group = "all"
@@ -9968,7 +9998,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             # avoiding PEP 668 'externally-managed-environment' errors on Debian/Ubuntu.
             # Some environments lose pip inside the venv; bootstrap it back with
             # ensurepip before trying the editable install.
-            pip_cmd = [sys.executable, "-m", "pip"]
+            pip_cmd = [install_python, "-m", "pip"]
             try:
                 subprocess.run(
                     pip_cmd + ["--version"],
@@ -9979,7 +10009,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 )
             except subprocess.CalledProcessError:
                 subprocess.run(
-                    [sys.executable, "-m", "ensurepip", "--upgrade", "--default-pip"],
+                    [install_python, "-m", "ensurepip", "--upgrade", "--default-pip"],
                     cwd=_m().PROJECT_ROOT,
                     check=True,
                     stdin=subprocess.DEVNULL,

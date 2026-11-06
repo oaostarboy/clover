@@ -49,6 +49,8 @@ def test_isolated_entry_pins_stage_before_importing_target(tmp_path, nested_inst
     git(target, 'add', '.')
     git(target, 'commit', '-qm', 'hostile target module')
     old = git(target, 'rev-parse', 'HEAD')
+    (target / '.git/info/exclude').write_text('venv/\n')
+    subprocess.run([sys.executable, '-m', 'venv', '--without-pip', str(target / 'venv')], check=True)
     args = [sys.executable, '-I', '-S', str(stage / 'scripts/staged_update.py'),
             '--target', str(target), '--old-commit', old,
             '--stage-commit', commit, '--stage-tree', tree, '--home', str(home)]

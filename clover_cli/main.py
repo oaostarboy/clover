@@ -9383,7 +9383,8 @@ def _default_venv_install_target() -> tuple[list[str], dict[str, str] | None]:
             env.pop("PYTHONPATH", None)
             env.pop("PYTHONHOME", None)
         return [uv_bin, "pip"], env
-    return [sys.executable, "-m", "pip"], None
+    from clover_cli._migration_target import target_python
+    return [str(target_python() or sys.executable), "-m", "pip"], None
 
 
 def _run_install_with_heartbeat(
