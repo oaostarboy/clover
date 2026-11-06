@@ -66,8 +66,10 @@ def test_doctor_fix_command_migrates_sibling_when_active_is_current(tmp_path):
     (home / "config.yaml").write_text("_config_version: 40\n")
     _legacy(sibling)
     env = {**os.environ, "HOME": str(tmp_path), "CLOVER_HOME": str(home)}
+    # Keep the real doctor entrypoint and migration checks, but avoid the
+    # unrelated background npx bootstrap in this bounded subprocess test.
     result = subprocess.run(
-        [sys.executable, "-c", "from clover_cli.main import main; main()", "doctor", "--fix"],
+        [sys.executable, "-c", "import tools.browser_tool as b; b.warm_agent_browser_npx_cache = lambda *a, **k: False; from clover_cli.main import main; main()", "doctor", "--fix"],
         env=env, capture_output=True, text=True, timeout=45,
     )
     assert result.returncode == 0, result.stderr[-1000:]
@@ -79,8 +81,10 @@ def test_doctor_fix_command_migrates_sibling_without_active_config(tmp_path):
     sibling = home / "profiles" / "work"
     _legacy(sibling)
     env = {**os.environ, "HOME": str(tmp_path), "CLOVER_HOME": str(home)}
+    # Keep the real doctor entrypoint and migration checks, but avoid the
+    # unrelated background npx bootstrap in this bounded subprocess test.
     result = subprocess.run(
-        [sys.executable, "-c", "from clover_cli.main import main; main()", "doctor", "--fix"],
+        [sys.executable, "-c", "import tools.browser_tool as b; b.warm_agent_browser_npx_cache = lambda *a, **k: False; from clover_cli.main import main; main()", "doctor", "--fix"],
         env=env, capture_output=True, text=True, timeout=45,
     )
     assert result.returncode == 0, result.stderr[-1000:]
