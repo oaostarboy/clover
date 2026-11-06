@@ -1636,6 +1636,25 @@ def launch_detached_profile_gateway_restart(profile: str, old_pid: int) -> bool:
     return _spawn_gateway_restart_watcher(old_pid, _gateway_run_args_for_profile(profile))
 
 
+def _staged_gateway_child_context() -> tuple[str, dict, str] | None:
+    """Pin post-update subprocesses to the validated bound installation."""
+    from clover_cli._migration_target import target_root, target_python, validate_recovery_source
+
+    root = target_root()
+    if root is None:
+        return None
+    validate_recovery_source()
+    python = target_python()
+    if python is None:
+        raise ValueError("bound target has no interpreter")
+    env = os.environ.copy()
+    for name in tuple(env):
+        if name.startswith("PYTHON") or name == "VIRTUAL_ENV":
+            env.pop(name, None)
+    env["VIRTUAL_ENV"] = str(python.parent.parent)
+    return str(root), env, str(python)
+
+
 def _spawn_gateway_restart_watcher(old_pid: int, run_argv: list[str]) -> bool:
     """Spawn the detached watcher that respawns ``run_argv`` once ``old_pid`` exits."""
     if old_pid <= 0 or not run_argv:
@@ -1674,7 +1693,24 @@ def _spawn_gateway_restart_watcher(old_pid: int, run_argv: list[str]) -> bool:
     # See gateway_windows.windowless_gateway_restart_spec.
     respawn_cwd = ""
     respawn_env_overlay: dict[str, str] = {}
-    if sys.platform == "win32":
+    watcher_context: dict = {}
+    try:
+        staged_context = _staged_gateway_child_context()
+    except (ValueError, OSError):
+        return False
+    if staged_context is not None:
+        root, env, python = staged_context
+        # Do not replay an arbitrary captured entrypoint from the stage.
+        # The ordinary module form needs only the target interpreter; an
+        # absolute script is allowed only when it is the target's main.py.
+        module_entry = len(run_argv) >= 3 and run_argv[1:3] == ["-m", "clover_cli.main"]
+        script_entry = len(run_argv) >= 2 and run_argv[1] == str(Path(root) / "clover_cli" / "main.py")
+        if not (module_entry or script_entry):
+            return False
+        run_argv = [python, *run_argv[1:]]
+        watcher_context = {"cwd": root, "env": env}
+        respawn_cwd = root
+    elif sys.platform == "win32":
         try:
             from clover_cli.gateway_windows import (
                 windowless_gateway_restart_spec,
@@ -1766,7 +1802,7 @@ def _spawn_gateway_restart_watcher(old_pid: int, run_argv: list[str]) -> bool:
     )
 
     watcher_argv = [
-        sys.executable,
+        staged_context[2] if staged_context is not None else sys.executable,
         "-c",
         watcher,
         str(old_pid),
@@ -1781,6 +1817,7 @@ def _spawn_gateway_restart_watcher(old_pid: int, run_argv: list[str]) -> bool:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
+            **watcher_context,
             **windows_detach_popen_kwargs(),
         )
     except OSError:
@@ -1800,6 +1837,7 @@ def _spawn_gateway_restart_watcher(old_pid: int, run_argv: list[str]) -> bool:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 stdin=subprocess.DEVNULL,
+                **watcher_context,
                 **fallback_kwargs,
             )
         except OSError:
@@ -5540,6 +5578,14 @@ def _spawn_detached_gateway() -> bool:
     out_path = log_dir / "gateway.log"
     err_path = log_dir / "gateway.error.log"
     try:
+        staged_context = _staged_gateway_child_context()
+    except (ValueError, OSError):
+        return False
+    context = {}
+    if staged_context is not None:
+        root, env, _python = staged_context
+        context = {"cwd": root, "env": env}
+    try:
         out = open(out_path, "ab")
     except OSError:
         return False
@@ -5550,6 +5596,7 @@ def _spawn_detached_gateway() -> bool:
                 stdin=subprocess.DEVNULL,
                 stdout=out,
                 stderr=subprocess.DEVNULL,
+                **context,
                 **windows_detach_popen_kwargs(),
             )
     except OSError:

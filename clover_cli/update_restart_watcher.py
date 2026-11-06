@@ -419,18 +419,24 @@ def write_beacon(argv: list[str], *, clover_home: Optional[Path] = None,
     """
     path = beacon_path(clover_home)
     path.parent.mkdir(parents=True, exist_ok=True)
+    from clover_cli._migration_target import target_root, target_python, revalidate_target
+    bound_root = target_root()
+    if bound_root is not None:
+        revalidate_target()
+    bound_python = target_python() if bound_root is not None else None
     payload = {
         "updater_pid": os.getpid(),
         "updater_create_time": _process_create_time(os.getpid()),
         "refreshed_at": time.time(),
         "gateway_argv": list(argv),
-        "cwd": os.getcwd(),
+        "cwd": str(bound_root) if bound_root is not None else os.getcwd(),
         "pre_pull_sha": pre_pull_sha,
         "repo": repo,
         "pre_update_snapshot_id": pre_update_snapshot_id,
         "windows_services": list(windows_services or []),
         "supervisor": supervisor,
-        "venv_python": venv_python or (str(Path(sys.executable).absolute())
+        "venv_python": venv_python or (str(bound_python) if bound_python is not None else
+                                       str(Path(sys.executable).absolute())
                                        if sys.prefix != sys.base_prefix else None),
     }
     tmp = path.with_suffix(".tmp")

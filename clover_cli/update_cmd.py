@@ -7964,6 +7964,24 @@ def _clear_restart_beacon_if_gateway_up() -> bool:
         return False
 
 
+def _staged_frozen_watcher_context() -> dict:
+    """Anchor a pre-pull frozen safety watcher to its bound installation."""
+    from clover_cli._migration_target import target_root, target_python, revalidate_target
+    root = target_root()
+    if root is None:
+        return {}
+    revalidate_target()
+    python = target_python()
+    if python is None:
+        raise ValueError("bound target has no interpreter")
+    env = os.environ.copy()
+    for key in tuple(env):
+        if key.startswith("PYTHON") or key == "VIRTUAL_ENV":
+            env.pop(key, None)
+    env["VIRTUAL_ENV"] = str(python.parent.parent)
+    return {"cwd": str(root), "env": env}
+
+
 def _arm_restart_watcher_before_pause() -> bool:
     """Arm the out-of-process restart watcher BEFORE stopping any gateway.
 
@@ -8001,7 +8019,7 @@ def _arm_restart_watcher_before_pause() -> bool:
         _watch_script.parent.mkdir(parents=True, exist_ok=True)
         _shutil.copy2(_urw.__file__, _watch_script)
 
-        watcher_kwargs: dict = {"close_fds": True}
+        watcher_kwargs: dict = {"close_fds": True, **_staged_frozen_watcher_context()}
         if _m()._is_windows():
             watcher_kwargs["creationflags"] = (
                 getattr(subprocess, "DETACHED_PROCESS", 0)
@@ -8871,7 +8889,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     # restart attempts.
                     _atexit.register(_m()._clear_restart_beacon_if_gateway_up)
                 else:
-                    _watcher_kwargs = {"close_fds": True}
+                    _watcher_kwargs = {"close_fds": True, **_staged_frozen_watcher_context()}
                     if _m()._is_windows():
                         _watcher_kwargs["creationflags"] = (
                             getattr(subprocess, "DETACHED_PROCESS", 0)
@@ -8879,9 +8897,16 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         )
                     else:
                         _watcher_kwargs["start_new_session"] = True
+                    _watcher_command = [sys.executable, "-m",
+                                        "clover_cli.update_restart_watcher", str(_beacon)]
+                    if _watcher_kwargs.get("cwd"):
+                        import shutil as _shutil
+                        _watch_script = _beacon.parent / "logs" / "update_restart_watcher.py"
+                        _watch_script.parent.mkdir(parents=True, exist_ok=True)
+                        _shutil.copy2(_urw.__file__, _watch_script)
+                        _watcher_command = [sys.executable, str(_watch_script), str(_beacon)]
                     subprocess.Popen(
-                        [sys.executable, "-m",
-                         "clover_cli.update_restart_watcher", str(_beacon)],
+                        _watcher_command,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         stdin=subprocess.DEVNULL,
@@ -9660,7 +9685,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         _watch_script = _beacon.parent / "logs" / "update_restart_watcher.py"
                         _watch_script.parent.mkdir(parents=True, exist_ok=True)
                         _shutil.copy2(_urw.__file__, _watch_script)
-                        _watch_kwargs: dict = {"close_fds": True}
+                        _watch_kwargs: dict = {"close_fds": True, **_staged_frozen_watcher_context()}
                         if _m()._is_windows():
                             _watch_kwargs["creationflags"] = (
                                 getattr(subprocess, "DETACHED_PROCESS", 0)
