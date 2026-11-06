@@ -5,7 +5,7 @@ set -euo pipefail
 STAGE="$RUNNER_TEMP/trusted-stage"
 RUNTIME="$RUNNER_TEMP/trusted-runtime"
 "$PY" -m venv "$RUNTIME"
-"$RUNTIME/bin/python" -m pip install --disable-pip-version-check "$SOURCE" pydantic
+"$RUNTIME/bin/python" -m pip install --disable-pip-version-check -e "$SOURCE" pydantic
 "$RUNTIME/bin/python" -c 'import pydantic; print("actual Pydantic", pydantic.__version__)'
 git clone --no-hardlinks "$SOURCE" "$STAGE"
 git -C "$STAGE" checkout --detach "$TARGET_REF"
