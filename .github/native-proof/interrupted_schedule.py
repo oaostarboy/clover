@@ -33,7 +33,7 @@ def frozen_watchers(watchers):
         for proc, birth in stopped:
             try:
                 identity.signal_bound(proc.pid, birth, signal.SIGCONT)
-            except (Refusal, ProcessLookupError) as exc:
+            except (Refusal, OSError) as exc:
                 failures.append(str(exc))
         if failures:
             raise Refusal('resume failed: ' + '; '.join(failures))

@@ -3,6 +3,7 @@
 set -euo pipefail
 [[ ${GITHUB_ACTIONS:-} == true && ${RUNNER_ENVIRONMENT:-} == github-hosted ]]
 MODE=$1
+COLLECT_ONLY=${NATIVE_COLLECT_INSTALL_EVIDENCE_ONLY:-0}
 STAGE_PROOF=${NATIVE_STAGE_INDEPENDENCE:-${NATIVE_STAGED_ENTRY:-0}}
 [[ ${NATIVE_STAGED_ENTRY:-0} != 1 || $MODE == old2new ]]
 [[ $STAGE_PROOF != 1 || ${NATIVE_STAGED_ENTRY:-0} == 1 ]]
@@ -10,15 +11,19 @@ PROOF="$GITHUB_WORKSPACE/helpers/.github/native-proof/proof.py"
 SOURCE="$GITHUB_WORKSPACE/source"
 EVIDENCE="$RUNNER_TEMP/evidence"
 mkdir -p "$EVIDENCE" "$RUNNER_TEMP/neutral"
-python "$PROOF" preflight --repo "$SOURCE" --output "$EVIDENCE/plan.json"
+if [[ $COLLECT_ONLY != 1 ]]; then
+  python "$PROOF" preflight --repo "$SOURCE" --output "$EVIDENCE/plan.json"
+fi
 unset PYTHONPATH VIRTUAL_ENV
 export CLOVER_HOME="$HOME/.clover" CLOVER_INSTALL_DIR="$HOME/.clover/clover-c1"
 INSTALL_DIR="$CLOVER_INSTALL_DIR"
 PY="$INSTALL_DIR/venv/bin/python"
 BIN="$INSTALL_DIR/venv/bin/clover"
 # A fresh runner is mandatory. Never adopt or replace an existing install.
-test ! -e "$CLOVER_HOME"
-if command -v clover; then exit 1; fi
+if [[ $COLLECT_ONLY != 1 ]]; then
+  test ! -e "$CLOVER_HOME"
+  if command -v clover; then exit 1; fi
+fi
 FROM_SHA=$TARGET_REF
 TO_SHA=$TARGET_REF
 TO_TREE=$TARGET_TREE
@@ -180,6 +185,13 @@ finish_install_evidence() {
 }
 INSTALL_EXIT=unknown
 INSTALL_PIPESTATUS=''
+if [[ $COLLECT_ONLY == 1 ]]; then
+  # Never overwrite a completed collector's truthful installer exit status.
+  if [[ ! -f "$EVIDENCE/install-diagnostics.json" ]]; then
+    collect_install_evidence after
+  fi
+  exit 0
+fi
 collect_install_evidence before
 trap finish_install_evidence EXIT
 git -C "$SOURCE" show "$TARGET_REF:scripts/install.sh" > "$RUNNER_TEMP/install.sh"

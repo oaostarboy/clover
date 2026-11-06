@@ -44,6 +44,23 @@ class ScheduleTests(unittest.TestCase):
                 time.sleep(.01)
             self.assertNotEqual(identity.state(p.pid), 'T')
 
+    def test_resume_attempts_all_watchers_even_if_first_signal_fails(self):
+        from unittest.mock import patch
+        a, b = self.child(), self.child()
+        real_signal = identity.signal_bound
+        resumed = []
+        def fail_first(pid, birth, sig):
+            if sig == signal.SIGCONT:
+                resumed.append(pid)
+                if pid == a[0].pid:
+                    raise PermissionError('synthetic denied')
+            return real_signal(pid, birth, sig)
+        with patch.object(identity, 'signal_bound', side_effect=fail_first):
+            with self.assertRaises(schedule.Refusal):
+                with schedule.frozen_watchers([a,b]):
+                    pass
+        self.assertEqual(resumed, [a[0].pid,b[0].pid])
+
     def test_harmless_two_watcher_crash_schedule(self):
         old, updater, a, b = self.child(), self.child(), self.child(), self.child()
         with schedule.frozen_watchers([a, b]):

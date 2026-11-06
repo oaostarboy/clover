@@ -46,6 +46,17 @@ jobs:
       - name: Controlled crash and recovery
         shell: bash
         run: bash helpers/.github/native-proof/posix.sh old2new
+      - name: Preserve installer diagnostics independently of shell traps
+        if: always()
+        shell: bash
+        env:
+          NATIVE_COLLECT_INSTALL_EVIDENCE_ONLY: '1'
+        run: |
+          if [[ -f "$RUNNER_TEMP/install-diagnostics-before.json" ]]; then
+            bash helpers/.github/native-proof/posix.sh old2new
+          else
+            printf 'No installer-start diagnostic was recorded\n' > "$RUNNER_TEMP/evidence/install-collection-missing.txt"
+          fi
       - name: Record row
         if: always()
         shell: bash
