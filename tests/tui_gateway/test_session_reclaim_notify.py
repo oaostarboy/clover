@@ -18,7 +18,7 @@ from tui_gateway import server
 def captured(monkeypatch):
     events = []
     monkeypatch.setattr(
-        server, "_broadcast_global_event", lambda ev, payload=None: events.append((ev, payload))
+        server, "_broadcast_global_event", lambda ev, payload=None, **kwargs: events.append((ev, payload))
     )
     # Teardown's real work (finalize, agent close, notifier unregister) is out
     # of scope — this is about what reaches the client.

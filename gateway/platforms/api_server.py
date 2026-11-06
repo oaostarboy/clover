@@ -1974,6 +1974,31 @@ class APIServerAdapter(BasePlatformAdapter):
             # matches web_server.py's dashboard-token check.
             if hmac.compare_digest(token.encode(), expected_key.encode()):
                 return None  # Auth OK
+            # A per-phone device token (hash-stored, revocable, expiring if unused).
+            try:
+                from clover_cli.mobile_pairing import get_device_store
+
+                # The iOS client reads session history through these exact
+                # endpoints. Never treat a device credential as an owner key.
+                # WebSocket ticket auth is a separate dashboard security seam.
+                # Listing can also expose hidden bot sessions and unarchive
+                # them when owner-only filters are supplied.  Limit device
+                # requests to the query keys used by the released iOS client.
+                mobile_history = request.method == "GET" and (
+                    (request.path == "/api/sessions" and not (
+                        set(request.query) - {"limit", "offset", "min_messages", "archived", "order"}
+                    ))
+                    or (re.fullmatch(r"/api/sessions/[^/]+/messages", request.path)
+                        and not request.query)
+                )
+                if not profile and mobile_history:
+                    from clover_cli.profiles import get_active_profile_name
+                    principal = get_device_store().authenticate(token)
+                    if (principal and principal.profile == get_active_profile_name()
+                            and "history" in principal.capabilities):
+                        return None
+            except Exception as exc:
+                logger.warning("Device token check failed: %s", type(exc).__name__)
 
         logger.warning(
             "API server rejected invalid API key: %s",

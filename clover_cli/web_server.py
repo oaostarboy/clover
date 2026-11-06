@@ -997,6 +997,31 @@ async def auth_middleware(request: Request, call_next):
     if getattr(request.app.state, "auth_required", False):
         return await call_next(request)
     path = request.url.path
+    # The desktop's loopback gateway also serves paired phones via its
+    # configured HTTPS proxy. Admit the device only to its narrow read/ticket
+    # surface; never turn it into the desktop owner session.
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer cdt_"):
+        from clover_cli.dashboard_auth.middleware import _extract_bearer
+        import re
+        history_list = (request.method == "GET" and path == "/api/sessions"
+                        and not (set(request.query_params) - {"limit", "offset", "min_messages", "archived", "order"}))
+        history_messages = (request.method == "GET" and
+                            re.fullmatch(r"/api/sessions/[^/]+/messages", path) and
+                            not request.query_params)
+        ticket_request = request.method == "POST" and path == "/api/auth/ws-ticket"
+        try:
+            from clover_cli.mobile_pairing import get_device_store
+            from clover_cli.profiles import get_active_profile_name
+            principal = get_device_store().authenticate(_extract_bearer(request))
+            allowed = (principal and principal.profile == get_active_profile_name()
+                       and (ticket_request or ((history_list or history_messages) and "history" in principal.capabilities)))
+        except Exception:
+            allowed = False
+        if not allowed:
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+        request.state.device_principal = principal
+        return await call_next(request)
     is_mcp_oauth_callback = path.startswith("/api/mcp/oauth/callback/")
     if path.startswith("/api/") and path not in _PUBLIC_API_PATHS and not is_mcp_oauth_callback:
         if not _has_valid_session_token(request) and not _has_valid_query_token(request, path):
@@ -7343,6 +7368,42 @@ async def update_memory_provider_config(
     except Exception:
         _log.exception("PUT /api/memory/providers/%s/config failed", name)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/mobile/pairing")
+async def get_mobile_pairing():
+    """Pairing setup state only (authenticated). Never returns a credential."""
+    from clover_cli.mobile_pairing import pairing_status
+    from clover_cli.config import get_env_value
+
+    return pairing_status(load_config(), get_env_value("API_SERVER_KEY"))
+
+
+@app.post("/api/mobile/pairing")
+async def create_mobile_pairing():
+    """Mint a new per-phone device token; the clover:// link is returned once."""
+    from clover_cli.mobile_pairing import create_pairing, get_device_store
+    from clover_cli.config import get_env_value
+
+    return await asyncio.to_thread(
+        create_pairing, load_config(), get_env_value("API_SERVER_KEY"), get_device_store()
+    )
+
+
+@app.get("/api/mobile/devices")
+async def list_mobile_devices():
+    from clover_cli.mobile_pairing import get_device_store
+
+    return {"devices": await asyncio.to_thread(get_device_store().list)}
+
+
+@app.delete("/api/mobile/devices/{device_id}")
+async def delete_mobile_device(device_id: str):
+    from clover_cli.mobile_pairing import get_device_store
+
+    if not await asyncio.to_thread(get_device_store().revoke, device_id):
+        raise HTTPException(status_code=404, detail="Unknown device")
+    return {"ok": True}
 
 
 @app.get("/api/config")
@@ -15714,7 +15775,12 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
     issues from the log.
     """
     auth_required = bool(getattr(app.state, "auth_required", False))
-    if auth_required:
+    # On loopback, retain legacy owner-token access while accepting only a
+    # device-scoped one-use ticket for the paired chat socket.
+    device_ticket_attempt = (not auth_required and ws.url.path == "/api/ws" and
+                             (ws.query_params.get("ticket", "") or
+                              _GATEWAY_WS_TICKET_PROTOCOL_PREFIX in ws.headers.get("sec-websocket-protocol", "")))
+    if auth_required or device_ticket_attempt:
         # Lazy import — keeps this function importable in test harnesses
         # that don't bring in the dashboard_auth layer.
         from clover_cli.dashboard_auth.audit import AuditEvent, audit_log
@@ -15727,7 +15793,7 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
         # Server-spawned children (PTY child → /api/ws, /api/pub) present the
         # multi-use internal credential rather than a single-use ticket, so
         # they survive reconnects and slow cold boots.
-        internal = ws.query_params.get("internal", "")
+        internal = ws.query_params.get("internal", "") if auth_required else ""
         if internal:
             try:
                 info = consume_internal_credential(internal)
@@ -15759,6 +15825,24 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
 
         try:
             info = consume_ticket(ticket)
+            principal = info.get("device_principal")
+            if not auth_required and info.get("provider") != "mobile-device":
+                return "ticket_invalid", "ticket"
+            if principal is not None or info.get("provider") == "mobile-device":
+                from clover_cli.mobile_pairing import DevicePrincipal, get_device_store
+                # Device tickets are scoped to the RPC socket, never consoles
+                # or owner-only websocket services sharing this authenticator.
+                try:
+                    permitted = (
+                        ws.url.path == "/api/ws"
+                        and info.get("provider") == "mobile-device"
+                        and isinstance(principal, DevicePrincipal)
+                        and get_device_store().principal_is_active(principal)
+                    )
+                except Exception:
+                    permitted = False
+                if not permitted:
+                    return "ticket_invalid", "ticket"
             # The ticket binds a server-minted {user_id, provider}; stamp it
             # onto the WS object so ``gateway_ws`` can hand it to the gateway
             # transport, where it is the sole identity authority for
@@ -15770,6 +15854,8 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
                 "user_id": info.get("user_id"),
                 "provider": info.get("provider"),
             }
+            if principal is not None:
+                ws._clover_auth_identity["device_principal"] = principal
             if protocol_ticket:
                 # Select only the stable public protocol during accept. The
                 # ticket-bearing protocol is a credential and must never be
