@@ -239,6 +239,9 @@ if ($env:UPDATE_PATH -eq 'chat') {
   Start-Process -FilePath $script:NativeProofBasePython.executable -ArgumentList @("$env:E2E\fake_ircd.py", "$env:RUNNER_TEMP\irc.log", "$env:RUNNER_TEMP\irc.trigger", $env:IRC_PORT) -WindowStyle Hidden
 }
 Add-Content "$env:CLOVER_HOME\.env" -Value ($lines -join "`n")
+# Seed using the real installed product API, then snapshot the private fixture.
+& $script:py "$helpers\.github\native-proof\preservation.py" seed --home $env:CLOVER_HOME --repo $env:INSTALL_DIR --evidence $evidence
+if ($LASTEXITCODE -ne 0) { throw 'Cannot establish pre-update preservation witness' }
 if ($env:SETUP -eq 'troy') { Start-TroyGateway } else { Start-ZyraGateway }
 Wait-GatewayUp 150
 $script:expectedSha = $from
@@ -304,6 +307,8 @@ if ($Mode -ne 'fresh') {
     if (-not (Select-String "$env:RUNNER_TEMP\irc.log" -Pattern 'PRIVMSG.*Clover update finished' -Quiet)) { throw 'No current-run final chat update reply' }
   }
 } else { $null = Measure-Liveness90 'fresh' }
+& $script:py "$helpers\.github\native-proof\preservation.py" verify --home $env:CLOVER_HOME --repo $env:INSTALL_DIR --evidence $evidence
+if ($LASTEXITCODE -ne 0) { throw 'Configuration or conversation preservation failed' }
 Invoke-Proof identity --repo $env:INSTALL_DIR --sha $to --tree $toTree --output "$evidence\after-imports.json"
 if ($Mode -eq 'fresh') {
   & $script:py "$helpers\.github\native-proof\native_tests.py" --repo $env:INSTALL_DIR --evidence $evidence
