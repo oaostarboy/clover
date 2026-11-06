@@ -27,6 +27,19 @@ def native_guard():
         raise RuntimeError('unsafe run ID')
     return run_id
 
+def verify_dscl_operations():
+    result = run(['/usr/bin/dscl', '.', '-help'], check=False)
+    text = result.stdout + result.stderr
+    if result.returncode or not all(re.search(r'(?m)^\s*-' + op + r'\s', text) for op in ('create', 'read', 'delete')):
+        raise RuntimeError('native dscl help does not confirm required operations')
+
+
+def ordinary_command(uid, user):
+    if not isinstance(uid, int) or not 600 <= uid < 1000 or not re.fullmatch(r'cpv[0-9]{1,12}', user):
+        raise ValueError('unsafe ordinary-user identity')
+    # asuser selects the bootstrap namespace; sudo then drops real/effective UID.
+    return ['/usr/bin/sudo', '-n', '/bin/launchctl', 'asuser', str(uid), '/usr/bin/sudo', '-n', '-H', '-u', user]
+
 def main():
     run_id = native_guard()
     suffix = run_id[-12:]
@@ -42,10 +55,7 @@ def main():
         raise RuntimeError('account already exists or account lookup inconclusive: ' + check.stderr.strip()[:500])
     if pathlib.Path(home).exists() or pathlib.Path(home).is_symlink():
         raise RuntimeError('home collision')
-    help_result = run(['/usr/bin/dscl', '-help'], check=False)
-    help_text = help_result.stdout + help_result.stderr
-    if '-create' not in help_text or '-read' not in help_text or '-delete' not in help_text:
-        raise RuntimeError('native dscl help does not confirm required operations')
+    verify_dscl_operations()
     save('dscl-help-verified')
     entries = run(['/usr/bin/dscl', '.', '-list', '/Users', 'UniqueID']).stdout
     used = {int(line.split()[-1]) for line in entries.splitlines() if line.split() and line.split()[-1].isdigit()}
@@ -69,7 +79,7 @@ def main():
         run(['/usr/bin/sudo', '-n', '/usr/sbin/chown', str(uid) + ':20', home])
         save('account-created')
         identity_code = 'import os,pwd,json; p=pwd.getpwuid(os.getuid()); print(json.dumps([os.getuid(),os.geteuid(),p.pw_name,p.pw_dir,os.environ.get("HOME")]))'
-        as_user = ['/usr/bin/sudo', '-n', '-H', '-u', user]
+        as_user = ordinary_command(uid, user)
         identity = json.loads(run(as_user + ['/usr/bin/python3', '-c', identity_code], timeout=60).stdout)
         if identity != [uid, uid, user, home, home] or uid == os.getuid() or home == pwd.getpwuid(os.getuid()).pw_dir:
             raise RuntimeError('ordinary-user identity mismatch: ' + repr(identity))
@@ -118,7 +128,7 @@ def main():
                 cleanup_errors.append('identity binding uncertain; left account untouched')
             else:
                 if bootstrap_attempted:
-                    p = run(['/usr/bin/sudo', '-n', '-H', '-u', user, '/bin/launchctl', 'bootout', domain + '/' + label], check=False)
+                    p = run(ordinary_command(uid, user) + ['/bin/launchctl', 'bootout', domain + '/' + label], check=False)
                     if p.returncode: cleanup_errors.append('service bootout failed: ' + p.stderr.strip()[:500])
                 if not cleanup_errors:
                     p = run(['/usr/bin/sudo', '-n', '/usr/bin/dscl', '.', '-delete', record], check=False)

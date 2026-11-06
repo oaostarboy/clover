@@ -12,6 +12,20 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
 class GuardTests(unittest.TestCase):
+    def test_help_query_uses_local_directory_source(self):
+        help_output = '\n    -read <path>\n    -create <record>\n    -delete <record>\n'
+        with patch.object(m, 'run', return_value=subprocess.CompletedProcess([], 0, help_output, '')) as call:
+            self.assertTrue(hasattr(m, 'verify_dscl_operations'), 'Missing checked help operation')
+            m.verify_dscl_operations()
+            self.assertEqual(call.call_args.args[0], ['/usr/bin/dscl', '.', '-help'])
+
+    def test_ordinary_command_selects_domain_and_drops_uid(self):
+        self.assertTrue(hasattr(m, 'ordinary_command'))
+        self.assertEqual(m.ordinary_command(600, 'cpv123'), ['/usr/bin/sudo', '-n', '/bin/launchctl', 'asuser', '600', '/usr/bin/sudo', '-n', '-H', '-u', 'cpv123'])
+        for uid, user in ((0, 'cpv123'), (600, 'runner'), (600, 'cpv123;bad')):
+            with self.assertRaises(ValueError):
+                m.ordinary_command(uid, user)
+
     def test_linux_and_nonhosted_refused(self):
         with patch.object(m.sys, 'platform', 'linux'), patch.dict(os.environ, {'GITHUB_ACTIONS':'true', 'RUNNER_ENVIRONMENT':'github-hosted'}, clear=True):
             with self.assertRaises(RuntimeError): m.native_guard()
