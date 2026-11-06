@@ -48,7 +48,7 @@ def _exec_arguments(call, name):
     return path, argv
 
 
-def verify_single_recovery_launch(tree, watcher_pids, gateway_pid, gateway_argv):
+def verify_single_recovery_launch(tree, watcher_pids, gateway_pid, gateway_argv, *, utilities=()):
     """Account for watcher-created branches, excluding gateway-owned work.
 
     The caller supplies independently bound watcher and successor identities.
@@ -71,14 +71,39 @@ def verify_single_recovery_launch(tree, watcher_pids, gateway_pid, gateway_argv)
         raise Refusal('gateway is not a traced watcher descendant')
     branches = {pid for pid in all_pids if pid not in watchers and below(pid, watchers)
                 and (pid == gateway_pid or not below(pid, {gateway_pid}))}
-    launches = [e for e in tree['events'] if e['kind'] == 'exec' and e['pid'] in branches]
+    utility_pids = set()
+    counts = [0] * len(utilities)
+    for rule in utilities:
+        if (rule.get('parent_pid') not in watchers
+                or not isinstance(rule.get('path'), str) or not Path(rule['path']).is_absolute()
+                or not isinstance(rule.get('argv'), list)
+                or not all(isinstance(arg, str) for arg in rule['argv'])
+                or type(rule.get('max_count')) is not int or rule['max_count'] < 1):
+            raise Refusal('invalid source-bound utility rule')
+    for pid in branches - {gateway_pid}:
+        records = [e for e in tree['events'] if e['pid'] == pid]
+        execs = [e for e in records if e['kind'] == 'exec']
+        if (len(execs) != 1 or pid in parents.values()
+                or not any(e['kind'] == 'exit' for e in records)):
+            raise Refusal('unexplained, live, or descendant-spawning utility branch')
+        event = execs[0]
+        matches = [i for i, rule in enumerate(utilities)
+                   if parents[pid] == rule['parent_pid']
+                   and event.get('path') == rule['path'] and event['argv'] == rule['argv']]
+        if len(matches) != 1:
+            raise Refusal('unexpected or ambiguously classified utility execution')
+        index = matches[0]
+        counts[index] += 1
+        if counts[index] > utilities[index]['max_count']:
+            raise Refusal('source-bound utility count exceeded')
+        utility_pids.add(pid)
+    launches = [e for e in tree['events'] if e['kind'] == 'exec'
+                and e['pid'] in branches - utility_pids]
     if (len(launches) != 1 or launches[0]['pid'] != gateway_pid
             or launches[0]['argv'] != list(gateway_argv)):
         raise Refusal('missing, duplicate or unexpected recovery execution')
-    # A second fork with no successful exec is still an unexplained launch.
-    if branches != {gateway_pid}:
-        raise Refusal('additional watcher-created branch, including early exit')
     return {'gateway_pid': gateway_pid, 'launch_count': 1,
+            'utility_pids': sorted(utility_pids), 'utility_counts': counts,
             'scope': 'watcher branches excluding successor-owned descendants'}
 
 

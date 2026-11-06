@@ -49,7 +49,7 @@ def select_watchers(events, updater_pid, old_pid, beacon_path):
     return selected
 
 
-def execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target, beacon, *, port, tracked, beacon_copy=None):
+def execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target, beacon, *, port, tracked, beacon_copy=None, frozen_check=None):
     """Perform the controlled crash; a return means injection, not recovery."""
     import hashlib
     import json
@@ -114,6 +114,8 @@ def execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target, b
                 raise Refusal('watcher binding changed before stop')
         with frozen_watchers([(proc, data['birth_ticks']) for proc, data in bindings.values()]):
             mark('watchers_stopped', pids=[p.pid for p, _ in bindings.values()])
+            if frozen_check is not None:
+                frozen_check({role: data for role, (_, data) in bindings.items()})
             try:
                 stream.write(b'continue\n')
                 read_event('wait')
@@ -178,6 +180,16 @@ def run_observed_recovery(binary, argv, env, home, cwd, prefix, pass_fds,
                            'birth_ticks': session.tracer_start_ticks,
                            'prefix': str(prefix), 'start_wall_ns': start,
                            'end_wall_ns': time.time_ns()}
+    return result
+
+
+def finish_accounting(session, fault, home, target, after, rules, destination, *, timeout=15):
+    from interrupted_observation import bind_successor, account
+    successor = bind_successor(after, home, target)
+    result = account(session, fault, successor['pid'], successor['argv'], rules, destination, timeout=timeout)
+    if result['gateway_birth_ticks'] != successor['birth_ticks']:
+        raise Refusal('successor birth changed before observation')
+    result['successor'] = successor
     return result
 
 
@@ -265,15 +277,39 @@ def main():
     binary = shutil.which('strace')
     if not binary:
         raise Refusal('strace is required for observed recovery')
+    from interrupted_utility_binding import preflight, bind_rules, pin_helpers, check_helpers
+    python_probe = target / 'venv/bin/python'
+    utility_pins = preflight(stage, args.commit, args.tree, python_probe, env)
+    helper_dir = Path(__file__).resolve().parent
+    helper_names = ('interrupted_controller.py', 'interrupted_identity.py', 'interrupted_ownership.py',
+                    'interrupted_schedule.py', 'interrupted_source.py', 'interrupted_trace.py',
+                    'interrupted_traced_updater.py', 'interrupted_launch_accounting.py',
+                    'interrupted_utility_binding.py', 'interrupted_observation.py',
+                    'interrupted_recovery.py', 'interrupted_chat_verify.py', 'stage_independence_verify.py')
+    helper_pins = pin_helpers([helper_dir / n for n in helper_names], binary)
+    frozen = home / 'logs/update_restart_watcher.py'
+    bound_rules = []
     try:
         def inject(updater):
             child.close()
             stream = parent.makefile('rwb', buffering=0)
             try:
                 stream.write(f'bind {updater.pid}\n'.encode())
+                def check_frozen(bindings):
+                    rollback = bindings['rollback']['pid']
+                    watcher = psutil.Process(rollback)
+                    if (watcher.cmdline() != [str(runtime), str(frozen), str(home / '.clover-update-heartbeat.json')]
+                            or watcher.environ().get('PATH') != env.get('PATH')):
+                        raise Refusal('rollback watcher executable, source, argv or PATH mismatch')
+                    beacon_data = json.loads((home / '.clover-update-heartbeat.json').read_text())
+                    if beacon_data.get('venv_python') not in (None, str(python_probe)):
+                        raise Refusal('unapproved import probe Python in watcher beacon')
+                    check_helpers(helper_pins)
+                    bound_rules.extend(bind_rules(utility_pins, frozen, rollback_pid=rollback))
                 result = execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target,
                                        home / '.clover-update-heartbeat.json', port=18791, tracked=[],
-                                       beacon_copy=evidence / 'interrupted-bound-beacon.json')
+                                       beacon_copy=evidence / 'interrupted-bound-beacon.json',
+                                       frozen_check=check_frozen)
             finally:
                 stream.close()
             result['updater'] = {'pid': updater.pid, 'birth_ticks': updater.birth_ticks,
@@ -282,7 +318,19 @@ def main():
             return result
 
         def recover(session, result):
-            return verify_recovery(args.python, env, home, target, stage, evidence, args.old, args.recovery_commit)
+            checks = verify_recovery(args.python, env, home, target, stage, evidence, args.old, args.recovery_commit)
+            check_helpers(helper_pins)
+            current_rules = bind_rules(utility_pins, frozen, rollback_pid=result['watchers']['rollback']['pid'])
+            if current_rules != bound_rules:
+                raise Refusal('watcher utility policy changed during recovery')
+            accounting = finish_accounting(session, result, home, target,
+                                           evidence / 'interrupted-after-state.json', current_rules,
+                                           evidence / 'interrupted-trace-snapshot', timeout=30)
+            check_helpers(helper_pins)
+            if bind_rules(utility_pins, frozen, rollback_pid=result['watchers']['rollback']['pid']) != current_rules:
+                raise Refusal('watcher policy changed during accounting')
+            return {**checks, **accounting, 'utility_rules': current_rules,
+                    'source_and_tool_pins': utility_pins, 'helper_pins': helper_pins}
 
         result = run_observed_recovery(binary, argv, env.copy(), home, stage,
                                        evidence / 'interrupted-process-trace', (child.fileno(),),

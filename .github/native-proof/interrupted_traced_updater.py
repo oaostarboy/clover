@@ -88,7 +88,7 @@ class TraceSession:
         try:
             self.tracer = subprocess.Popen([
                 self.binary, '--kill-on-exit', '-I', '1', '-ff', '-ttt', '-s', '65536',
-                '-e', 'trace=process', '-o', str(self.prefix), '--', *self.argv],
+                '-e', 'trace=process', '-e', 'quiet=none', '-o', str(self.prefix), '--', *self.argv],
                 env=self.env, cwd=self.cwd, pass_fds=self.pass_fds,
                 stderr=self.stderr, umask=0o077)
             self.tracer_start_ticks = identity.birth(self.tracer.pid)

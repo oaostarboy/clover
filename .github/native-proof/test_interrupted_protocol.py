@@ -46,9 +46,13 @@ class ProtocolTest(unittest.TestCase):
             stream.write(f'bind {updater.pid}\n'.encode())
             thread = threading.Thread(target=old.wait, daemon=True); thread.start()
             owned = []
+            checked = []
             try:
                 result = execute_fault(stream, updater, old.pid, old_birth, old_argv,
-                                       root, root, beacon, port=0, tracked=owned)
+                                       root, root, beacon, port=0, tracked=owned,
+                                       frozen_check=lambda bindings: checked.append(bindings))
+                self.assertEqual(len(checked), 1)
+                self.assertEqual(set(checked[0]), {'rollback', 'restart'})
                 self.assertEqual(updater.returncode, -9)
                 self.assertEqual([e['stage'] for e in result['events'] if e['stage'] in ('watchers_stopped','updater_killed','watchers_resumed')],
                                  ['watchers_stopped','updater_killed','watchers_resumed'])
