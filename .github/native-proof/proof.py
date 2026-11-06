@@ -260,6 +260,27 @@ def observe_gateway(repo, home, sha, port):
     home = Path(home).resolve()
     repo = Path(repo).resolve()
     state = json.loads((home / 'gateway_state.json').read_text())
+    if os.environ.get('NATIVE_PRIVATE_OBSERVER') == '1':
+        # This boundary checks only the state-bound owned PID and its socket.
+        # It does not establish that no other gateway was launched.
+        proc = psutil.Process(state['pid'])
+        argv = proc.cmdline()
+        if not ('gateway' in argv and any(x in argv for x in ('run', 'restart'))
+                and '-c' not in argv and str(repo) in ' '.join(argv)
+                and proc.environ().get('CLOVER_HOME') == str(home)):
+            raise ValueError('bound gateway identity mismatch')
+        listeners = sorted({proc.pid for c in proc.net_connections(kind='inet')
+                            if c.status == psutil.CONN_LISTEN and c.laddr.port == port})
+        check_gateway(state, sha, [proc.pid], listeners)
+        if proc.status() == psutil.STATUS_ZOMBIE:
+            raise ValueError('gateway is a zombie')
+        stat = Path('/proc') / str(proc.pid) / 'stat'
+        if not stat.exists() or stat.read_text().rsplit(')', 1)[1].split()[19] != str(state['start_time']):
+            raise ValueError('live process start ticks mismatch')
+        with urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=3) as response:
+            if response.status != 200 or json.load(response).get('status') != 'ok':
+                raise ValueError('gateway health endpoint failed')
+        return state
     processes = []
     for proc in psutil.process_iter(['cmdline']):
         candidate = False

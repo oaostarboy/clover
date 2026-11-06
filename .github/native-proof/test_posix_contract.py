@@ -211,6 +211,24 @@ class GatewayOwnership(unittest.TestCase):
         global_scan.assert_not_called()
 
 
+    def test_private_observer_uses_only_bound_pid_and_listener(self):
+        proc, port = self.launch()
+        state = self.state_for(proc)
+        with mock.patch.dict(os.environ, {'NATIVE_PRIVATE_OBSERVER': '1'}), mock.patch.object(
+                psutil, 'process_iter', side_effect=AssertionError('host scan forbidden')), mock.patch.object(
+                psutil, 'net_connections', side_effect=AssertionError('host scan forbidden')):
+            self.assertEqual(proof.observe_gateway(self.repo, self.home, self.sha, port), state)
+
+    def test_private_observer_refuses_wrong_home(self):
+        foreign_home = Path(self.temp.name) / 'foreign'
+        foreign_home.mkdir()
+        proc, port = self.launch(home=foreign_home)
+        self.state_for(proc)
+        with mock.patch.dict(os.environ, {'NATIVE_PRIVATE_OBSERVER': '1'}), mock.patch.object(
+                psutil, 'process_iter', side_effect=AssertionError('host scan forbidden')):
+            with self.assertRaises(ValueError):
+                proof.observe_gateway(self.repo, self.home, self.sha, port)
+
     def test_actual_host_owned_listener(self):
         proc, port = self.launch()
         state = self.state_for(proc)

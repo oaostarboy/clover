@@ -4,6 +4,10 @@ set -euo pipefail
 [[ ${GITHUB_ACTIONS:-} == true && ${RUNNER_ENVIRONMENT:-} == github-hosted ]]
 MODE=$1
 COLLECT_ONLY=${NATIVE_COLLECT_INSTALL_EVIDENCE_ONLY:-0}
+# Only the private Linux interruption fixture uses state-bound observations.
+if [[ ${NATIVE_INTERRUPTED_RECOVERY:-0} == 1 && $(uname -s) == Linux ]]; then
+  export NATIVE_PRIVATE_OBSERVER=1
+fi
 STAGE_PROOF=${NATIVE_STAGE_INDEPENDENCE:-${NATIVE_STAGED_ENTRY:-0}}
 [[ ${NATIVE_STAGED_ENTRY:-0} != 1 || $MODE == old2new ]]
 [[ $STAGE_PROOF != 1 || ${NATIVE_STAGED_ENTRY:-0} == 1 ]]
