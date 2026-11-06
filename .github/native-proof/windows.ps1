@@ -214,18 +214,15 @@ function Wait-ExactGateway {
     }
   } while ($true)
 }
+. "$PSScriptRoot\measure-stable-gateway.ps1"
 function Measure-Liveness90([string]$label) {
   Wait-UpdateChainDone 1800
   Wait-GatewayUp 150
-  $samples = @(); $first = Wait-ExactGateway
-  $end = (Get-Date).AddSeconds(90)
-  do {
-    $st = Read-ExactGateway
-    if ($st.pid -ne $first.pid -or $st.start_time -ne $first.start_time) { throw 'Gateway identity drift in 90 second window' }
-    $samples += $st
-    Start-Sleep -Seconds 3
-  } while ((Get-Date) -lt $end)
-  $samples | ConvertTo-Json -Depth 10 | Set-Content "$evidence\gateway-window.json" -Encoding utf8
+  $null = Wait-ExactGateway
+  $observations = @(Measure-StableGateway -ReadState { Read-ExactGateway } -DurationSeconds 90 -IntervalSeconds 3)
+  # Preserve old state-only artifact for existing consumers, plus timed proof.
+  @($observations | ForEach-Object { $_.state }) | ConvertTo-Json -Depth 10 | Set-Content "$evidence\gateway-window.json" -Encoding utf8
+  $observations | ConvertTo-Json -Depth 12 | Set-Content "$evidence\gateway-window-timed.json" -Encoding utf8
   ,@()
 }
 $lines = @('API_SERVER_ENABLED=true', 'API_SERVER_KEY=native-proof-dummy-key-123456', "API_SERVER_PORT=$env:API_PORT", 'API_SERVER_HOST=127.0.0.1')
