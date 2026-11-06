@@ -328,15 +328,22 @@ def gateway_window(args):
             print(f'waiting for gateway: {type(exc).__name__}: {exc}', flush=True)
             time.sleep(2)
     observations = [first]
-    end = time.monotonic() + args.seconds
-    while time.monotonic() < end:
+    start = time.monotonic()
+    timed = [{'state': first, 'elapsed_seconds': 0.0, 'observed_at_ns': time.time_ns()}]
+    end = start + args.seconds
+    while True:
+        time.sleep(min(3, max(0, end - time.monotonic())))
         current = observe_gateway(args.repo, args.home, args.sha, args.port)
         if any(current[k] != first[k] for k in ['pid', 'start_time', 'code_sha']):
             raise ValueError('gateway changed during stability window')
         observations.append(current)
-        time.sleep(min(3, max(0, end - time.monotonic())))
+        timed.append({'state': current, 'elapsed_seconds': time.monotonic() - start,
+                      'observed_at_ns': time.time_ns()})
+        if timed[-1]['elapsed_seconds'] >= args.seconds:
+            break
     Path(args.output).write_text(json.dumps(first, indent=2), encoding='utf-8')
     Path(args.output + '.window.json').write_text(json.dumps(observations, indent=2), encoding='utf-8')
+    Path(args.output + '.timed-window.json').write_text(json.dumps(timed, indent=2), encoding='utf-8')
 
 
 def main():
