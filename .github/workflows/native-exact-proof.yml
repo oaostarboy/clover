@@ -7,18 +7,18 @@ concurrency:
   group: integrated-windows-${{ github.run_id }}
   cancel-in-progress: false
 env:
-  TARGET_REF: 0a1b4dd7fe21942b7c1673c7d0bc45ca76fdf9a7
-  TARGET_TREE: e2f3fb0e87efd291554517e1b5e36c7ef5d85732
+  TARGET_REF: a62d59e895c723623fe0edc952e8c480bfc6f322
+  TARGET_TREE: e56d299cf8bf63fafea6f619c05a7590e1954685
   OLD_REF: v2.0.2.11
   OLD_SHA: 9271c360f4519fc30887bbab7777c76970d4318f
-  NEXT_REF: ci/native-next/integrated-0a1b4dd7
+  NEXT_REF: ci/native-next/integrated-a62d59e8
   SETUP: troy
   UPDATE_PATH: chat
   PHASE: new2next
 jobs:
   windows-witness:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Checkout helpers
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -42,6 +42,7 @@ jobs:
           echo "NEXT_SHA=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF")" >> "$GITHUB_ENV"
           echo "NEXT_TREE=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF^{tree}")" >> "$GITHUB_ENV"
       - name: Windows installer readiness and update witness
+        timeout-minutes: 75
         shell: pwsh
         env:
           NATIVE_WAIT_INSTALLER_BUILD: '1'
