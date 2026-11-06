@@ -341,6 +341,9 @@ export function PhonePairingSection() {
               <p className="mt-1.5 text-[length:var(--conversation-text-font-size)] text-(--ui-text-secondary)">
                 Open Clover on your iPhone and scan this code. That&apos;s it.
               </p>
+              <p className="mt-2 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-secondary)">
+                Newly paired phones can use dictation and speech playback. Pair existing phones again to enable audio.
+              </p>
               <ul className="mt-7 space-y-3.5">
                 {STEPS.map(({ icon: Icon, text }) => (
                   <li

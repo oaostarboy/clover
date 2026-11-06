@@ -626,6 +626,12 @@ _reveal_timestamps: List[float] = []
 _REVEAL_MAX_PER_WINDOW = 5
 _REVEAL_WINDOW_SECONDS = 30
 
+from clover_cli.device_audio_body_limit import DeviceAudioBodyLimit, MAX_TRANSCRIPTION_ENCODED_BYTES
+
+# Buffer device audio before FastAPI parses the body. Authentication remains in
+# the existing gates; this middleware grants no access.
+app.add_middleware(DeviceAudioBodyLimit)
+
 # CORS: restrict to localhost origins only.  The web UI is intended to run
 # locally; binding to 0.0.0.0 with allow_origins=["*"] would let any website
 # read/modify config and secrets.
@@ -1000,22 +1006,16 @@ async def auth_middleware(request: Request, call_next):
     # The desktop's loopback gateway also serves paired phones via its
     # configured HTTPS proxy. Admit the device only to its narrow read/ticket
     # surface; never turn it into the desktop owner session.
-    authorization = request.headers.get("authorization", "")
-    if authorization.lower().startswith("bearer cdt_"):
-        from clover_cli.dashboard_auth.middleware import _extract_bearer
-        import re
-        history_list = (request.method == "GET" and path == "/api/sessions"
-                        and not (set(request.query_params) - {"limit", "offset", "min_messages", "archived", "order"}))
-        history_messages = (request.method == "GET" and
-                            re.fullmatch(r"/api/sessions/[^/]+/messages", path) and
-                            not request.query_params)
-        ticket_request = request.method == "POST" and path == "/api/auth/ws-ticket"
+    from clover_cli.dashboard_auth.middleware import _extract_bearer
+    if _extract_bearer(request).startswith("cdt_"):
         try:
-            from clover_cli.mobile_pairing import get_device_store
+            from clover_cli.mobile_pairing import get_device_store, device_request_allowed
             from clover_cli.profiles import get_active_profile_name
-            principal = get_device_store().authenticate(_extract_bearer(request))
+            store = get_device_store()
+            principal = store.authenticate(_extract_bearer(request))
             allowed = (principal and principal.profile == get_active_profile_name()
-                       and (ticket_request or ((history_list or history_messages) and "history" in principal.capabilities)))
+                       and store.principal_is_active(principal)
+                       and device_request_allowed(request, principal))
         except Exception:
             allowed = False
         if not allowed:
@@ -5411,15 +5411,50 @@ async def computer_input(payload: ComputerInputRequest):
     return {"ok": True}
 
 
+def _require_active_audio_device(principal):
+    if principal is None:
+        return
+    from clover_cli.mobile_pairing import get_device_store
+    from clover_cli.profiles import get_active_profile_name
+    try:
+        valid = (principal.profile == get_active_profile_name()
+                 and get_device_store().principal_is_active(principal))
+    except Exception:
+        valid = False
+    if not valid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@contextmanager
+def _audio_profile_scope(profile, principal):
+    if principal is None:
+        with _config_profile_scope(profile):
+            yield
+        return
+    # Do not interpret the literal profile name "current" as an ambient-home
+    # alias for device principals. Resolve every paired profile explicitly.
+    from clover_constants import set_clover_home_override, reset_clover_home_override
+    token = set_clover_home_override(str(_resolve_profile_dir(principal.profile)))
+    try:
+        yield
+    finally:
+        reset_clover_home_override(token)
+
+
 @app.post("/api/audio/transcribe")
 async def transcribe_audio_upload(
-    payload: AudioTranscriptionRequest, profile: Optional[str] = None
+    payload: AudioTranscriptionRequest, request: Request, profile: Optional[str] = None
 ):
+    principal = getattr(request.state, "device_principal", None)
+    if principal is not None:
+        profile = principal.profile
     data_url = (payload.data_url or "").strip()
     if not data_url.startswith("data:") or "," not in data_url:
         raise HTTPException(status_code=400, detail="Invalid audio payload")
 
     header, encoded = data_url.split(",", 1)
+    if principal is not None and len(header) > 64 * 1024:
+        raise HTTPException(status_code=413, detail="Audio recording is too large")
     if ";base64" not in header:
         raise HTTPException(
             status_code=400, detail="Audio payload must be base64 encoded"
@@ -5436,6 +5471,9 @@ async def transcribe_audio_upload(
         raise HTTPException(
             status_code=400, detail="Payload must be an audio recording"
         )
+
+    if principal is not None and len(encoded) > MAX_TRANSCRIPTION_ENCODED_BYTES:
+        raise HTTPException(status_code=413, detail="Audio recording is too large")
 
     try:
         audio_bytes = base64.b64decode(encoded, validate=True)
@@ -5470,8 +5508,14 @@ async def transcribe_audio_upload(
             # process-global skills lock for its entire body (see the MCP
             # probe above). STT only needs config/.env resolution, which the
             # contextvar override provides inside this worker thread.
-            with _config_profile_scope(profile):
-                return transcribe_recording(temp_path)
+            _require_active_audio_device(principal)
+            with _audio_profile_scope(profile, principal):
+                try:
+                    return transcribe_recording(temp_path)
+                except HTTPException:
+                    if principal is None:
+                        raise
+                    raise HTTPException(status_code=500, detail="Transcription failed")
 
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, _transcribe_scoped)
@@ -5479,7 +5523,7 @@ async def transcribe_audio_upload(
         raise
     except Exception as exc:
         _log.exception("Desktop voice transcription failed")
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {exc}")
+        raise HTTPException(status_code=500, detail="Transcription failed" if principal else f"Transcription failed: {exc}")
     finally:
         if temp_path:
             try:
@@ -5487,6 +5531,7 @@ async def transcribe_audio_upload(
             except OSError:
                 pass
 
+    _require_active_audio_device(principal)
     if not result.get("success"):
         err = result.get("error") or "Transcription failed"
         # An empty transcript means no speech was detected — a normal outcome
@@ -5496,7 +5541,7 @@ async def transcribe_audio_upload(
         # failed" toast on every silent gap.
         if "empty transcript" in err.lower():
             return {"ok": True, "transcript": "", "provider": result.get("provider")}
-        raise HTTPException(status_code=400, detail=err)
+        raise HTTPException(status_code=400, detail="Transcription failed" if principal else err)
 
     return {
         "ok": True,
@@ -5654,8 +5699,13 @@ async def get_elevenlabs_voices(profile: Optional[str] = None):
     return {"available": True, "voices": voices}
 
 
+# Limit the total raw text a paired device may send for a single synthesis.
+# Python string length counts Unicode code points, before whitespace stripping.
+DEVICE_SPEECH_MAX_CODEPOINTS = 4096
+
+
 @app.post("/api/audio/speak")
-async def speak_text(payload: TTSSpeakRequest, profile: Optional[str] = None):
+async def speak_text(payload: TTSSpeakRequest, request: Request, profile: Optional[str] = None):
     """Synthesize speech and return audio as base64 data URL.
 
     Used by the desktop voice-conversation mode to play back assistant
@@ -5663,6 +5713,11 @@ async def speak_text(payload: TTSSpeakRequest, profile: Optional[str] = None):
     existing TTS provider chain (Edge / OpenAI / ElevenLabs / etc.)
     configured in ``~/.clover/config.yaml`` under ``tts.``.
     """
+    principal = getattr(request.state, "device_principal", None)
+    if principal is not None:
+        profile = principal.profile
+        if len(payload.text or "") > DEVICE_SPEECH_MAX_CODEPOINTS:
+            raise HTTPException(status_code=413, detail="Speech text too long")
     text = (payload.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
@@ -5675,8 +5730,14 @@ async def speak_text(payload: TTSSpeakRequest, profile: Optional[str] = None):
             # blocks for the provider round-trip and only needs config/.env
             # resolution, so the task-local override inside this worker
             # thread is sufficient (same reasoning as the MCP probe scope).
-            with _config_profile_scope(profile):
-                return text_to_speech_tool(text)
+            _require_active_audio_device(principal)
+            with _audio_profile_scope(profile, principal):
+                try:
+                    return text_to_speech_tool(text)
+                except HTTPException:
+                    if principal is None:
+                        raise
+                    raise HTTPException(status_code=500, detail="Speech synthesis failed")
 
         loop = asyncio.get_running_loop()
         result_json = await loop.run_in_executor(None, _speak_scoped)
@@ -5686,7 +5747,7 @@ async def speak_text(payload: TTSSpeakRequest, profile: Optional[str] = None):
         raise
     except Exception as exc:
         _log.exception("Desktop voice TTS failed")
-        raise HTTPException(status_code=500, detail=f"Speech synthesis failed: {exc}")
+        raise HTTPException(status_code=500, detail="Speech synthesis failed" if principal else f"Speech synthesis failed: {exc}")
 
     try:
         result = json.loads(result_json) if isinstance(result_json, str) else result_json
@@ -5694,9 +5755,12 @@ async def speak_text(payload: TTSSpeakRequest, profile: Optional[str] = None):
         raise HTTPException(status_code=500, detail="Invalid TTS response")
 
     if not result.get("success"):
+        if principal is not None:
+            # A failed provider result does not establish ownership of its path.
+            _require_active_audio_device(principal)
         raise HTTPException(
             status_code=400,
-            detail=result.get("error") or "Speech synthesis failed",
+            detail=("Speech synthesis failed" if principal is not None else result.get("error") or "Speech synthesis failed"),
         )
 
     file_path = result.get("file_path")
@@ -5728,9 +5792,10 @@ async def speak_text(payload: TTSSpeakRequest, profile: Optional[str] = None):
     try:
         audio_bytes = await asyncio.to_thread(_read_and_unlink)
     except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Could not read audio: {exc}")
+        raise HTTPException(status_code=500, detail="Could not read audio" if principal else f"Could not read audio: {exc}")
 
     encoded = base64.b64encode(audio_bytes).decode("ascii")
+    _require_active_audio_device(principal)
     return {
         "ok": True,
         "data_url": f"data:{mime_type};base64,{encoded}",

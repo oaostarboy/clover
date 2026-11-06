@@ -84,6 +84,8 @@ describe('PhonePairingSection', () => {
     expect(screen.queryByText(/show key/i)).toBeNull()
     expect(screen.getByText(/Expires in 10:00/)).toBeTruthy()
     expect(screen.getByText(/No phones connected yet/)).toBeTruthy()
+    expect(screen.getByText(/newly paired phones can use dictation and speech playback/i)).toBeTruthy()
+    expect(screen.getByText(/pair existing phones again to enable audio/i)).toBeTruthy()
   })
 
   it('swaps the QR for "iPhone connected" once the shown code is used', async () => {

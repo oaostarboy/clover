@@ -159,6 +159,10 @@ async def token_auth_middleware(
     The cookie gates honour ``request.state.token_authenticated`` and skip
     enforcement, so a token-authed request is never redirected to ``/login``.
     """
+    # A mobile credential is never a service token, even if a plugin provider
+    # erroneously accepts its bytes. Let the device-specific gates decide.
+    if extract_bearer_token(request).startswith("cdt_"):
+        return await call_next(request)
     path = request.url.path
     if not is_token_route(path):
         return await call_next(request)

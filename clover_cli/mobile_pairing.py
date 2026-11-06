@@ -60,6 +60,42 @@ def _hash(token: str) -> str:
 
 
 DEVICE_CAPABILITIES = frozenset({"chat", "history", "media", "model_selection"})
+AUDIO_CAPABILITIES = frozenset({"audio_transcribe", "audio_speak"})
+KNOWN_DEVICE_CAPABILITIES = DEVICE_CAPABILITIES | AUDIO_CAPABILITIES
+
+
+def _record_capabilities(record: Dict[str, Any]) -> Optional[frozenset[str]]:
+    # Profile-bound records predating explicit scopes retain only their old grants.
+    if "capabilities" not in record:
+        return DEVICE_CAPABILITIES
+    caps = record["capabilities"]
+    if (not isinstance(caps, list) or any(not isinstance(c, str) for c in caps)
+            or len(set(caps)) != len(caps) or not set(caps) <= KNOWN_DEVICE_CAPABILITIES):
+        return None
+    return frozenset(caps)
+
+
+def device_request_allowed(request, principal: "DevicePrincipal") -> bool:
+    """The same narrow HTTP policy applies at both dashboard auth gates."""
+    import re
+
+    method, path = request.method, request.url.path
+    if method == "POST" and path in ("/api/audio/transcribe", "/api/audio/speak"):
+        # Do not let path decoding turn an alternate URL into an audio grant.
+        if request.scope.get("raw_path", b"").split(b"?", 1)[0] != path.encode("ascii"):
+            return False
+        query = request.query_params.multi_items()
+        if len(query) > 1 or (query and query[0] != ("profile", principal.profile)):
+            return False
+        capability = "audio_transcribe" if path.endswith("transcribe") else "audio_speak"
+        return capability in principal.capabilities
+    if method == "POST" and path == "/api/auth/ws-ticket":
+        return True
+    if method != "GET" or "history" not in principal.capabilities:
+        return False
+    if path == "/api/sessions":
+        return not (set(request.query_params) - {"limit", "offset", "min_messages", "archived", "order"})
+    return bool(re.fullmatch(r"/api/sessions/[^/]+/messages", path) and not request.query_params)
 
 
 @dataclass(frozen=True)
@@ -149,6 +185,7 @@ class DeviceStore:
             "last_seen_at": None,
             "token_hash": _hash(token),
             "revoked": False,
+            "capabilities": sorted(KNOWN_DEVICE_CAPABILITIES),
         }
         with self._transaction():
             devices = list(self._load())
@@ -199,13 +236,16 @@ class DeviceStore:
             # Legacy unscoped tokens cannot safely acquire inferred authority.
             if match is None or not isinstance(match.get("profile"), str):
                 return None
+            caps = _record_capabilities(match)
+            if caps is None:
+                return None
             last = match.get("last_seen_at")
             if last is None or now - float(last) >= LAST_SEEN_THROTTLE_SECONDS:
                 match["last_seen_at"] = now
                 self._save(list(devices))
             return DevicePrincipal(match["id"], match["profile"],
                                    float(match["created_at"]) + ACTIVE_TOKEN_TTL_SECONDS,
-                                   DEVICE_CAPABILITIES)
+                                   caps)
 
     def principal_is_active(self, principal: DevicePrincipal) -> bool:
         """Revalidate against persisted state on every authorized operation."""
@@ -217,7 +257,7 @@ class DeviceStore:
                 d.get("id") == principal.device_id
                 and d.get("profile") == principal.profile
                 and float(d.get("created_at", 0)) + ACTIVE_TOKEN_TTL_SECONDS == principal.expires_at
-                and principal.capabilities == DEVICE_CAPABILITIES
+                and _record_capabilities(d) == principal.capabilities
                 and self._active(d, now)
                 for d in self._load()
             )
