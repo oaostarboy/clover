@@ -21,6 +21,8 @@ def test_collect_only_recovers_logs_without_invoking_installer(tmp_path):
     data = json.loads(report.read_text())
     assert data['installer_exit'] is None
     assert data['npm_logs']
+    text = '\n'.join(p.read_text() for p in (runner / 'evidence').rglob('*') if p.is_file())
+    assert all(secret not in text for secret in ('shortsecret', 'shortpass', 'shorttoken'))
     assert not list(tmp_path.rglob('IDENTITY_MUST_NOT_RUN'))
 
 
