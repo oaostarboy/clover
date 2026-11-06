@@ -243,6 +243,17 @@ if [[ $MODE != fresh ]]; then
   else
     "$BIN" update --yes --gateway
   fi 2>&1 | tee "$EVIDENCE/update.log"
+  if [[ ${NATIVE_INTERRUPTED_RECOVERY:-0} == 1 ]]; then
+    "$PY" "$FIXTURE/interrupted_recovery.py" "$CLOVER_HOME" "$INSTALL_DIR" "$EVIDENCE" "$FROM_SHA" "$TO_SHA"
+    "$PY" "$FIXTURE/stage_independence_verify.py" identity "$CLOVER_HOME" "$INSTALL_DIR" "$RUNNER_TEMP/trusted-stage" "$EVIDENCE" "$EVIDENCE/interrupted-after-state.json"
+    touch "$EVIDENCE/chat-post"
+    for _ in $(seq 1 1200); do [[ -s "$EVIDENCE/chat-post-reply.json" ]] && break; sleep .1; done
+    test -s "$EVIDENCE/chat-post-reply.json"
+    "$PY" "$FIXTURE/stage_independence_verify.py" session "$CLOVER_HOME" "$INSTALL_DIR" "$RUNNER_TEMP/trusted-stage" "$EVIDENCE" "$EVIDENCE/interrupted-after-state.json"
+    "$PY" "$FIXTURE/interrupted_chat_verify.py" "$CLOVER_HOME" "$INSTALL_DIR" "$EVIDENCE"
+    touch "$EVIDENCE/chat-stop"
+    exit 0
+  fi
   "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$TO_SHA" --port 18791 --seconds 90 --previous "$EVIDENCE/before-state.json" --output "$EVIDENCE/after-state.json"
   "$PY" "$PROOF" receipt --home "$CLOVER_HOME" --begin "$EVIDENCE/begin.json" --old "$FROM_SHA" --target "$TO_SHA" --output "$EVIDENCE/update-receipt.json"
   if [[ $STAGE_PROOF == 1 ]]; then

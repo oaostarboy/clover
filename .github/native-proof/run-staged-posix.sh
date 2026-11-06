@@ -10,4 +10,11 @@ RUNTIME="$RUNNER_TEMP/trusted-runtime"
 git clone --no-hardlinks "$SOURCE" "$STAGE"
 git -C "$STAGE" checkout --detach "$TARGET_REF"
 DEPENDENCIES=$("$RUNTIME/bin/python" -c 'import sysconfig; print(sysconfig.get_path("purelib"))')
-"$RUNTIME/bin/python" -I -S "$STAGE/scripts/staged_update.py"   --target "$INSTALL_DIR" --old-commit "$FROM_SHA"   --stage-commit "$TARGET_REF" --stage-tree "$TARGET_TREE"   --home "$CLOVER_HOME" --dependency-path "$DEPENDENCIES"
+if [[ ${NATIVE_INTERRUPTED_RECOVERY:-0} == 1 ]]; then
+  "$PY" "$GITHUB_WORKSPACE/helpers/.github/native-proof/interrupted_controller.py" \
+    --stage "$STAGE" --runtime "$RUNTIME/bin/python" --target "$INSTALL_DIR" \
+    --old "$FROM_SHA" --commit "$TARGET_REF" --tree "$TARGET_TREE" \
+    --home "$CLOVER_HOME" --evidence "$EVIDENCE" --dependencies "$DEPENDENCIES"
+else
+  "$RUNTIME/bin/python" -I -S "$STAGE/scripts/staged_update.py" --target "$INSTALL_DIR" --old-commit "$FROM_SHA" --stage-commit "$TARGET_REF" --stage-tree "$TARGET_TREE" --home "$CLOVER_HOME" --dependency-path "$DEPENDENCIES"
+fi

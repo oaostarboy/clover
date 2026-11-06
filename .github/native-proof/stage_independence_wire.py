@@ -6,6 +6,8 @@ Only the private acceptance file is requested; no product imports or overrides.
 from __future__ import annotations
 import http.server
 import json
+import os
+import re
 from pathlib import Path
 import socketserver
 import threading
@@ -92,7 +94,8 @@ class ChatWire:
                     finish = 'stop'
                     outer.record('model_complete_reply')
                 else:
-                    message = {'role': 'assistant', 'content': 'Local acceptance auxiliary response.'}
+                    nonce = re.search(r'RECOVERY_NONCE_[0-9a-f]{32}', users[-1]) if users and os.environ.get('NATIVE_INTERRUPTED_RECOVERY') == '1' else None
+                    message = {'role': 'assistant', 'content': 'Local acceptance auxiliary response.' + (' ' + nonce.group(0) if nonce else '')}
                     finish = 'stop'
                     outer.record('auxiliary_model_call')
                 if body.get('stream'):

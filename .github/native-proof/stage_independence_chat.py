@@ -1,5 +1,7 @@
 """Private loopback IRC and deterministic model fixture for the native cell."""
 import json
+import os
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -23,7 +25,10 @@ try:
             (root / 'chat-pre-reply.json').write_text(json.dumps({'messages': messages}))
             count = 2
         if count == 2 and (root / 'chat-post').exists() and wire.ready():
-            wire.send('STAGE_INDEPENDENCE_TURN: reply with the local fixture auxiliary response.')
+            nonce = secrets.token_hex(16) if os.environ.get('NATIVE_INTERRUPTED_RECOVERY') == '1' else ''
+            if nonce:
+                (root / 'recovery-nonce.json').write_text(json.dumps({'nonce': nonce}))
+            wire.send('STAGE_INDEPENDENCE_TURN: reply with the local fixture auxiliary response.' + (' RECOVERY_NONCE_' + nonce if nonce else ''))
             count = 3
         if count == 3 and len(messages) >= 2:
             (root / 'chat-post-reply.json').write_text(json.dumps({'messages': messages}))
