@@ -94,6 +94,20 @@ def atomic_receipt(path, value):
             os.unlink(name)
 
 
+def persist_pins_then_launch(evidence, commit, tree, utility_pins, helper_pins, argv, launch):
+    import os
+    atomic_receipt(Path(evidence) / 'interrupted-preflight-pins.json',
+                   {'schema_version': 1, 'stage': 'pre_launch', 'product_commit': commit,
+                    'product_tree': tree, 'source_and_tool_pins': utility_pins,
+                    'helper_pins': helper_pins, 'tracee_argv': argv})
+    directory = os.open(evidence, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+    return launch()
+
+
 class FaultProgress:
     def __init__(self, evidence):
         self.evidence = Path(evidence)
@@ -123,7 +137,38 @@ def write_failure_receipt(evidence, progress, exc):
                    {**progress.snapshot(), 'error': type(exc).__name__, 'detail': str(exc)})
 
 
-def execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target, beacon, *, port, tracked, beacon_copy=None, frozen_check=None, progress=None):
+def bind_original_pidfd(pid, birth_ticks, identity_check):
+    import os
+    try:
+        fd = os.pidfd_open(pid, 0)
+    except (AttributeError, OSError) as exc:
+        raise Refusal('cannot bind original gateway pidfd') from exc
+    try:
+        if identity_check() != birth_ticks:
+            raise Refusal('original gateway identity changed after pidfd binding')
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def require_original_exit(old_pidfd, old_pid, port):
+    import select
+    import psutil
+    try:
+        ready = bool(select.select([old_pidfd], [], [], 0)[0])
+    except (OSError, ValueError, TypeError) as exc:
+        raise Refusal('original gateway pidfd unavailable') from exc
+    if not ready:
+        raise Refusal('original gateway pidfd not ready')
+    if psutil.pid_exists(old_pid):
+        raise Refusal('original gateway PID still exists at crash boundary')
+    if port:
+        require_fixture_port_closed(port)
+    return ready
+
+
+def execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target, beacon, *, old_pidfd, port, tracked, beacon_copy=None, frozen_check=None, progress=None):
     """Perform the controlled crash; a return means injection, not recovery."""
     import hashlib
     import json
@@ -211,11 +256,8 @@ def execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target, b
             try:
                 stream.write(b'continue\n')
                 read_event('wait')
-                # Zombies do not establish that the original is gone.
-                if psutil.pid_exists(old_pid):
-                    raise Refusal('original gateway PID still exists at crash boundary')
-                if port:
-                    require_fixture_port_closed(port)
+                ready = require_original_exit(old_pidfd, old_pid, port)
+                mark('original_gateway_exit_confirmed', pid=old_pid, birth_ticks=old_birth, pidfd_ready=ready)
                 state_path = Path(home) / 'gateway_state.json'
                 if state_path.exists():
                     state = json.loads(state_path.read_text())
@@ -359,9 +401,6 @@ def main():
     parent.settimeout(1800)
     cfg['fd'] = child.fileno()
     config = runner / 'interrupted-trace-config.json'
-    fd = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, 'w') as out:
-        json.dump(cfg, out)
     argv = [str(runtime), '-I', '-S', str(Path(__file__).with_name('interrupted_trace.py').resolve()),
             str(config), '--', '--target', str(target), '--old-commit', args.old,
             '--stage-commit', args.commit, '--stage-tree', args.tree, '--home', str(home),
@@ -383,7 +422,24 @@ def main():
     frozen = home / 'logs/update_restart_watcher.py'
     bound_rules = []
     progress = FaultProgress(evidence)
+    tracee_stderr_fd = None
+    old_pidfd = None
     try:
+        def recheck_original():
+            current = psutil.Process(old_pid)
+            ticks = identity.birth(old_pid)
+            if (current.cmdline() != old_argv or current.environ().get('CLOVER_HOME') != str(home)
+                    or current.exe() != str((target / 'venv/bin/python').resolve())
+                    or current.uids().real != os.getuid() or current.status() == psutil.STATUS_ZOMBIE):
+                raise Refusal('original gateway identity changed after pidfd binding')
+            return ticks
+        old_pidfd = bind_original_pidfd(old_pid, old_birth, recheck_original)
+        tracee_stderr_fd = os.open(evidence / 'interrupted-tracee-stderr.log',
+                                   os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        cfg['stderr_fd'] = tracee_stderr_fd
+        fd = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as out:
+            json.dump(cfg, out)
         progress.persist()
         def inject(updater):
             child.close()
@@ -403,7 +459,7 @@ def main():
                     check_helpers(helper_pins)
                     bound_rules.extend(bind_rules(utility_pins, frozen, rollback_pid=rollback))
                 result = execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target,
-                                       home / '.clover-update-heartbeat.json', port=18791, tracked=[],
+                                       home / '.clover-update-heartbeat.json', old_pidfd=old_pidfd, port=18791, tracked=[],
                                        beacon_copy=evidence / 'interrupted-bound-beacon.json',
                                        frozen_check=check_frozen, progress=progress)
             finally:
@@ -428,9 +484,11 @@ def main():
             return {**checks, **accounting, 'utility_rules': current_rules,
                     'source_and_tool_pins': utility_pins, 'helper_pins': helper_pins}
 
-        result = run_observed_recovery(binary, argv, env.copy(), home, stage,
-                                       evidence / 'interrupted-process-trace', (child.fileno(),),
-                                       inject, recover)
+        result = persist_pins_then_launch(
+            evidence, args.commit, args.tree, utility_pins, helper_pins, argv,
+            lambda: run_observed_recovery(binary, argv, env.copy(), home, stage,
+                                          evidence / 'interrupted-process-trace',
+                                          (child.fileno(), tracee_stderr_fd), inject, recover))
         (evidence / 'interrupted-observed.json').write_text(json.dumps(result, indent=2) + '\n')
     except BaseException as exc:
         try:
@@ -440,6 +498,10 @@ def main():
                                f'original error={type(exc).__name__}: {exc}') from receipt_error
         raise
     finally:
+        if old_pidfd is not None:
+            os.close(old_pidfd)
+        if tracee_stderr_fd is not None:
+            os.close(tracee_stderr_fd)
         child.close()
         parent.close()
 

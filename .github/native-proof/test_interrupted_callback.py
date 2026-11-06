@@ -51,7 +51,8 @@ def test_main_runs_chat_before_accounting_and_does_not_write_success_on_refusal(
          patch.object(utilities, 'check_helpers'), patch.object(utilities, 'bind_rules', return_value=[]), \
          patch.object(controller, 'verify_recovery', side_effect=chat), \
          patch.object(controller, 'finish_accounting', side_effect=accounting), \
-         patch.object(controller, 'run_observed_recovery', side_effect=observed):
+         patch.object(controller, 'run_observed_recovery', side_effect=observed), \
+         patch.object(controller, 'bind_original_pidfd', side_effect=lambda *args: os.open('/dev/null', os.O_RDONLY)):
         with pytest.raises(controller.Refusal, match='duplicate launch'):
             controller.main()
     assert events == ['chat', 'accounting']

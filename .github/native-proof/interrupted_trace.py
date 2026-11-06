@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import runpy
 import socket
+import stat
+import fcntl
 import sys
 
 
@@ -26,6 +28,17 @@ def main():
     if len(sys.argv) < 3 or sys.argv[2] != '--':
         raise RuntimeError('expected config -- entry arguments')
     cfg = json.loads(Path(sys.argv[1]).read_text())
+    if 'stderr_fd' in cfg:
+        fd = cfg['stderr_fd']
+        if type(fd) is not int or fd <= 2 or fd == cfg.get('fd'):
+            raise RuntimeError('invalid tracee stderr fd')
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) != 0o600
+                or (fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE) == os.O_RDONLY):
+            raise RuntimeError('unsafe tracee stderr fd')
+        os.dup2(fd, 2)
+        os.close(fd)
     files = {}
     for key in ('entry', 'gateway', 'caller'):
         path = Path(cfg[key])

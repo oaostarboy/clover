@@ -18,6 +18,24 @@ ROOT = Path(__file__).parent
 
 
 class ProtocolTest(unittest.TestCase):
+    def test_pidfd_live_dead_and_wrong_birth(self):
+        from interrupted_controller import bind_original_pidfd, require_original_exit
+        from interrupted_identity import Refusal
+        old = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+        try:
+            ticks = birth(old.pid)
+            with self.assertRaises(Refusal):
+                bind_original_pidfd(old.pid, ticks + 1, lambda: birth(old.pid))
+            fd = bind_original_pidfd(old.pid, ticks, lambda: birth(old.pid))
+            try:
+                with self.assertRaises(Refusal):
+                    require_original_exit(fd, old.pid, 0)
+                old.terminate(); old.wait(timeout=5)
+                self.assertTrue(require_original_exit(fd, old.pid, 0))
+            finally:
+                os.close(fd)
+        finally:
+            if old.poll() is None: old.kill(); old.wait()
     def test_real_owned_processes_stop_crash_and_resume(self):
         self.exercise_protocol()
 
@@ -44,6 +62,8 @@ class ProtocolTest(unittest.TestCase):
             old = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'],
                                    env={**os.environ, 'CLOVER_HOME': d}, cwd=d)
             old_birth = birth(old.pid)
+            from interrupted_controller import bind_original_pidfd
+            old_pidfd = bind_original_pidfd(old.pid, old_birth, lambda: birth(old.pid))
             old_argv = psutil.Process(old.pid).cmdline()
             gateway.write_text('''import subprocess,sys\ndef _spawn_gateway_restart_watcher(old):\n return subprocess.Popen([sys.executable,'-c','import time; time.sleep(120)',str(old)])\ndef prepare(old):\n _spawn_gateway_restart_watcher(old)\n return 'detached'\ndef wait():\n return True\n''')
             caller.write_text('''import gateway,subprocess,sys,os,json,time\ndef _cmd_update_impl(old, beacon, argv, home):\n data={'updater_pid':os.getpid(),'updater_create_time':__import__('psutil').Process().create_time(),'cwd':home,'repo':home,'gateway_argv':argv}\n open(beacon,'w').write(json.dumps(data))\n subprocess.Popen([sys.executable,'-c','import time; time.sleep(120)',beacon])\n gateway.prepare(old)\n os.kill(old, 15)\n time.sleep(.3)\n gateway.wait()\n''')
@@ -98,7 +118,7 @@ class ProtocolTest(unittest.TestCase):
                     patches.enter_context(patch.object(schedule, 'frozen_watchers', freeze_once))
                     try:
                         result = execute_fault(stream, updater, old.pid, old_birth, old_argv,
-                                               root, root, beacon, port=0, tracked=owned,
+                                               root, root, beacon, old_pidfd=old_pidfd, port=0, tracked=owned,
                                                frozen_check=lambda bindings: checked.append(bindings), progress=progress)
                         if mode == 'recovery':
                             triggered.append(mode)
@@ -122,11 +142,15 @@ class ProtocolTest(unittest.TestCase):
                 self.assertEqual(len(checked), 1)
                 self.assertEqual(set(checked[0]), {'rollback', 'restart'})
                 self.assertEqual(updater.returncode, -9)
+                stages = [e['stage'] for e in result['events']]
+                self.assertLess(stages.index('original_gateway_exit_confirmed'), stages.index('updater_killed'))
+                self.assertTrue(next(e for e in result['events'] if e['stage'] == 'original_gateway_exit_confirmed')['pidfd_ready'])
                 self.assertEqual([e['stage'] for e in result['events'] if e['stage'] in ('watchers_stopped','updater_killed','watchers_resumed')],
                                  ['watchers_stopped','updater_killed','watchers_resumed'])
                 self.assertEqual(len(owned),2)
                 self.assertTrue(all(psutil.Process(p).status() not in ('stopped','tracing-stop') for p in owned))
             finally:
+                os.close(old_pidfd)
                 stream.close(); parent.close()
                 if updater.poll() is None: updater.kill(); updater.wait()
                 if old.poll() is None: old.kill(); old.wait()

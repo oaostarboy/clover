@@ -13,7 +13,7 @@ import unittest
 import interrupted_controller as controller
 import interrupted_identity as identity
 
-SCRIPT = '''import json,os,pathlib,subprocess,sys,time\nroot=pathlib.Path(sys.argv[2]); mode=sys.argv[1]\nif mode == 'updater':\n p=[subprocess.Popen([sys.executable,'-I','-S',__file__,m,str(root)]) for m in ('watcher','other')]\n (root/'watchers').write_text(json.dumps([x.pid for x in p]))\n time.sleep(30)\nelif mode in ('watcher','other'):\n while not (root/'go').exists(): time.sleep(.01)\n if mode == 'watcher':\n  subprocess.run(['git','rev-parse','HEAD'],cwd=root,check=True,stdout=subprocess.DEVNULL)\n  for n in range(int((root/'count').read_text())):\n   subprocess.Popen([sys.executable,'-I','-S',__file__,'gateway',str(root)])\nelse:\n (root/('gateway-'+str(os.getpid()))).write_text('ready')\n time.sleep(30)\n'''
+SCRIPT = '''import json,os,pathlib,subprocess,sys,time\nroot=pathlib.Path(sys.argv[2]); mode=sys.argv[1]\nif mode == 'updater':\n p=[subprocess.Popen([sys.executable,'-I','-S',__file__,m,str(root)]) for m in ('watcher','other')]\n (root/'watchers').write_text(json.dumps([x.pid for x in p]))\n time.sleep(30)\nelif mode in ('watcher','other'):\n while not (root/'go').exists(): time.sleep(.01)\n if mode == 'watcher':\n  subprocess.run(['git','rev-parse','HEAD'],cwd=root,check=True,stdout=subprocess.DEVNULL)\n  for n in range(int((root/'count').read_text())):\n   subprocess.Popen([sys.executable,'-I','-S',__file__,'gateway',str(root)])\nelse:\n import threading\n for i in range(3): threading.Thread(target=lambda: time.sleep(30), daemon=True).start()\n (root/('gateway-'+str(os.getpid()))).write_text('ready')\n time.sleep(30)\n'''
 
 
 class ControllerAccountingTests(unittest.TestCase):
@@ -81,7 +81,9 @@ class ControllerAccountingTests(unittest.TestCase):
         result = self.run_fixture(1)
         self.assertEqual(result['recovery']['accounting']['launch_count'], 1)
         self.assertEqual(result['recovery']['accounting']['utility_counts'], [1])
+        self.assertEqual(len(result['recovery']['empty_thread_tids']), 3)
+        self.assertEqual(len(result['recovery']['empty_thread_edges']), 3)
 
     def test_duplicate_gateway_is_rejected_before_cleanup(self):
-        with self.assertRaisesRegex(identity.Refusal, 'unexplained, live, or descendant-spawning utility branch'):
+        with self.assertRaisesRegex(identity.Refusal, 'empty trace is not a successor thread|unexplained, live, or descendant-spawning utility branch'):
             self.run_fixture(2)

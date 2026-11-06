@@ -13,6 +13,61 @@ WRAPPER = ROOT / 'interrupted_trace.py'
 
 
 class TraceTests(unittest.TestCase):
+    def test_real_wrapper_separates_tracee_and_tracer_stderr(self):
+        import interrupted_traced_updater as traced
+        import interrupted_observation as observation
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            gateway = p / 'gateway.py'; caller = p / 'caller.py'; entry = p / 'entry.py'
+            gateway.write_text('def prepare():\n return "detached"\ndef wait():\n return None\n')
+            caller.write_text('import gateway\ndef update():\n gateway.prepare()\n gateway.wait()\n')
+            entry.write_text('import sys, subprocess\nsys.path.insert(0, '+repr(d)+')\nimport caller\nprint("PARENT-MARKER", file=sys.stderr)\nsubprocess.run([sys.executable, "-c", "import sys; print(\\\"CHILD-MARKER\\\", file=sys.stderr)"])\ncaller.update()\n')
+            parent, child = socket.socketpair()
+            logfd = os.open(p / 'tracee.log', os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            cfg = {k: str(v) for k, v in [('entry', entry), ('gateway', gateway), ('caller', caller)]}
+            cfg.update({k + '_hash': hashlib.sha256(Path(cfg[k]).read_bytes()).hexdigest() for k in ('entry', 'gateway', 'caller')})
+            cfg.update(home=d, fd=child.fileno(), stderr_fd=logfd, prepare='prepare', wait='wait', caller_function='update')
+            config = p / 'config.json'; config.write_text(json.dumps(cfg))
+            prefix = p / 'trace'
+            try:
+                with traced.TraceSession(os.environ['RECOVERY_STRACE'], [sys.executable, '-I', '-S', str(WRAPPER), str(config), '--'],
+                                         {**os.environ, 'CLOVER_HOME': d}, d, d, prefix, (child.fileno(), logfd)) as session:
+                    child.close()
+                    stream = parent.makefile('rwb', buffering=0)
+                    stream.write(f'bind {session.updater.pid}\n'.encode())
+                    for stage in ('prepare', 'wait'):
+                        self.assertEqual(json.loads(stream.readline())['stage'], stage)
+                        stream.write(b'continue\n')
+                    import time
+                    deadline = time.monotonic() + 10
+                    while session.tracer.poll() is None and time.monotonic() < deadline: time.sleep(.01)
+                log = (p / 'tracee.log').read_text()
+                self.assertIn('PARENT-MARKER', log); self.assertIn('CHILD-MARKER', log)
+                stderr = Path(str(prefix) + '.stderr').read_bytes()
+                self.assertNotIn(b'MARKER', stderr)
+                pids = {int(x.name.rsplit('.', 1)[1]) for x in p.glob('trace.*') if x.name.rsplit('.', 1)[1].isdigit()}
+                observation._check_stderr(stderr, pids, session.binary)
+                self.assertGreaterEqual(len(pids), 2)
+            finally:
+                os.close(logfd); parent.close(); child.close()
+
+    def test_unsafe_tracee_stderr_descriptors_are_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d); config = p / 'config.json'
+            parent, child = socket.socketpair()
+            path = p / 'public'; path.touch(mode=0o644); path.chmod(0o644)
+            fd = os.open(path, os.O_WRONLY)
+            try:
+                for candidate in (0, child.fileno(), fd):
+                    cfg = {'fd': child.fileno(), 'stderr_fd': candidate}
+                    config.write_text(json.dumps(cfg))
+                    proc = subprocess.run([sys.executable, '-I', '-S', str(WRAPPER), str(config), '--'],
+                                          pass_fds=(child.fileno(), fd), capture_output=True, text=True, timeout=5)
+                    self.assertNotEqual(proc.returncode, 0)
+                    self.assertIn('tracee stderr fd', proc.stderr)
+            finally:
+                os.close(fd); parent.close(); child.close()
+
     def test_only_exact_pinned_target_alias_with_matching_bytes_is_allowed(self):
         from interrupted_trace import source_matches
         with tempfile.TemporaryDirectory() as d:

@@ -176,7 +176,7 @@ def account(session, fault, gateway_pid, gateway_argv, utilities, destination, *
             raise Refusal('successor changed across snapshot')
     except (psutil.Error, OSError) as exc:
         raise Refusal('successor unavailable during observation') from exc
-    tree = read_process_tree(prefix)
+    tree = read_process_tree(prefix, successor_root=gateway_pid)
     if tree['root'] != session.updater.pid:
         raise Refusal('trace root is not the bound updater')
     if not any(e['pid'] == tree['root'] and e['kind'] == 'exit' for e in tree['events']):
@@ -192,4 +192,5 @@ def account(session, fault, gateway_pid, gateway_argv, utilities, destination, *
             raise Refusal('watcher has incomplete or unexpected kernel history')
     summary = verify_single_recovery_launch(tree, watcher_ids,
                                             gateway_pid, gateway_argv, utilities=utilities)
-    return {'accounting': summary, 'snapshot': snapshot, 'gateway_birth_ticks': gateway_birth}
+    return {'accounting': summary, 'snapshot': snapshot, 'gateway_birth_ticks': gateway_birth,
+            'empty_thread_tids': tree['empty_thread_tids'], 'empty_thread_edges': tree['empty_thread_edges']}

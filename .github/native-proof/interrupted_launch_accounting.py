@@ -5,6 +5,8 @@ is not a completeness certificate: its owner must prove tracer lifetime and
 freeze/copy the observation boundary before classification.
 """
 import ast
+import errno
+import signal
 from decimal import Decimal
 from pathlib import Path
 import re
@@ -80,11 +82,26 @@ def verify_single_recovery_launch(tree, watcher_pids, gateway_pid, gateway_argv,
                 or not all(isinstance(arg, str) for arg in rule['argv'])
                 or type(rule.get('max_count')) is not int or rule['max_count'] < 1):
             raise Refusal('invalid source-bound utility rule')
-    for pid in branches - {gateway_pid}:
-        records = [e for e in tree['events'] if e['pid'] == pid]
+    events = tree['events']
+    thread_edges = {e['child']: e['pid'] for e in events
+                    if e['kind'] == 'fork' and e.get('thread') is True
+                    and parents.get(e['child']) == e['pid']}
+    def thread_owner(pid, leaders):
+        seen = set()
+        while pid not in leaders:
+            if pid in seen or pid not in thread_edges:
+                return None
+            seen.add(pid)
+            pid = thread_edges[pid]
+        return pid
+    watcher_threads = {pid: thread_owner(pid, watchers) for pid in branches - {gateway_pid}}
+    watcher_threads = {pid: owner for pid, owner in watcher_threads.items() if owner is not None}
+    for pid in branches - {gateway_pid} - set(watcher_threads):
+        if pid in thread_edges:
+            continue
+        records = [e for e in events if e['pid'] == pid]
         execs = [e for e in records if e['kind'] == 'exec']
-        if (len(execs) != 1 or pid in parents.values()
-                or not any(e['kind'] == 'exit' for e in records)):
+        if len(execs) != 1 or not any(e['kind'] == 'exit' for e in records):
             raise Refusal('unexplained, live, or descendant-spawning utility branch')
         event = execs[0]
         matches = [i for i, rule in enumerate(utilities)
@@ -97,26 +114,44 @@ def verify_single_recovery_launch(tree, watcher_pids, gateway_pid, gateway_argv,
         if counts[index] > utilities[index]['max_count']:
             raise Refusal('source-bound utility count exceeded')
         utility_pids.add(pid)
-    launches = [e for e in tree['events'] if e['kind'] == 'exec'
-                and e['pid'] in branches - utility_pids]
+    accepted = dict(watcher_threads)
+    for pid in branches - {gateway_pid} - set(accepted) - utility_pids:
+        owner = thread_owner(pid, utility_pids)
+        if owner is None:
+            raise Refusal('unexplained thread or process branch')
+        accepted[pid] = owner
+    for tid in accepted:
+        records = [e for e in events if e['pid'] == tid]
+        if (not records or not any(e['kind'] == 'exit' for e in records)
+                or any(e['kind'] == 'exec' or (e['kind'] == 'fork' and not e.get('thread'))
+                       for e in records)):
+            raise Refusal('invalid watcher or utility thread')
+    for pid in utility_pids:
+        if any(parent == pid and child not in accepted for child, parent in parents.items()):
+            raise Refusal('utility process created a process child')
+    launches = [e for e in events if e['kind'] == 'exec'
+                and e['pid'] in branches - utility_pids - set(accepted)]
     if (len(launches) != 1 or launches[0]['pid'] != gateway_pid
             or launches[0]['argv'] != list(gateway_argv)):
         raise Refusal('missing, duplicate or unexpected recovery execution')
     return {'gateway_pid': gateway_pid, 'launch_count': 1,
             'utility_pids': sorted(utility_pids), 'utility_counts': counts,
+            'accepted_threads': [{'tid': tid, 'owner': accepted[tid]} for tid in sorted(accepted)],
             'scope': 'watcher branches excluding successor-owned descendants'}
 
 
-def read_process_tree(prefix):
+def read_process_tree(prefix, *, successor_root=None):
     prefix = Path(prefix)
     paths = {int(p.name.rsplit('.', 1)[1]): p for p in prefix.parent.glob(prefix.name + '.*')
              if p.name.rsplit('.', 1)[1].isdigit()}
     if not paths:
         raise Refusal('no process traces')
+    contents = {pid: path.read_text(encoding='ascii') for pid, path in paths.items()}
     events, parents = [], {}
-    for pid, path in sorted(paths.items()):
-        text = path.read_text(encoding='ascii')
-        if not text or not text.endswith('\n'):
+    for pid, text in sorted(contents.items()):
+        if not text:
+            continue
+        if not text.endswith('\n'):
             raise Refusal('empty or partial process trace')
         pending = None
         previous = -1
@@ -167,9 +202,21 @@ def read_process_tree(prefix):
                         raise Refusal('duplicate or cyclic process creation')
                     parents[child] = pid
                     events.append({'pid': pid, 'ns': ns, 'kind': 'fork',
-                                   'child': child, 'thread': 'CLONE_THREAD' in call[2]})
+                                   'child': child, 'thread': name in ('clone', 'clone3') and bool(re.search(r'\bflags=[A-Z0-9_|]*\bCLONE_THREAD\b', call[2]))})
                 elif not re.match(r'-1 [A-Z0-9]+(?: |$)', result):
                     raise Refusal('unknown fork outcome')
+            elif name in ('kill', 'tkill', 'tgkill'):
+                args = call[2].split(', ')
+                count = 3 if name == 'tgkill' else 2
+                sig = args[-1]
+                error = re.fullmatch(r'-1 (E[A-Z0-9]+) \([^\n()]*\)', result)
+                if (len(args) != count or any(not re.fullmatch(r'-?\d+', v) for v in args[:-1])
+                        or (sig != '0' and (not re.fullmatch(r'SIG[A-Z0-9]+', sig)
+                                           or not hasattr(signal, sig)))
+                        or (result != '0' and (not error or error[1] not in errno.errorcode.values()))):
+                    raise Refusal('invalid signal syscall')
+                events.append({'pid': pid, 'ns': ns, 'kind': 'signal', 'syscall': name,
+                               'targets': [int(v) for v in args[:-1]], 'signal': sig, 'result': result})
             elif name not in ('wait4', 'waitid', 'waitpid', 'exit', 'exit_group'):
                 raise Refusal('unrecognized process syscall: ' + name)
         if pending is not None:
@@ -187,5 +234,22 @@ def read_process_tree(prefix):
                 raise Refusal('disconnected or cyclic process tree')
             seen.add(pid)
             pid = parents[pid]
-    return {'root': root, 'parents': parents,
+    empty = sorted(pid for pid, text in contents.items() if not text)
+    edges = []
+    if empty:
+        if (type(successor_root) is not int or not contents.get(successor_root)
+                or len([e for e in events if e['pid'] == successor_root and e['kind'] == 'exec']) != 1):
+            raise Refusal('empty trace lacks independently bound successor execution')
+        thread_edges = {e['child']: e for e in events if e['kind'] == 'fork' and e['thread']}
+        used = set()
+        for tid in empty:
+            current = tid
+            while current != successor_root:
+                if current not in thread_edges:
+                    raise Refusal('empty trace is not a successor thread')
+                edge = thread_edges[current]
+                used.add((edge['pid'], current))
+                current = edge['pid']
+        edges = [{'parent': parent, 'child': child} for parent, child in sorted(used)]
+    return {'root': root, 'parents': parents, 'empty_thread_tids': empty, 'empty_thread_edges': edges,
             'events': sorted(events, key=lambda e: (e['ns'], e['pid']))}
