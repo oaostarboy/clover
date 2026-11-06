@@ -16,6 +16,7 @@ env:
   NEXT_REF: ci/native-next/staged-826e8ff1-20261106
   SETUP: zyra
   UPDATE_PATH: cli
+  PHASE: old2new
 jobs:
   native:
     timeout-minutes: 45
@@ -70,7 +71,7 @@ jobs:
         shell: pwsh
         env:
           NATIVE_WAIT_INSTALLER_BUILD: '1'
-        run: ./helpers/.github/native-proof/windows.ps1 -Mode new2next
+        run: ./helpers/.github/native-proof/windows.ps1 -Mode old2new
       - name: Record row
         if: always()
         shell: bash
