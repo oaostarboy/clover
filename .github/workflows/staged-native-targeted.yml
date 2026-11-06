@@ -1,7 +1,7 @@
 name: Targeted staged native and ownership proof
 on:
   push:
-    branches: [ci/staged-native-targeted-d075-20261105]
+    branches: [ci/native-553e2479-20261106]
   workflow_dispatch:
 permissions:
   contents: read
@@ -9,11 +9,11 @@ concurrency:
   group: targeted-staged-${{ github.run_id }}
   cancel-in-progress: false
 env:
-  TARGET_REF: 046234f768df13f53d7a11198a09f152e9e49124
-  TARGET_TREE: e673d8bc7fb968f7df08fd12679a0b7de14ab61f
+  TARGET_REF: 553e24799c8149d1cc3acf7d8065fcc6151b3f41
+  TARGET_TREE: 694dd7b4355da37ec009b193a091e5e42f8375b8
   OLD_REF: v2.0.2.11
   OLD_SHA: 9271c360f4519fc30887bbab7777c76970d4318f
-  NEXT_REF: ci/native-next/staged-targeted-046234f7-20261105
+  NEXT_REF: ci/native-next/staged-553e2479-20261106
   SETUP: zyra
   UPDATE_PATH: cli
 jobs:
