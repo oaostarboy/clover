@@ -22,11 +22,44 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
         include:
           - os: windows-latest
             kind: windows-installer-ready
+            setup: zyra
+            update_path: chat
+            phase: old2new
+          - os: windows-latest
+            kind: windows-installer-ready
+            setup: zyra
+            update_path: chat
+            phase: new2next
+          - os: windows-latest
+            kind: windows-installer-ready
+            setup: troy
+            update_path: cli
+            phase: old2new
+          - os: windows-latest
+            kind: windows-installer-ready
+            setup: troy
+            update_path: cli
+            phase: new2next
+          - os: windows-latest
+            kind: windows-installer-ready
+            setup: troy
+            update_path: chat
+            phase: old2new
+          - os: windows-latest
+            kind: windows-installer-ready
+            setup: troy
+            update_path: chat
+            phase: new2next
     runs-on: ${{ matrix.os }}
+    env:
+      SETUP: ${{ matrix.setup }}
+      UPDATE_PATH: ${{ matrix.update_path }}
+      PHASE: ${{ matrix.phase }}
     steps:
       - name: Checkout helpers
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -71,7 +104,7 @@ jobs:
         shell: pwsh
         env:
           NATIVE_WAIT_INSTALLER_BUILD: '1'
-        run: ./helpers/.github/native-proof/windows.ps1 -Mode old2new
+        run: ./helpers/.github/native-proof/windows.ps1 -Mode $env:PHASE
       - name: Record row
         if: always()
         shell: bash
@@ -82,6 +115,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: targeted-${{ matrix.kind }}-${{ github.run_id }}
+          name: targeted-${{ matrix.setup }}-${{ matrix.update_path }}-${{ matrix.phase }}-${{ github.run_id }}
           path: ${{ runner.temp }}/evidence
           if-no-files-found: error
