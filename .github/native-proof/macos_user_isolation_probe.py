@@ -51,7 +51,7 @@ def main():
     save('preflight', username=user, home=home, label=label, script_sha256=hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest())
     # A negative lookup must unambiguously be the native dscl record-not-found error.
     check = run(['/usr/bin/dscl', '.', '-read', '/Users/' + user], check=False)
-    if check.returncode == 0 or 'eDSUnknownNodeName' not in check.stderr and 'eDSRecordNotFound' not in check.stderr:
+    if check.returncode == 0 or set(re.findall(r'\beDS[A-Za-z0-9_]+\b', check.stdout + check.stderr)) != {'eDSRecordNotFound'}:
         raise RuntimeError('account already exists or account lookup inconclusive: ' + check.stderr.strip()[:500])
     if pathlib.Path(home).exists() or pathlib.Path(home).is_symlink():
         raise RuntimeError('home collision')

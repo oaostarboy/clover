@@ -40,6 +40,16 @@ class GuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, patch.object(m, 'E', pathlib.Path(d)), patch.object(m, 'native_guard', return_value='123'), patch.object(m, 'run', return_value=subprocess.CompletedProcess([], 0, '', '')) as run:
             with self.assertRaisesRegex(RuntimeError, 'account already exists'): m.main()
             self.assertEqual(run.call_count, 1)
+    def test_directory_failures_refused_before_mutation(self):
+        for error in ('eDSUnknownNodeName', 'eDSPermissionError', '', 'eDSRecordNotFound eDSUnknownNodeName'):
+            with self.subTest(error=error), tempfile.TemporaryDirectory() as d:
+                failure = subprocess.CompletedProcess([], 1, '', error)
+                with patch.object(m, 'E', pathlib.Path(d)), patch.object(m, 'native_guard', return_value='123'), patch.object(m, 'run', return_value=failure) as call:
+                    with self.assertRaisesRegex(RuntimeError, 'account lookup inconclusive'):
+                        m.main()
+                    self.assertEqual(call.call_count, 1, 'Must stop before any provisioning command')
+                    self.assertNotIn('/usr/bin/sudo', call.call_args.args[0])
+
     def test_existing_home_refused_before_mutation(self):
         miss = subprocess.CompletedProcess([], 1, '', 'eDSRecordNotFound')
         with tempfile.TemporaryDirectory() as d, patch.object(m, 'E', pathlib.Path(d)), patch.object(m, 'native_guard', return_value='123'), patch.object(m, 'run', return_value=miss) as run, patch.object(pathlib.Path, 'exists', return_value=True):
