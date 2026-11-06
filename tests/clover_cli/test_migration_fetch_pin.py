@@ -32,3 +32,20 @@ def test_fetched_ref_must_match_stage_identity(tmp_path):
         subprocess.run(['git', '-C', str(target), 'update-ref', 'refs/remotes/origin/main', target_id], check=True)
         with pytest.raises(ValueError, match='fetched'):
             b.verified_fetch_ref('main')
+
+
+def test_fetch_identity_validation_disables_optional_git_locks(tmp_path, monkeypatch):
+    from clover_cli import _migration_target as b
+    stage, target = tmp_path / 'stage', tmp_path / 'target'
+    stage_id, target_id = repo(stage), repo(target)
+    with b.bind_target(stage, target, stage_id, target_id):
+        subprocess.run(['git', '-C', str(target), 'update-ref', 'refs/remotes/origin/main', target_id], check=True)
+        real_run = subprocess.run
+        environments = []
+        def run(*args, **kwargs):
+            environments.append(kwargs.get('env'))
+            return real_run(*args, **kwargs)
+        monkeypatch.setattr(b.subprocess, 'run', run)
+        with pytest.raises(ValueError):
+            b.verified_fetch_ref('main')
+        assert environments and all(env.get('GIT_OPTIONAL_LOCKS') == '0' for env in environments)

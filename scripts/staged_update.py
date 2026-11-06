@@ -72,6 +72,7 @@ def main(argv=None):
 
         def git(root, *args):
             result = subprocess.run(['git', '-C', str(root), *args],
+                                    env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'},
                                     text=True, capture_output=True, timeout=30)
             if result.returncode:
                 raise ValueError('cannot verify staged Git source')

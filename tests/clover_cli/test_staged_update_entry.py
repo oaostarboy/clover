@@ -56,8 +56,17 @@ def test_isolated_entry_pins_stage_before_importing_target(tmp_path, nested_inst
             '--target', str(target), '--old-commit', old,
             '--stage-commit', commit, '--stage-tree', tree, '--home', str(home),
             '--dependency-path', str(Path(psutil.__file__).resolve().parent.parent)]
-    result = subprocess.run(args, cwd=target, text=True, capture_output=True)
+    import os
+    wrapper_dir = tmp_path / 'bin'
+    wrapper_dir.mkdir()
+    log = tmp_path / 'git-status-locks'
+    wrapper = wrapper_dir / 'git'
+    wrapper.write_text('#!/bin/sh\ncase " $* " in *" status "*) printf "%s\\n" "${GIT_OPTIONAL_LOCKS-unset}" >> "$STATUS_LOCK_LOG";; esac\nexec ' + shutil.which('git') + ' "$@"\n')
+    wrapper.chmod(0o755)
+    env = dict(os.environ, PATH=str(wrapper_dir) + os.pathsep + os.environ['PATH'], STATUS_LOCK_LOG=str(log))
+    result = subprocess.run(args, cwd=target, text=True, capture_output=True, env=env)
     assert result.returncode == 0, result.stderr
+    assert log.read_text().splitlines() and set(log.read_text().splitlines()) == {'0'}
     assert f'STAGED_TARGET={target}' in result.stdout
     assert not marker.exists()
     wrong = args.copy()

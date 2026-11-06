@@ -141,7 +141,7 @@ def verified_fetch_ref(branch):
     _, target, stage_commit, _ = _identities
     env = {'PATH': os.defpath, 'HOME': str(target / '.git'),
            'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
-           'GIT_NO_REPLACE_OBJECTS': '1', 'LC_ALL': 'C'}
+           'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_OPTIONAL_LOCKS': '0', 'LC_ALL': 'C'}
     def git(*args):
         return subprocess.run(['git', '-C', str(target), *args], env=env,
                               text=True, capture_output=True, check=False)

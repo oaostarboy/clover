@@ -8738,13 +8738,17 @@ def _cmd_update_impl(args, gateway_mode: bool):
     # (ownership proof, once it is past the stale-age floor), before anything
     # touches the checkout.
     # Adapted from NousResearch/hermes-agent a81d3408bc (MIT).
-    try:
-        from clover_cli.gitlock import release_dead_index_lock
+    def release_index_lock():
+        try:
+            from clover_cli.gitlock import release_dead_index_lock
 
-        if release_dead_index_lock(_m().PROJECT_ROOT):
-            print("  (removed .git/index.lock left by a git that was killed)")
-    except Exception as _lock_exc:
-        logger.debug("Dead index.lock release failed: %s", _lock_exc)
+            if release_dead_index_lock(_m().PROJECT_ROOT):
+                print("  (removed .git/index.lock left by a git that was killed)")
+        except Exception as _lock_exc:
+            logger.debug("Dead index.lock release failed: %s", _lock_exc)
+
+    if target_root() is None:
+        release_index_lock()
 
     # Phase 1 (#91277): structured update receipt — record what this run
     # discovers, does, and skips, so silent-failure classes (#88848,
@@ -8813,6 +8817,11 @@ def _cmd_update_impl(args, gateway_mode: bool):
     # Inventory is captured above while services still run. Pause before any
     # checkout/overlay/runtime mutation, not merely before npm starts.
     begin_source_mutation(_m().PROJECT_ROOT)
+
+    if target_root() is not None:
+        from clover_cli._migration_target import prepare_staged_fetch
+        prepare_staged_fetch(_m()._resolve_update_branch(args))
+        release_index_lock()
 
     # Pre-update backup — runs before any git/file mutation so users can
     # always roll back to the exact state they had before this update.

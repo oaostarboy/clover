@@ -10893,9 +10893,7 @@ def cmd_update(args):
                 sys.exit(_preflight.PREFLIGHT_EXIT_BLOCKED)
         if _staged_bound:
             from clover_cli.update_delivery_guard import require_delivery_safe_update
-            from clover_cli._migration_target import prepare_staged_fetch
             require_delivery_safe_update(strict=True)
-            prepare_staged_fetch(_resolve_update_branch(args))
         _self()._cmd_update_impl(args, gateway_mode=gateway_mode)
     except SystemExit as _update_exit:
         # Receipt boundary (#91283 review): the impl has many early
