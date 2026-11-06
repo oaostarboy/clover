@@ -44,6 +44,7 @@ jobs:
           echo "NEXT_SHA=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF")" >> "$GITHUB_ENV"
           echo "NEXT_TREE=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF^{tree}")" >> "$GITHUB_ENV"
       - name: Controlled crash and recovery
+        timeout-minutes: 35
         shell: bash
         run: bash helpers/.github/native-proof/posix.sh old2new
       - name: Preserve installer diagnostics independently of shell traps

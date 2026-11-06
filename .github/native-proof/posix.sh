@@ -212,6 +212,8 @@ trap - EXIT
 cd "$RUNNER_TEMP/neutral"
 FROM_TREE=$(git -C "$SOURCE" rev-parse "$FROM_SHA^{tree}")
 "$PY" "$PROOF" identity --repo "$INSTALL_DIR" --sha "$FROM_SHA" --tree "$FROM_TREE" --output "$EVIDENCE/before-imports.json"
+# Diagnostic boundary: no gateway, updater, watcher or crash controller.
+if [[ ${NATIVE_INSTALL_ONLY:-0} == 1 ]]; then exit 0; fi
 if [[ $MODE != fresh ]]; then
   # The updater's default main path sees a local bare origin with real objects.
   # Keep this fixture topology explicit in the evidence; it is NOT GitHub main.
