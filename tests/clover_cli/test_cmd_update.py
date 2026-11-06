@@ -311,6 +311,10 @@ class TestCmdUpdateNpmLockfileCache:
 
         monkeypatch.setattr(hm, "PROJECT_ROOT", checkout)
         monkeypatch.setattr(clover_constants.Path, "home", lambda: tmp_path)
+        # This fixture checks npm manifest-cache ownership, not optional
+        # browser-package downloading. Keep that external backend inert so
+        # offline/PID-isolated runs cannot hang in an unrelated npx fetch.
+        monkeypatch.setattr("tools.browser_tool.warm_agent_browser_npx_cache", lambda: None)
         monkeypatch.setattr(
             clover_constants, "find_node_executable", lambda _name: "/usr/bin/npm"
         )
