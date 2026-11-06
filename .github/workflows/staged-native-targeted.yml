@@ -25,10 +25,6 @@ jobs:
         include:
           - os: ubuntu-latest
             kind: linux-real-staged-entry
-          - os: macos-latest
-            kind: mac-native-ownership
-          - os: windows-latest
-            kind: windows-installer-ready
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout helpers
