@@ -41,7 +41,7 @@ if mode == 'identity':
     output = {'pid': pid, 'exe': exe, 'argv': argv, 'cwd': cwd,
               'live_process_modules_fixture': observer['modules']}
     (evidence / (state.stem + '-os-identity.json')).write_text(json.dumps(output, indent=2))
-elif mode == 'session':
+elif mode in ('session', 'restart-session'):
     def snapshot():
         with sqlite3.connect('file:' + str(home / 'state.db') + '?mode=ro', uri=True) as db:
             tables = [r[0] for r in db.execute("select name from sqlite_master where type='table' and name in ('sessions','messages')")]
@@ -49,14 +49,32 @@ elif mode == 'session':
                            'rows': [list(r) for r in db.execute('select * from ' + name)]} for name in tables}
     def complete():
         data = snapshot()
-        text = json.dumps(data, default=str)
-        return data if all(s in text for s in ('STAGE_HISTORY_SENTINEL', 'STAGE_INDEPENDENCE_TURN', 'Local acceptance auxiliary response.')) else None
+        messages = data.get('messages', {})
+        rows = [dict(zip(messages.get('columns', []), row)) for row in messages.get('rows', [])]
+        markers = ['STAGE_HISTORY_SENTINEL', 'STAGE_INDEPENDENCE_TURN']
+        if mode == 'restart-session':
+            markers.append('STAGE_RESTART_TURN')
+        def replied(marker):
+            for index, row in enumerate(rows):
+                if row.get('role') != 'user' or marker not in str(row.get('content')):
+                    continue
+                for following in rows[index + 1:]:
+                    if following.get('session_id') != row.get('session_id'):
+                        continue
+                    if following.get('role') == 'user':
+                        break
+                    if following.get('role') == 'assistant' and 'Local acceptance auxiliary response.' in str(following.get('content')):
+                        return True
+            return False
+        return data if all(replied(marker) for marker in markers) else None
     data = wait_for(complete, 120)
     config = home / 'config.yaml'
     before = (evidence / 'config-before.sha256').read_text().strip()
     after = hashlib.sha256(config.read_bytes()).hexdigest()
-    (evidence / 'stage-session.json').write_text(json.dumps({'state': data, 'config_sha256_before': before, 'config_sha256_after': after}, default=str, indent=2))
-    (evidence / 'config-after-chat.yaml').write_bytes(config.read_bytes())
+    output_name = 'stage-restart-session.json' if mode == 'restart-session' else 'stage-session.json'
+    config_name = 'config-after-restart.yaml' if mode == 'restart-session' else 'config-after-chat.yaml'
+    (evidence / output_name).write_text(json.dumps({'state': data, 'config_sha256_before': before, 'config_sha256_after': after}, default=str, indent=2))
+    (evidence / config_name).write_bytes(config.read_bytes())
     assert before == after, (before, after)
 else:
     raise ValueError(mode)

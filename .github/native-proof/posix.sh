@@ -261,6 +261,13 @@ if [[ $MODE != fresh ]]; then
     "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$TO_SHA" --port 18791 --seconds 90 --previous "$EVIDENCE/post-chat-state.json" --output "$EVIDENCE/installed-restart-state.json"
     "$PY" "$FIXTURE/stage_independence_verify.py" identity "$CLOVER_HOME" "$INSTALL_DIR" "$STAGE" "$EVIDENCE" "$EVIDENCE/installed-restart-state.json"
     test ! -e "$STAGE"
+    touch "$EVIDENCE/chat-restart"
+    for _ in $(seq 1 1200); do [[ -s "$EVIDENCE/chat-restart-reply.json" ]] && break; sleep .1; done
+    test -s "$EVIDENCE/chat-restart-reply.json"
+    "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$TO_SHA" --port 18791 --seconds 0 --output "$EVIDENCE/restart-chat-state.json"
+    python -c 'import json,sys; a,b=(json.load(open(x)) for x in sys.argv[1:]); assert a["pid"] == b["pid"] and a["start_time"] == b["start_time"]' "$EVIDENCE/installed-restart-state.json" "$EVIDENCE/restart-chat-state.json"
+    "$PY" "$FIXTURE/stage_independence_verify.py" restart-session "$CLOVER_HOME" "$INSTALL_DIR" "$STAGE" "$EVIDENCE" "$EVIDENCE/restart-chat-state.json"
+    test ! -e "$STAGE"
     touch "$EVIDENCE/chat-stop"
   fi
 else

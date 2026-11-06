@@ -28,6 +28,12 @@ try:
         if count == 3 and len(messages) >= 2:
             (root / 'chat-post-reply.json').write_text(json.dumps({'messages': messages}))
             count = 4
+        if count == 4 and (root / 'chat-restart').exists() and wire.ready():
+            wire.send('STAGE_RESTART_TURN: reply with the local fixture auxiliary response.')
+            count = 5
+        if count == 5 and len(messages) >= 3:
+            (root / 'chat-restart-reply.json').write_text(json.dumps({'messages': messages}))
+            count = 6
         if (root / 'chat-stop').exists():
             break
         time.sleep(.2)
