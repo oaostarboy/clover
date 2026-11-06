@@ -13,6 +13,9 @@ export CLOVER_HOME="$HOME/.clover" CLOVER_INSTALL_DIR="$HOME/.clover/clover-c1"
 INSTALL_DIR="$CLOVER_INSTALL_DIR"
 PY="$INSTALL_DIR/venv/bin/python"
 BIN="$INSTALL_DIR/venv/bin/clover"
+if [[ ${MAC_OWNERSHIP_DIAGNOSTIC:-0} == 1 ]]; then
+  "$RUNNER_TEMP/macos-diagnostic-venv/bin/python" "$GITHUB_WORKSPACE/helpers/.github/native-proof/macos_known_roots.py" "$RUNNER_TEMP" "$RUNNER_TEMP/install.sh" "$INSTALL_DIR" "$$" "$PPID" > "$EVIDENCE/macos-roots-monitor.log" 2>&1 &
+fi
 # A fresh runner is mandatory. Never adopt or replace an existing install.
 test ! -e "$CLOVER_HOME"
 if command -v clover; then exit 1; fi
@@ -224,6 +227,9 @@ if [[ ${NATIVE_STAGED_ENTRY:-0} == 1 ]]; then
   export STAGE_ORIGIN_EVIDENCE="$EVIDENCE"
 fi
 "$BIN" gateway run > "$EVIDENCE/gateway-launch.log" 2>&1 &
+if [[ ${MAC_OWNERSHIP_DIAGNOSTIC:-0} == 1 ]]; then
+  "$PY" "$GITHUB_WORKSPACE/helpers/.github/native-proof/macos_ownership_diagnostic.py" --target "$INSTALL_DIR" --venv "$INSTALL_DIR/venv" --profile-home "$CLOVER_HOME" --output "$EVIDENCE/macos-topology-before.json"
+fi
 "$PY" "$PROOF" gateway --repo "$INSTALL_DIR" --home "$CLOVER_HOME" --sha "$FROM_SHA" --port 18791 --seconds 0 --output "$EVIDENCE/before-state.json"
 if [[ ${NATIVE_STAGED_ENTRY:-0} == 1 ]]; then
   touch "$EVIDENCE/chat-pre"
