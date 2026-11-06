@@ -265,8 +265,12 @@ def observe_gateway(repo, home, sha, port):
         candidate = False
         try:
             argv = proc.info['cmdline'] or []
-            candidate = ('gateway' in argv and 'run' in argv and '-c' not in argv
-                         and str(repo) in ' '.join(argv))
+            # Without a service, the installed `gateway restart` command is
+            # itself the live foreground gateway. Count it just like `run`;
+            # the PID, creation time, home, listener and health checks below
+            # still independently prove ownership and reject duplicates.
+            candidate = ('gateway' in argv and any(x in argv for x in ('run', 'restart'))
+                         and '-c' not in argv and str(repo) in ' '.join(argv))
             if candidate and proc.environ().get('CLOVER_HOME') == str(home):
                 processes.append(proc.pid)
         except psutil.NoSuchProcess:

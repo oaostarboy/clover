@@ -176,7 +176,7 @@ class GatewayOwnership(unittest.TestCase):
         ready.unlink(missing_ok=True)
         argv = [sys.executable, str(self.script)]
         if gateway:
-            argv += ['gateway', 'run']
+            argv += ['gateway', gateway if isinstance(gateway, str) else 'run']
         argv += [mode]
         proc = subprocess.Popen(argv, env={**os.environ, 'CLOVER_HOME': str(home)},
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -215,6 +215,18 @@ class GatewayOwnership(unittest.TestCase):
         proc, port = self.launch()
         state = self.state_for(proc)
         self.assertEqual(proof.observe_gateway(self.repo, self.home, self.sha, port), state)
+
+    def test_restart_command_is_the_live_owned_gateway(self):
+        proc, port = self.launch(gateway='restart')
+        state = self.state_for(proc)
+        self.assertEqual(proof.observe_gateway(self.repo, self.home, self.sha, port), state)
+
+    def test_duplicate_restart_gateway_fails(self):
+        owned, port = self.launch(gateway='restart')
+        self.launch(mode='idle', gateway='restart')
+        self.state_for(owned)
+        with self.assertRaises(ValueError):
+            proof.observe_gateway(self.repo, self.home, self.sha, port)
 
     def test_foreign_health_listener_is_not_ownership(self):
         owned, _ = self.launch(mode='idle')
