@@ -16,16 +16,21 @@ env:
   NEXT_REF: ci/native-next/staged-826e8ff1-20261106
   SETUP: zyra
   UPDATE_PATH: cli
-  PHASE: old2new
+  PHASE: fresh
 jobs:
   native:
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
+          - os: ubuntu-latest
+            kind: fresh-linux
+          - os: macos-latest
+            kind: fresh-macos
           - os: windows-latest
-            kind: windows-installer-ready
+            kind: fresh-windows
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout helpers
@@ -49,12 +54,10 @@ jobs:
           python helpers/.github/native-proof/proof.py plan --repo source --old-ref "$OLD_REF" --target-ref "$TARGET_REF" --target-tree "$TARGET_TREE" --next-ref "$NEXT_REF" --output "$RUNNER_TEMP/evidence/plan.json"
           echo "NEXT_SHA=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF")" >> "$GITHUB_ENV"
           echo "NEXT_TREE=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF^{tree}")" >> "$GITHUB_ENV"
-      - name: Linux real staged entry
-        if: matrix.kind == 'linux-real-staged-entry'
+      - name: POSIX fresh installation and native contracts
+        if: runner.os != 'Windows'
         shell: bash
-        env:
-          NATIVE_STAGED_ENTRY: '1'
-        run: bash helpers/.github/native-proof/posix.sh old2new
+        run: bash helpers/.github/native-proof/posix.sh fresh
       - name: macOS native ownership
         if: matrix.kind == 'mac-native-ownership'
         shell: bash
@@ -67,11 +70,11 @@ jobs:
             "$HOME/.clover/clover-c1/venv/bin/python" helpers/.github/native-proof/macos-denied-observation.py "$RUNNER_TEMP/evidence/macos-denied-processes.json"
           fi
       - name: Windows installer readiness
-        if: matrix.kind == 'windows-installer-ready'
+        if: runner.os == 'Windows'
         shell: pwsh
         env:
           NATIVE_WAIT_INSTALLER_BUILD: '1'
-        run: ./helpers/.github/native-proof/windows.ps1 -Mode old2new
+        run: ./helpers/.github/native-proof/windows.ps1 -Mode fresh
       - name: Record row
         if: always()
         shell: bash
