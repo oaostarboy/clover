@@ -4,6 +4,34 @@ from pathlib import Path
 import sys
 
 
+def validate_frozen_command(argv, runtime, frozen, beacon, roots):
+    """Accept only the pinned candidate's isolated frozen-watcher bootstrap."""
+    bootstrap = (
+        'import sys,runpy; from pathlib import Path; '
+        f'roots={list(map(str, roots))!r}; sys.path[:0]=roots; '
+        'import psutil; '
+        'assert any(Path(psutil.__file__).resolve().is_relative_to(Path(p)) for p in roots), "untrusted psutil"; '
+        'assert psutil.Process().create_time() > 0; '
+        'check=sys.argv[-1] == "--check-trusted-watcher"; '
+        'sys.argv=sys.argv[1:]; '
+        'print("trusted-watcher-ready") if check else runpy.run_path(sys.argv[0], run_name="__main__")'
+    )
+    expected = [str(runtime), '-I', '-S', '-c', bootstrap, str(frozen), str(beacon)]
+    if list(argv) != expected:
+        raise Refusal('rollback watcher differs from pinned isolated command')
+
+
+def require_fixture_port_closed(port):
+    """Probe only the fixture's IPv4 loopback endpoint, never host processes."""
+    import errno
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(1)
+        status = probe.connect_ex(('127.0.0.1', port))
+    if status != errno.ECONNREFUSED:
+        raise Refusal('fixture endpoint is listening or its absence is uncertain')
+
+
 def hosted_preflight(env, runner_temp, home, install, evidence):
     if (sys.platform != 'linux' or env.get('GITHUB_ACTIONS') != 'true'
             or env.get('RUNNER_ENVIRONMENT') != 'github-hosted'
@@ -32,7 +60,7 @@ def select_watchers(events, updater_pid, old_pid, beacon_path):
             raise Refusal('invalid launch arguments')
         owner = event.get('owner')
         role = None
-        if owner == '_cmd_update_impl' and beacon_path in argv:
+        if owner in ('_cmd_update_impl', '_arm_restart_watcher_before_pause') and beacon_path in argv:
             role = 'rollback'
         elif (owner == '_spawn_gateway_restart_watcher' and len(argv) >= 4
               and argv[1] == '-c' and argv[3] == str(old_pid)):
@@ -49,7 +77,53 @@ def select_watchers(events, updater_pid, old_pid, beacon_path):
     return selected
 
 
-def execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target, beacon, *, port, tracked, beacon_copy=None, frozen_check=None):
+def atomic_receipt(path, value):
+    import json
+    import os
+    import tempfile
+    fd, name = tempfile.mkstemp(prefix='.fault-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as out:
+            json.dump(value, out, indent=2)
+            out.write('\n')
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(name, path)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
+class FaultProgress:
+    def __init__(self, evidence):
+        self.evidence = Path(evidence)
+        self.phase = 'not_started'
+        self.cleanup = 'not_started'
+
+    def snapshot(self):
+        return {'injected': {'not_started': False, 'attempted': None, 'confirmed': True}[self.phase],
+                'controlled_injection': self.phase, 'cleanup': self.cleanup}
+
+    def persist(self):
+        atomic_receipt(self.evidence / 'interrupted-fault-progress.json', self.snapshot())
+
+    def controlled(self, phase):
+        previous = self.phase
+        self.phase = phase
+        try:
+            self.persist()
+        except BaseException:
+            if phase == 'attempted':
+                self.phase = previous  # no signal has been sent
+            raise
+
+
+def write_failure_receipt(evidence, progress, exc):
+    atomic_receipt(Path(evidence) / 'interrupted-fault-failure.json',
+                   {**progress.snapshot(), 'error': type(exc).__name__, 'detail': str(exc)})
+
+
+def execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target, beacon, *, port, tracked, beacon_copy=None, frozen_check=None, progress=None):
     """Perform the controlled crash; a return means injection, not recovery."""
     import hashlib
     import json
@@ -87,8 +161,26 @@ def execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target, b
 
     def kill_updater():
         if updater.poll() is None:
-            identity.signal_bound(updater.pid, updater_birth, signal.SIGKILL)
-            updater.wait(timeout=10)
+            persistence_error = None
+            if progress is not None:
+                progress.cleanup = 'attempted'
+                try:
+                    progress.persist()
+                except BaseException as exc:
+                    persistence_error = exc
+            try:
+                identity.signal_bound(updater.pid, updater_birth, signal.SIGKILL)
+                updater.wait(timeout=10)
+            except BaseException:
+                if progress is not None:
+                    progress.cleanup = 'uncertain'
+                    progress.persist()
+                raise
+            if progress is not None:
+                progress.cleanup = 'confirmed' if updater.returncode == -signal.SIGKILL else 'uncertain'
+                progress.persist()
+            if persistence_error is not None:
+                raise persistence_error
 
     def bind(role, event):
         argv = event['argv']
@@ -123,10 +215,7 @@ def execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target, b
                 if psutil.pid_exists(old_pid):
                     raise Refusal('original gateway PID still exists at crash boundary')
                 if port:
-                    listeners = [c for c in psutil.net_connections(kind='inet')
-                                 if c.status == psutil.CONN_LISTEN and c.laddr.port == port]
-                    if listeners:
-                        raise Refusal('listener exists at crash boundary')
+                    require_fixture_port_closed(port)
                 state_path = Path(home) / 'gateway_state.json'
                 if state_path.exists():
                     state = json.loads(state_path.read_text())
@@ -143,9 +232,14 @@ def execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target, b
                     if hashlib.sha256(raw).hexdigest() != beacon_binding['sha256']:
                         raise Refusal('beacon changed before preservation')
                     Path(beacon_copy).write_bytes(raw)
-                kill_updater()
+                if progress is not None:
+                    progress.controlled('attempted')
+                identity.signal_bound(updater.pid, updater_birth, signal.SIGKILL)
+                updater.wait(timeout=10)
                 if updater.returncode != -signal.SIGKILL:
                     raise Refusal('updater did not die from SIGKILL')
+                if progress is not None:
+                    progress.controlled('confirmed')
                 mark('updater_killed', pid=updater.pid, returncode=updater.returncode)
             except BaseException:
                 kill_updater()
@@ -235,9 +329,8 @@ def main():
     runner = Path(env['RUNNER_TEMP'])
     home, target, evidence, stage, runtime = map(Path, (args.home, args.target, args.evidence, args.stage, args.runtime))
     hosted_preflight(env, str(runner), str(home), str(target), str(evidence))
-    # Atomic gate: do not run a hosted fault until complete launch accounting is
-    # implemented and verified. Never silently turn trace collection into proof.
-    raise Refusal('hosted recovery held: launch accounting not yet verified')
+    # Parent-cleared after independent receipt/observer review. Hosted/private
+    # preflight above remains mandatory; this is not product release approval.
     if (stage != runner / 'trusted-stage' or runtime != runner / 'trusted-runtime' / 'bin' / 'python'
             or stage.resolve() != stage or not Path(args.dependencies).is_absolute()):
         raise Refusal('untrusted stage or runtime path')
@@ -261,7 +354,7 @@ def main():
     cfg.update(caller_alias=str(target / files['caller']), gateway_alias=str(target / files['gateway']),
                home=str(home), prepare='_prepare_profile_gateway_update_restart', wait='_wait_for_gateway_exit',
                caller_function='_cmd_update_impl',
-               launch_functions={'caller':['_cmd_update_impl'], 'gateway':['_spawn_gateway_restart_watcher']})
+               launch_functions={'caller':['_cmd_update_impl', '_arm_restart_watcher_before_pause'], 'gateway':['_spawn_gateway_restart_watcher']})
     parent, child = socket.socketpair()
     parent.settimeout(1800)
     cfg['fd'] = child.fileno()
@@ -289,7 +382,9 @@ def main():
     helper_pins = pin_helpers([helper_dir / n for n in helper_names], binary)
     frozen = home / 'logs/update_restart_watcher.py'
     bound_rules = []
+    progress = FaultProgress(evidence)
     try:
+        progress.persist()
         def inject(updater):
             child.close()
             stream = parent.makefile('rwb', buffering=0)
@@ -298,9 +393,10 @@ def main():
                 def check_frozen(bindings):
                     rollback = bindings['rollback']['pid']
                     watcher = psutil.Process(rollback)
-                    if (watcher.cmdline() != [str(runtime), str(frozen), str(home / '.clover-update-heartbeat.json')]
-                            or watcher.environ().get('PATH') != env.get('PATH')):
-                        raise Refusal('rollback watcher executable, source, argv or PATH mismatch')
+                    validate_frozen_command(watcher.cmdline(), runtime, frozen,
+                                            home / '.clover-update-heartbeat.json', [args.dependencies])
+                    if watcher.environ().get('PATH') != env.get('PATH'):
+                        raise Refusal('rollback watcher PATH mismatch')
                     beacon_data = json.loads((home / '.clover-update-heartbeat.json').read_text())
                     if beacon_data.get('venv_python') not in (None, str(python_probe)):
                         raise Refusal('unapproved import probe Python in watcher beacon')
@@ -309,7 +405,7 @@ def main():
                 result = execute_fault(stream, updater, old_pid, old_birth, old_argv, home, target,
                                        home / '.clover-update-heartbeat.json', port=18791, tracked=[],
                                        beacon_copy=evidence / 'interrupted-bound-beacon.json',
-                                       frozen_check=check_frozen)
+                                       frozen_check=check_frozen, progress=progress)
             finally:
                 stream.close()
             result['updater'] = {'pid': updater.pid, 'birth_ticks': updater.birth_ticks,
@@ -337,8 +433,11 @@ def main():
                                        inject, recover)
         (evidence / 'interrupted-observed.json').write_text(json.dumps(result, indent=2) + '\n')
     except BaseException as exc:
-        (evidence / 'interrupted-fault-failure.json').write_text(json.dumps(
-            {'injected': False, 'error': type(exc).__name__, 'detail': str(exc)}, indent=2) + '\n')
+        try:
+            write_failure_receipt(evidence, progress, exc)
+        except BaseException as receipt_error:
+            raise RuntimeError(f'unable to persist failure receipt; progress={progress.snapshot()!r}; '
+                               f'original error={type(exc).__name__}: {exc}') from receipt_error
         raise
     finally:
         child.close()

@@ -8,6 +8,11 @@ class WatcherSelectionTests(unittest.TestCase):
         for broken in [events[:1],events+[events[0]], [{**events[0],'pid':99},events[1]], [events[0],{**events[1],'argv':['/python','-c','code','41']}]]:
             with self.assertRaises(Refusal): select_watchers(broken,50,40,'/fixture/home/beacon')
 
+    def test_pre_pause_watcher_is_selected(self):
+        rollback = {'stage':'launch','pid':50,'child_pid':51,'owner':'_arm_restart_watcher_before_pause','argv':['/python','/fixture/home/beacon']}
+        restart = {'stage':'launch','pid':50,'child_pid':52,'owner':'_spawn_gateway_restart_watcher','argv':['/python','-c','code','40']}
+        self.assertEqual(select_watchers([rollback, restart],50,40,'/fixture/home/beacon')['rollback']['child_pid'],51)
+
     def test_hosted_preflight_rejects_non_hosted_environment(self):
         from interrupted_controller import hosted_preflight
         with self.assertRaises(Refusal):

@@ -43,6 +43,12 @@ jobs:
           python helpers/.github/native-proof/proof.py plan --repo source --old-ref "$OLD_REF" --target-ref "$TARGET_REF" --target-tree "$TARGET_TREE" --next-ref "$NEXT_REF" --output "$RUNNER_TEMP/evidence/plan.json"
           echo "NEXT_SHA=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF")" >> "$GITHUB_ENV"
           echo "NEXT_TREE=$(git -C source rev-parse "refs/remotes/origin/$NEXT_REF^{tree}")" >> "$GITHUB_ENV"
+      - name: Verify tracer capabilities before installation
+        shell: bash
+        run: |
+          command -v strace
+          strace --version
+          strace --kill-on-exit -I 1 -ff -ttt -e trace=process -o "$RUNNER_TEMP/evidence/strace-preflight" /usr/bin/true
       - name: Controlled crash and recovery
         timeout-minutes: 35
         shell: bash

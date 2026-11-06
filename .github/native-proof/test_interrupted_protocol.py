@@ -12,13 +12,29 @@ import unittest
 
 import psutil
 from interrupted_identity import birth
-from interrupted_controller import execute_fault
+from interrupted_controller import execute_fault, FaultProgress
 
 ROOT = Path(__file__).parent
 
 
 class ProtocolTest(unittest.TestCase):
     def test_real_owned_processes_stop_crash_and_resume(self):
+        self.exercise_protocol()
+
+    def test_fault_failure_receipts_follow_real_protocol(self):
+        for mode, injected in [('signal', None), ('wait', None),
+                               ('write_before', False), ('write_after', True),
+                               ('resume_cleanup', True), ('recovery', True)]:
+            with self.subTest(mode=mode):
+                self.exercise_protocol(mode, injected)
+
+    def exercise_protocol(self, mode=None, expected_injected=None):
+        from contextlib import ExitStack, contextmanager
+        from unittest.mock import patch
+        import signal
+        import interrupted_identity as identity
+        import interrupted_schedule as schedule
+        from interrupted_controller import write_failure_receipt
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             gateway = root / 'gateway.py'
@@ -47,10 +63,62 @@ class ProtocolTest(unittest.TestCase):
             thread = threading.Thread(target=old.wait, daemon=True); thread.start()
             owned = []
             checked = []
+            progress = FaultProgress(root)
             try:
-                result = execute_fault(stream, updater, old.pid, old_birth, old_argv,
-                                       root, root, beacon, port=0, tracked=owned,
-                                       frozen_check=lambda bindings: checked.append(bindings))
+                with ExitStack() as patches:
+                    triggered = []
+                    real_signal, real_wait = identity.signal_bound, updater.wait
+                    real_persist, real_freeze = progress.persist, schedule.frozen_watchers
+                    def signal_once(pid, ticks, sig):
+                        if mode == 'signal' and pid == updater.pid and sig == signal.SIGKILL and not triggered:
+                            triggered.append(mode)
+                            raise OSError('injected signal failure')
+                        return real_signal(pid, ticks, sig)
+                    def wait_once(*a, **kw):
+                        if mode == 'wait' and not triggered:
+                            triggered.append(mode)
+                            raise subprocess.TimeoutExpired('private-updater', .01)
+                        return real_wait(*a, **kw)
+                    def persist_once():
+                        phase = 'attempted' if mode == 'write_before' else 'confirmed'
+                        if mode in ('write_before', 'write_after') and progress.phase == phase and not triggered:
+                            triggered.append(mode)
+                            raise OSError('injected receipt disk failure')
+                        return real_persist()
+                    @contextmanager
+                    def freeze_once(*a, **kw):
+                        with real_freeze(*a, **kw):
+                            yield
+                        if mode == 'resume_cleanup':
+                            triggered.append(mode)
+                            raise OSError('injected resume cleanup reporting failure')
+                    patches.enter_context(patch.object(identity, 'signal_bound', side_effect=signal_once))
+                    patches.enter_context(patch.object(updater, 'wait', side_effect=wait_once))
+                    patches.enter_context(patch.object(progress, 'persist', side_effect=persist_once))
+                    patches.enter_context(patch.object(schedule, 'frozen_watchers', freeze_once))
+                    try:
+                        result = execute_fault(stream, updater, old.pid, old_birth, old_argv,
+                                               root, root, beacon, port=0, tracked=owned,
+                                               frozen_check=lambda bindings: checked.append(bindings), progress=progress)
+                        if mode == 'recovery':
+                            triggered.append(mode)
+                            (root / 'interrupted-fault.json').write_text(json.dumps(result))
+                            raise RuntimeError('injected recovery verification failure')
+                    except (OSError, subprocess.TimeoutExpired, RuntimeError) as exc:
+                        if mode is None:
+                            raise
+                        self.assertEqual(triggered, [mode])
+                        write_failure_receipt(root, progress, exc)
+                        receipt = json.loads((root / 'interrupted-fault-failure.json').read_text())
+                        self.assertIs(receipt['injected'], expected_injected)
+                        self.assertIsNotNone(updater.poll())
+                        if mode == 'write_before':
+                            self.assertEqual(receipt['cleanup'], 'confirmed')
+                        if mode == 'recovery':
+                            self.assertIs(json.loads((root / 'interrupted-fault.json').read_text())['injected'], receipt['injected'])
+                        return
+                    self.assertIsNone(mode, 'failure injection did not execute')
+                self.assertIs(json.loads((root / 'interrupted-fault-progress.json').read_text())['injected'], True)
                 self.assertEqual(len(checked), 1)
                 self.assertEqual(set(checked[0]), {'rollback', 'restart'})
                 self.assertEqual(updater.returncode, -9)
