@@ -626,6 +626,12 @@ _reveal_timestamps: List[float] = []
 _REVEAL_MAX_PER_WINDOW = 5
 _REVEAL_WINDOW_SECONDS = 30
 
+from clover_cli.device_audio_body_limit import DeviceAudioBodyLimit, MAX_TRANSCRIPTION_ENCODED_BYTES
+
+# Buffer device audio before FastAPI parses the body. Authentication remains in
+# the existing gates; this middleware grants no access.
+app.add_middleware(DeviceAudioBodyLimit)
+
 # CORS: restrict to localhost origins only.  The web UI is intended to run
 # locally; binding to 0.0.0.0 with allow_origins=["*"] would let any website
 # read/modify config and secrets.
@@ -997,6 +1003,25 @@ async def auth_middleware(request: Request, call_next):
     if getattr(request.app.state, "auth_required", False):
         return await call_next(request)
     path = request.url.path
+    # The desktop's loopback gateway also serves paired phones via its
+    # configured HTTPS proxy. Admit the device only to its narrow read/ticket
+    # surface; never turn it into the desktop owner session.
+    from clover_cli.dashboard_auth.middleware import _extract_bearer
+    if _extract_bearer(request).startswith("cdt_"):
+        try:
+            from clover_cli.mobile_pairing import get_device_store, device_request_allowed
+            from clover_cli.profiles import get_active_profile_name
+            store = get_device_store()
+            principal = store.authenticate(_extract_bearer(request))
+            allowed = (principal and principal.profile == get_active_profile_name()
+                       and store.principal_is_active(principal)
+                       and device_request_allowed(request, principal))
+        except Exception:
+            allowed = False
+        if not allowed:
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+        request.state.device_principal = principal
+        return await call_next(request)
     is_mcp_oauth_callback = path.startswith("/api/mcp/oauth/callback/")
     if path.startswith("/api/") and path not in _PUBLIC_API_PATHS and not is_mcp_oauth_callback:
         if not _has_valid_session_token(request) and not _has_valid_query_token(request, path):
@@ -5386,15 +5411,50 @@ async def computer_input(payload: ComputerInputRequest):
     return {"ok": True}
 
 
+def _require_active_audio_device(principal):
+    if principal is None:
+        return
+    from clover_cli.mobile_pairing import get_device_store
+    from clover_cli.profiles import get_active_profile_name
+    try:
+        valid = (principal.profile == get_active_profile_name()
+                 and get_device_store().principal_is_active(principal))
+    except Exception:
+        valid = False
+    if not valid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@contextmanager
+def _audio_profile_scope(profile, principal):
+    if principal is None:
+        with _config_profile_scope(profile):
+            yield
+        return
+    # Do not interpret the literal profile name "current" as an ambient-home
+    # alias for device principals. Resolve every paired profile explicitly.
+    from clover_constants import set_clover_home_override, reset_clover_home_override
+    token = set_clover_home_override(str(_resolve_profile_dir(principal.profile)))
+    try:
+        yield
+    finally:
+        reset_clover_home_override(token)
+
+
 @app.post("/api/audio/transcribe")
 async def transcribe_audio_upload(
-    payload: AudioTranscriptionRequest, profile: Optional[str] = None
+    payload: AudioTranscriptionRequest, request: Request, profile: Optional[str] = None
 ):
+    principal = getattr(request.state, "device_principal", None)
+    if principal is not None:
+        profile = principal.profile
     data_url = (payload.data_url or "").strip()
     if not data_url.startswith("data:") or "," not in data_url:
         raise HTTPException(status_code=400, detail="Invalid audio payload")
 
     header, encoded = data_url.split(",", 1)
+    if principal is not None and len(header) > 64 * 1024:
+        raise HTTPException(status_code=413, detail="Audio recording is too large")
     if ";base64" not in header:
         raise HTTPException(
             status_code=400, detail="Audio payload must be base64 encoded"
@@ -5411,6 +5471,9 @@ async def transcribe_audio_upload(
         raise HTTPException(
             status_code=400, detail="Payload must be an audio recording"
         )
+
+    if principal is not None and len(encoded) > MAX_TRANSCRIPTION_ENCODED_BYTES:
+        raise HTTPException(status_code=413, detail="Audio recording is too large")
 
     try:
         audio_bytes = base64.b64decode(encoded, validate=True)
@@ -5445,8 +5508,14 @@ async def transcribe_audio_upload(
             # process-global skills lock for its entire body (see the MCP
             # probe above). STT only needs config/.env resolution, which the
             # contextvar override provides inside this worker thread.
-            with _config_profile_scope(profile):
-                return transcribe_recording(temp_path)
+            _require_active_audio_device(principal)
+            with _audio_profile_scope(profile, principal):
+                try:
+                    return transcribe_recording(temp_path)
+                except HTTPException:
+                    if principal is None:
+                        raise
+                    raise HTTPException(status_code=500, detail="Transcription failed")
 
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, _transcribe_scoped)
@@ -5454,7 +5523,7 @@ async def transcribe_audio_upload(
         raise
     except Exception as exc:
         _log.exception("Desktop voice transcription failed")
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {exc}")
+        raise HTTPException(status_code=500, detail="Transcription failed" if principal else f"Transcription failed: {exc}")
     finally:
         if temp_path:
             try:
@@ -5462,6 +5531,7 @@ async def transcribe_audio_upload(
             except OSError:
                 pass
 
+    _require_active_audio_device(principal)
     if not result.get("success"):
         err = result.get("error") or "Transcription failed"
         # An empty transcript means no speech was detected — a normal outcome
@@ -5471,7 +5541,7 @@ async def transcribe_audio_upload(
         # failed" toast on every silent gap.
         if "empty transcript" in err.lower():
             return {"ok": True, "transcript": "", "provider": result.get("provider")}
-        raise HTTPException(status_code=400, detail=err)
+        raise HTTPException(status_code=400, detail="Transcription failed" if principal else err)
 
     return {
         "ok": True,
@@ -5629,8 +5699,13 @@ async def get_elevenlabs_voices(profile: Optional[str] = None):
     return {"available": True, "voices": voices}
 
 
+# Limit the total raw text a paired device may send for a single synthesis.
+# Python string length counts Unicode code points, before whitespace stripping.
+DEVICE_SPEECH_MAX_CODEPOINTS = 4096
+
+
 @app.post("/api/audio/speak")
-async def speak_text(payload: TTSSpeakRequest, profile: Optional[str] = None):
+async def speak_text(payload: TTSSpeakRequest, request: Request, profile: Optional[str] = None):
     """Synthesize speech and return audio as base64 data URL.
 
     Used by the desktop voice-conversation mode to play back assistant
@@ -5638,6 +5713,11 @@ async def speak_text(payload: TTSSpeakRequest, profile: Optional[str] = None):
     existing TTS provider chain (Edge / OpenAI / ElevenLabs / etc.)
     configured in ``~/.clover/config.yaml`` under ``tts.``.
     """
+    principal = getattr(request.state, "device_principal", None)
+    if principal is not None:
+        profile = principal.profile
+        if len(payload.text or "") > DEVICE_SPEECH_MAX_CODEPOINTS:
+            raise HTTPException(status_code=413, detail="Speech text too long")
     text = (payload.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
@@ -5650,8 +5730,14 @@ async def speak_text(payload: TTSSpeakRequest, profile: Optional[str] = None):
             # blocks for the provider round-trip and only needs config/.env
             # resolution, so the task-local override inside this worker
             # thread is sufficient (same reasoning as the MCP probe scope).
-            with _config_profile_scope(profile):
-                return text_to_speech_tool(text)
+            _require_active_audio_device(principal)
+            with _audio_profile_scope(profile, principal):
+                try:
+                    return text_to_speech_tool(text)
+                except HTTPException:
+                    if principal is None:
+                        raise
+                    raise HTTPException(status_code=500, detail="Speech synthesis failed")
 
         loop = asyncio.get_running_loop()
         result_json = await loop.run_in_executor(None, _speak_scoped)
@@ -5661,7 +5747,7 @@ async def speak_text(payload: TTSSpeakRequest, profile: Optional[str] = None):
         raise
     except Exception as exc:
         _log.exception("Desktop voice TTS failed")
-        raise HTTPException(status_code=500, detail=f"Speech synthesis failed: {exc}")
+        raise HTTPException(status_code=500, detail="Speech synthesis failed" if principal else f"Speech synthesis failed: {exc}")
 
     try:
         result = json.loads(result_json) if isinstance(result_json, str) else result_json
@@ -5669,9 +5755,12 @@ async def speak_text(payload: TTSSpeakRequest, profile: Optional[str] = None):
         raise HTTPException(status_code=500, detail="Invalid TTS response")
 
     if not result.get("success"):
+        if principal is not None:
+            # A failed provider result does not establish ownership of its path.
+            _require_active_audio_device(principal)
         raise HTTPException(
             status_code=400,
-            detail=result.get("error") or "Speech synthesis failed",
+            detail=("Speech synthesis failed" if principal is not None else result.get("error") or "Speech synthesis failed"),
         )
 
     file_path = result.get("file_path")
@@ -5703,9 +5792,10 @@ async def speak_text(payload: TTSSpeakRequest, profile: Optional[str] = None):
     try:
         audio_bytes = await asyncio.to_thread(_read_and_unlink)
     except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Could not read audio: {exc}")
+        raise HTTPException(status_code=500, detail="Could not read audio" if principal else f"Could not read audio: {exc}")
 
     encoded = base64.b64encode(audio_bytes).decode("ascii")
+    _require_active_audio_device(principal)
     return {
         "ok": True,
         "data_url": f"data:{mime_type};base64,{encoded}",
@@ -7343,6 +7433,42 @@ async def update_memory_provider_config(
     except Exception:
         _log.exception("PUT /api/memory/providers/%s/config failed", name)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/mobile/pairing")
+async def get_mobile_pairing():
+    """Pairing setup state only (authenticated). Never returns a credential."""
+    from clover_cli.mobile_pairing import pairing_status
+    from clover_cli.config import get_env_value
+
+    return pairing_status(load_config(), get_env_value("API_SERVER_KEY"))
+
+
+@app.post("/api/mobile/pairing")
+async def create_mobile_pairing():
+    """Mint a new per-phone device token; the clover:// link is returned once."""
+    from clover_cli.mobile_pairing import create_pairing, get_device_store
+    from clover_cli.config import get_env_value
+
+    return await asyncio.to_thread(
+        create_pairing, load_config(), get_env_value("API_SERVER_KEY"), get_device_store()
+    )
+
+
+@app.get("/api/mobile/devices")
+async def list_mobile_devices():
+    from clover_cli.mobile_pairing import get_device_store
+
+    return {"devices": await asyncio.to_thread(get_device_store().list)}
+
+
+@app.delete("/api/mobile/devices/{device_id}")
+async def delete_mobile_device(device_id: str):
+    from clover_cli.mobile_pairing import get_device_store
+
+    if not await asyncio.to_thread(get_device_store().revoke, device_id):
+        raise HTTPException(status_code=404, detail="Unknown device")
+    return {"ok": True}
 
 
 @app.get("/api/config")
@@ -15714,7 +15840,12 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
     issues from the log.
     """
     auth_required = bool(getattr(app.state, "auth_required", False))
-    if auth_required:
+    # On loopback, retain legacy owner-token access while accepting only a
+    # device-scoped one-use ticket for the paired chat socket.
+    device_ticket_attempt = (not auth_required and ws.url.path == "/api/ws" and
+                             (ws.query_params.get("ticket", "") or
+                              _GATEWAY_WS_TICKET_PROTOCOL_PREFIX in ws.headers.get("sec-websocket-protocol", "")))
+    if auth_required or device_ticket_attempt:
         # Lazy import — keeps this function importable in test harnesses
         # that don't bring in the dashboard_auth layer.
         from clover_cli.dashboard_auth.audit import AuditEvent, audit_log
@@ -15727,7 +15858,7 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
         # Server-spawned children (PTY child → /api/ws, /api/pub) present the
         # multi-use internal credential rather than a single-use ticket, so
         # they survive reconnects and slow cold boots.
-        internal = ws.query_params.get("internal", "")
+        internal = ws.query_params.get("internal", "") if auth_required else ""
         if internal:
             try:
                 info = consume_internal_credential(internal)
@@ -15759,6 +15890,24 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
 
         try:
             info = consume_ticket(ticket)
+            principal = info.get("device_principal")
+            if not auth_required and info.get("provider") != "mobile-device":
+                return "ticket_invalid", "ticket"
+            if principal is not None or info.get("provider") == "mobile-device":
+                from clover_cli.mobile_pairing import DevicePrincipal, get_device_store
+                # Device tickets are scoped to the RPC socket, never consoles
+                # or owner-only websocket services sharing this authenticator.
+                try:
+                    permitted = (
+                        ws.url.path == "/api/ws"
+                        and info.get("provider") == "mobile-device"
+                        and isinstance(principal, DevicePrincipal)
+                        and get_device_store().principal_is_active(principal)
+                    )
+                except Exception:
+                    permitted = False
+                if not permitted:
+                    return "ticket_invalid", "ticket"
             # The ticket binds a server-minted {user_id, provider}; stamp it
             # onto the WS object so ``gateway_ws`` can hand it to the gateway
             # transport, where it is the sole identity authority for
@@ -15770,6 +15919,8 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
                 "user_id": info.get("user_id"),
                 "provider": info.get("provider"),
             }
+            if principal is not None:
+                ws._clover_auth_identity["device_principal"] = principal
             if protocol_ticket:
                 # Select only the stable public protocol during accept. The
                 # ticket-bearing protocol is a credential and must never be

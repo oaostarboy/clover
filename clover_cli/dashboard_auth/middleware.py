@@ -354,6 +354,24 @@ async def gated_auth_middleware(
     # the gate never sets a cookie here, so the transparent cookie-rotation
     # below must not run for a bearer caller.
     bearer = _extract_bearer(request)
+    # Mobile credentials are never dashboard sessions. Admit only the
+    # released client's history reads and one-use ticket minting here.
+    if bearer.startswith("cdt_"):
+        try:
+            from clover_cli.mobile_pairing import get_device_store, device_request_allowed
+            from clover_cli.profiles import get_active_profile_name
+            store = get_device_store()
+            principal = store.authenticate(bearer)
+            if principal and (principal.profile != get_active_profile_name()
+                              or not store.principal_is_active(principal)
+                              or not device_request_allowed(request, principal)):
+                principal = None
+        except Exception:
+            principal = None
+        if principal is None:
+            return _unauth_response(request, reason="invalid_or_expired_session")
+        request.state.device_principal = principal
+        return await call_next(request)
     if bearer:
         try:
             bearer_session = _verify_bearer(request, access_token=bearer)
