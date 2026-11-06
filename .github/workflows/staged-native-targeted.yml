@@ -7,11 +7,11 @@ concurrency:
   group: interrupted-recovery-${{ github.run_id }}
   cancel-in-progress: false
 env:
-  TARGET_REF: 826e8ff178dadf5c5eb929ea3ef4c8bb27d30b6d
-  TARGET_TREE: c9aabffd29fa6d6de2732b5011274690f9e319e1
+  TARGET_REF: 0a1b4dd7fe21942b7c1673c7d0bc45ca76fdf9a7
+  TARGET_TREE: e2f3fb0e87efd291554517e1b5e36c7ef5d85732
   OLD_REF: v2.0.2.11
   OLD_SHA: 9271c360f4519fc30887bbab7777c76970d4318f
-  NEXT_REF: ci/native-next/staged-826e8ff1-20261106
+  NEXT_REF: ci/native-next/integrated-0a1b4dd7
   SETUP: zyra
   UPDATE_PATH: cli
   PHASE: old2new

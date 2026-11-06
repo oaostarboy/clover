@@ -99,6 +99,18 @@ $script:NativeProofGatewayPython | ConvertTo-Json -Depth 6 | Set-Content "$evide
 . "$env:E2E\supervisor-proof.ps1"
 # The inherited Set-MainIsTarget/expected-failure helpers are NEVER invoked.
 # Ordinary git objects in a new bare origin drive the user's default command.
+function Compare-TaskDefinition([string]$before, [string]$after) {
+  function Get-DefinitionDigest([string]$value) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($value)))).Replace('-', '').ToLowerInvariant() }
+    finally { $sha.Dispose() }
+  }
+  $beforeXml = [xml]$before; $afterXml = [xml]$after
+  if (-not $beforeXml.Task.Settings -or -not $beforeXml.Task.Actions -or -not $afterXml.Task.Settings -or -not $afterXml.Task.Actions) { throw 'Task XML lacks settings or actions' }
+  $b = [ordered]@{ xml = Get-DefinitionDigest $beforeXml.OuterXml; settings = Get-DefinitionDigest $beforeXml.Task.Settings.OuterXml; actions = Get-DefinitionDigest $beforeXml.Task.Actions.OuterXml }
+  $a = [ordered]@{ xml = Get-DefinitionDigest $afterXml.OuterXml; settings = Get-DefinitionDigest $afterXml.Task.Settings.OuterXml; actions = Get-DefinitionDigest $afterXml.Task.Actions.OuterXml }
+  return [pscustomobject]@{ before_sha256 = $b; after_sha256 = $a; unchanged = ($b.xml -eq $a.xml -and $b.settings -eq $a.settings -and $b.actions -eq $a.actions) }
+}
 function Read-ExactGateway {
   $afterUpdate = [bool]$script:NativeProofGatewayPythonAfter
   $gatewayPython = if ($afterUpdate) { $script:NativeProofGatewayPythonAfter } else { $script:NativeProofGatewayPython }
@@ -144,7 +156,9 @@ function Read-ExactGateway {
     # Keep only PIDs/names, never ancestor command lines (which may contain secrets).
     [pscustomobject]@{ root_pid = [int]$root.ProcessId; ancestors = @($chain | ForEach-Object {
       $parts = $_ -split ':', 3
-      [pscustomobject]@{ pid = [int]$parts[0]; name = $parts[1] }
+      $ancestorBirth = $null
+      try { $ancestorBirth = (Get-CimInstance Win32_Process -Filter "ProcessId=$($parts[0])" -ErrorAction Stop).CreationDate } catch { }
+      [pscustomobject]@{ pid = [int]$parts[0]; name = $parts[1]; birth = $ancestorBirth }
     }) }
   })
   $viaSchedule = $schedule -and [int]$schedule.ProcessId -gt 0 -and
@@ -177,15 +191,15 @@ function Read-ExactGateway {
     observations_complete = ($observationErrors.Count -eq 0)
   }
   $failed = @($predicates.Keys | Where-Object { -not $predicates[$_] })
-  if ($failed.Count) {
-    $observation = [ordered]@{
+  $observation = [ordered]@{
+      observed_at = [DateTimeOffset]::UtcNow.ToString('o'); monotonic_ticks = [System.Diagnostics.Stopwatch]::GetTimestamp()
       failed_predicates = $failed; predicates = $predicates; observation_errors = $observationErrors
       expected_sha = $script:expectedSha; setup = $env:SETUP
       state = $(if ($st) { $st | Select-Object pid,start_time,code_sha,gateway_state,restart_requested,clover_home } else { $null })
       state_script = $(if ($st.argv) { [string]$st.argv[0] } else { $null })
       roots = @($roots | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath)
       processes = @($processes | ForEach-Object { [pscustomobject]@{
-        pid = [int]$_.ProcessId; parent_pid = [int]$_.ParentProcessId; executable = $_.ExecutablePath
+        pid = [int]$_.ProcessId; parent_pid = [int]$_.ParentProcessId; executable = $_.ExecutablePath; birth = $_.CreationDate
         command_has_install_dir = $_.CommandLine.Contains($env:INSTALL_DIR)
         command_is_module_gateway_run = ($_.CommandLine -match 'clover_cli[.]main' -and $_.CommandLine -match 'gateway\s+run')
       } })
@@ -195,8 +209,13 @@ function Read-ExactGateway {
       task = $(if ($task) { $task | Select-Object TaskName,State } else { $null })
       base_python = $script:NativeProofBasePython
     }
+  # Evidence persistence is mandatory even when the gateway is healthy.
+  try { $observation | ConvertTo-Json -Depth 12 -Compress | Add-Content (Join-Path $evidence 'gateway-observations.jsonl') -Encoding utf8 -ErrorAction Stop }
+  catch { throw "NATIVE_PROOF_EVIDENCE_WRITE_FAILED: $($_.Exception.Message)" }
+  if ($failed.Count) {
     # Preserve the latest complete refusal before raising, even during bounded startup.
-    $observation | ConvertTo-Json -Depth 12 | Set-Content "$evidence\gateway-refusal.json" -Encoding utf8
+    try { $observation | ConvertTo-Json -Depth 12 | Set-Content "$evidence\gateway-refusal.json" -Encoding utf8 -ErrorAction Stop }
+    catch { throw "NATIVE_PROOF_EVIDENCE_WRITE_FAILED: $($_.Exception.Message)" }
     Write-Host ('GATEWAY_REFUSAL ' + ($observation | ConvertTo-Json -Depth 12 -Compress))
     throw "Gateway refused predicates: $($failed -join ', ')"
   }
@@ -208,6 +227,7 @@ function Wait-ExactGateway {
   $deadline = (Get-Date).AddSeconds(180)
   do {
     try { return Read-ExactGateway } catch {
+      if ($_.Exception.Message -like 'NATIVE_PROOF_EVIDENCE_WRITE_FAILED:*' -or $_.Exception.Message -eq 'NATIVE_PROOF_EVIDENCE_WRITE_FAILED') { throw }
       if ((Get-Date) -ge $deadline) { throw }
       Write-Host "Waiting for exact gateway: $_"
       Start-Sleep -Seconds 2
@@ -225,6 +245,13 @@ function Measure-Liveness90([string]$label) {
   $observations | ConvertTo-Json -Depth 12 | Set-Content "$evidence\gateway-window-timed.json" -Encoding utf8
   ,@()
 }
+function Start-PrivateModelFixture {
+  Start-Process -FilePath $script:NativeProofBasePython.executable -ArgumentList @("`"$helpers\.github\native-proof\stage_independence_chat.py`"", "`"$evidence`"") -WindowStyle Hidden -RedirectStandardOutput "$evidence\fixture-model.stdout.txt" -RedirectStandardError "$evidence\fixture-model.stderr.txt"
+  $modelDeadline = (Get-Date).AddSeconds(30)
+  while (-not (Test-Path "$evidence\chat-ports.json") -and (Get-Date) -lt $modelDeadline) { Start-Sleep -Milliseconds 100 }
+  if (-not (Test-Path "$evidence\chat-ports.json")) { throw 'Private deterministic model fixture did not start' }
+  return (Get-Content "$evidence\chat-ports.json" -Raw | ConvertFrom-Json).model
+}
 $lines = @('API_SERVER_ENABLED=true', 'API_SERVER_KEY=native-proof-dummy-key-123456', "API_SERVER_PORT=$env:API_PORT", 'API_SERVER_HOST=127.0.0.1')
 if ($env:UPDATE_PATH -eq 'chat') {
   $lines += @('IRC_SERVER=127.0.0.1', "IRC_PORT=$env:IRC_PORT", 'IRC_USE_TLS=false', 'IRC_CHANNEL=#clover', 'IRC_NICKNAME=cloverbot', 'IRC_ALLOWED_USERS=ant', 'GATEWAY_ALLOW_ALL_USERS=true')
@@ -236,9 +263,17 @@ if ($env:UPDATE_PATH -eq 'chat') {
   Assert-NativeProofBasePython $fixturePython
   if ($fixturePython.executable -ne $script:NativeProofBasePython.executable -or
       $fixturePython.base_executable -ne $script:NativeProofBasePython.base_executable) { throw 'Fixture base interpreter identity changed' }
+  $modelPort = Start-PrivateModelFixture
+  $lines += 'OPENAI_API_KEY=private-local-fixture-dummy-key'
   Start-Process -FilePath $script:NativeProofBasePython.executable -ArgumentList @("$env:E2E\fake_ircd.py", "$env:RUNNER_TEMP\irc.log", "$env:RUNNER_TEMP\irc.trigger", $env:IRC_PORT) -WindowStyle Hidden
 }
 Add-Content "$env:CLOVER_HOME\.env" -Value ($lines -join "`n")
+if ($env:UPDATE_PATH -eq 'chat') {
+  foreach ($setting in @(@('model.provider','custom'), @('model.default','native-fixture'), @('model.base_url',"http://127.0.0.1:$modelPort/v1"), @('model.api_mode','chat_completions'), @('delegation.reasoning_effort','low'))) {
+    & $env:CLOVER_BIN config set $setting[0] $setting[1]
+    if ($LASTEXITCODE -ne 0) { throw "Private model configuration failed: $($setting[0])" }
+  }
+}
 # Seed using the real installed product API, then snapshot the private fixture.
 & $script:py "$helpers\.github\native-proof\preservation.py" seed --home $env:CLOVER_HOME --repo $env:INSTALL_DIR --evidence $evidence
 if ($LASTEXITCODE -ne 0) { throw 'Cannot establish pre-update preservation witness' }
@@ -246,6 +281,11 @@ if ($env:SETUP -eq 'troy') { Start-TroyGateway } else { Start-ZyraGateway }
 Wait-GatewayUp 150
 $script:expectedSha = $from
 $before = Wait-ExactGateway
+if ($env:SETUP -eq 'troy') {
+  $taskDefinitionBefore = Export-ScheduledTask -TaskName 'Clover_Troy_Gateway' -ErrorAction Stop
+  $taskDefinitionBeforeAt = [DateTimeOffset]::UtcNow.ToString('o')
+  $taskDefinitionBefore | Set-Content "$evidence\task-definition-before.xml" -Encoding unicode -ErrorAction Stop
+}
 $before | ConvertTo-Json -Depth 10 | Set-Content "$evidence\before-state.json" -Encoding utf8
 $own = Show-GatewayOwnership 'before update'
 if ($env:SETUP -eq 'troy' -and -not $own.ViaSchedule) { throw 'Troy is not Schedule-hosted' }
@@ -254,6 +294,12 @@ if ($env:UPDATE_PATH -eq 'chat') {
   $deadline = (Get-Date).AddSeconds(90)
   while ((Get-Date) -lt $deadline -and -not (Select-String "$env:RUNNER_TEMP\irc.log" -Pattern '<< JOIN' -Quiet -ErrorAction SilentlyContinue)) { Start-Sleep 2 }
   if (-not (Select-String "$env:RUNNER_TEMP\irc.log" -Pattern '<< JOIN' -Quiet)) { throw 'Gateway never joined local IRC fixture' }
+  $chatPreNonce = 'NATIVE_PRE_' + [guid]::NewGuid().ToString('N')
+  $chatPostNonce = 'NATIVE_POST_' + [guid]::NewGuid().ToString('N')
+  Set-Content "$env:RUNNER_TEMP\irc.trigger" -Value "$chatPreNonce reply with the local fixture response." -Encoding ascii -ErrorAction Stop
+  $preDeadline = (Get-Date).AddSeconds(120)
+  while ((Get-Date) -lt $preDeadline -and -not (Select-String "$env:RUNNER_TEMP\irc.log" -Pattern '<< PRIVMSG ant :Local acceptance auxiliary response\.' -Quiet -ErrorAction SilentlyContinue)) { Start-Sleep -Seconds 1 }
+  if (-not (Select-String "$env:RUNNER_TEMP\irc.log" -Pattern '<< PRIVMSG ant :Local acceptance auxiliary response\.' -Quiet)) { throw 'Private pre-update chat turn did not complete' }
 }
 if ($Mode -ne 'fresh') {
   Invoke-Proof begin --output "$evidence\begin.json"
@@ -297,14 +343,41 @@ if ($Mode -ne 'fresh') {
   $script:NativeProofGatewayPythonAfter | ConvertTo-Json -Depth 6 | Set-Content "$evidence\gateway-python-after-update.json" -Encoding utf8
   Assert-UpdateSucceeded "$env:SETUP $env:UPDATE_PATH $Mode" $logStart $exitCode ([int]$own.Pid)
   $after = Read-ExactGateway
+  if ($env:SETUP -eq 'troy') {
+    $taskDefinitionAfter = Export-ScheduledTask -TaskName 'Clover_Troy_Gateway' -ErrorAction Stop
+    $taskDefinitionAfter | Set-Content "$evidence\task-definition-after.xml" -Encoding unicode -ErrorAction Stop
+    $comparison = Compare-TaskDefinition $taskDefinitionBefore $taskDefinitionAfter
+    $comparison | Add-Member -NotePropertyName before_at -NotePropertyValue $taskDefinitionBeforeAt
+    $comparison | Add-Member -NotePropertyName after_at -NotePropertyValue ([DateTimeOffset]::UtcNow.ToString('o'))
+    $comparison | ConvertTo-Json -Depth 8 | Set-Content "$evidence\task-definition-comparison.json" -Encoding utf8 -ErrorAction Stop
+    if (-not $comparison.unchanged) { throw 'Scheduled task definition changed' }
+  }
   if ($after.pid -eq $before.pid -or $after.start_time -eq $before.start_time) { throw 'Gateway did not restart' }
   $after | ConvertTo-Json -Depth 10 | Set-Content "$evidence\after-state.json" -Encoding utf8
   Invoke-Proof receipt --home $env:CLOVER_HOME --begin "$evidence\begin.json" --old $from --target $to --output "$evidence\update-receipt.json"
+  $receiptVerifiedAt = [DateTimeOffset]::UtcNow.ToString('o')
+  $receiptVerifiedTicks = [System.Diagnostics.Stopwatch]::GetTimestamp()
   if ($env:UPDATE_PATH -eq 'chat') {
-    # Receipt/runtime success is not the final user-visible handoff.
+    # This existing acknowledgement can arrive before receipt verification.
     $deadline = (Get-Date).AddSeconds(300)
     while ((Get-Date) -lt $deadline -and -not (Select-String "$env:RUNNER_TEMP\irc.log" -Pattern 'PRIVMSG.*Clover update finished' -Quiet)) { Start-Sleep 3 }
     if (-not (Select-String "$env:RUNNER_TEMP\irc.log" -Pattern 'PRIVMSG.*Clover update finished' -Quiet)) { throw 'No current-run final chat update reply' }
+    # This is a new read-only conversation turn, not an update-completion notification.
+    # Assert-UpdateSucceeded already completed the 90-second liveness window.
+    $triggerAt = [DateTimeOffset]::UtcNow.ToString('o')
+    $triggerTicks = [System.Diagnostics.Stopwatch]::GetTimestamp()
+    [ordered]@{ receipt_verified_at = $receiptVerifiedAt; receipt_verified_ticks = $receiptVerifiedTicks; trigger_at = $triggerAt; trigger_ticks = $triggerTicks; pre_nonce = $chatPreNonce; post_nonce = $chatPostNonce; pid = $after.pid; start_time = $after.start_time; sha = $to } | ConvertTo-Json | Set-Content "$evidence\post-receipt-timeline.json" -Encoding utf8 -ErrorAction Stop
+    if ($triggerTicks -lt $receiptVerifiedTicks) { throw 'Chat trigger preceded receipt verification' }
+    Set-Content "$env:RUNNER_TEMP\irc.trigger" -Value "$chatPostNonce reply with the local fixture response." -Encoding ascii -ErrorAction Stop
+    try {
+      & $script:py "$helpers\.github\native-proof\windows_chat_witness.py" $env:CLOVER_HOME $evidence $chatPreNonce $chatPostNonce "$env:RUNNER_TEMP\irc.log"
+      if ($LASTEXITCODE -ne 0) { throw 'Post-receipt chat witness failed' }
+      $postChat = Read-ExactGateway
+      if ($postChat.pid -ne $after.pid -or $postChat.start_time -ne $after.start_time -or $postChat.code_sha -ne $to) { throw 'Gateway identity changed during post-receipt chat' }
+      $postChat | ConvertTo-Json -Depth 10 | Set-Content "$evidence\post-chat-state.json" -Encoding utf8 -ErrorAction Stop
+    } finally {
+      Copy-Item "$env:RUNNER_TEMP\irc.log" "$evidence\irc.log" -Force -ErrorAction Stop
+    }
   }
 } else { $null = Measure-Liveness90 'fresh' }
 & $script:py "$helpers\.github\native-proof\preservation.py" verify --home $env:CLOVER_HOME --repo $env:INSTALL_DIR --evidence $evidence
