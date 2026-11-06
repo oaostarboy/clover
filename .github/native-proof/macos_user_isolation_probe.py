@@ -40,6 +40,11 @@ def ordinary_command(uid, user):
     # asuser selects the bootstrap namespace; sudo then drops real/effective UID.
     return ['/usr/bin/sudo', '-n', '/bin/launchctl', 'asuser', str(uid), '/usr/bin/sudo', '-n', '-H', '-u', user]
 
+def account_and_home_absent(result, home):
+    errors = set(re.findall(r'\beDS[A-Za-z0-9_]+\b', result.stdout + result.stderr))
+    path = pathlib.Path(home)
+    return result.returncode != 0 and errors == {'eDSRecordNotFound'} and not path.exists() and not path.is_symlink()
+
 def main():
     run_id = native_guard()
     suffix = run_id[-12:]
@@ -64,6 +69,7 @@ def main():
     domain = 'user/' + str(uid)
     record = '/Users/' + user
     created = False
+    home_created = False
     creation_attempted = False
     bootstrap_attempted = False
     failed = None
@@ -76,6 +82,7 @@ def main():
         for key, value in [('UniqueID', str(uid)), ('PrimaryGroupID', '20'), ('NFSHomeDirectory', home), ('UserShell', '/usr/bin/false'), ('RealName', 'Disposable CI probe')]:
             run(['/usr/bin/sudo', '-n', '/usr/bin/dscl', '.', '-create', record, key, value])
         run(['/usr/bin/sudo', '-n', '/bin/mkdir', '-m', '700', home])
+        home_created = True
         run(['/usr/bin/sudo', '-n', '/usr/sbin/chown', str(uid) + ':20', home])
         save('account-created')
         identity_code = 'import os,pwd,json; p=pwd.getpwuid(os.getuid()); print(json.dumps([os.getuid(),os.geteuid(),p.pw_name,p.pw_dir,os.environ.get("HOME")]))'
@@ -133,14 +140,14 @@ def main():
                 if not cleanup_errors:
                     p = run(['/usr/bin/sudo', '-n', '/usr/bin/dscl', '.', '-delete', record], check=False)
                     if p.returncode: cleanup_errors.append('account delete failed: ' + p.stderr.strip()[:500])
-                    if not cleanup_errors and pathlib.Path(home).exists():
-                        if pathlib.Path(home).is_symlink() or pathlib.Path(home).stat().st_uid != uid:
+                    if not cleanup_errors and (pathlib.Path(home).exists() or pathlib.Path(home).is_symlink()):
+                        if not home_created or pathlib.Path(home).is_symlink() or pathlib.Path(home).stat().st_uid != uid:
                             cleanup_errors.append('home ownership uncertain')
                         else:
                             p = run(['/usr/bin/sudo', '-n', '/bin/rm', '-rf', '--', home], check=False)
                             if p.returncode: cleanup_errors.append('home removal failed')
                     verify = run(['/usr/bin/dscl', '.', '-read', record], check=False)
-                    if verify.returncode == 0 or 'eDSRecordNotFound' not in verify.stderr or pathlib.Path(home).exists(): cleanup_errors.append('account/home removal not verified')
+                    if not account_and_home_absent(verify, home): cleanup_errors.append('account/home removal not verified')
         if cleanup_errors: state['result'] = 'FAIL'
         save('complete', cleanup='FAIL' if cleanup_errors else 'PASS', cleanup_errors=cleanup_errors)
     if failed or cleanup_errors: raise RuntimeError('diagnostic or cleanup failed')

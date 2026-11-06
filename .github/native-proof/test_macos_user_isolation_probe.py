@@ -50,6 +50,42 @@ class GuardTests(unittest.TestCase):
                     self.assertEqual(call.call_count, 1, 'Must stop before any provisioning command')
                     self.assertNotIn('/usr/bin/sudo', call.call_args.args[0])
 
+    def test_failed_mkdir_never_authorizes_home_removal(self):
+        calls = []
+        reads = 0
+        def command(args, check=True, timeout=20):
+            nonlocal reads
+            calls.append(args)
+            if args[:3] == ['/usr/bin/dscl', '.', '-read']:
+                reads += 1
+                if 'UniqueID' in args:
+                    return subprocess.CompletedProcess(args, 0, 'UniqueID: 600\nNFSHomeDirectory: /Users/cpv123\n', '')
+                return subprocess.CompletedProcess(args, 56, '', 'eDSRecordNotFound')
+            if args == ['/usr/bin/dscl', '.', '-help']:
+                return subprocess.CompletedProcess(args, 0, '\n -read x\n -create x\n -delete x\n', '')
+            if args[:3] == ['/usr/bin/dscl', '.', '-list']:
+                return subprocess.CompletedProcess(args, 0, 'runner 501\n', '')
+            if '/bin/mkdir' in args:
+                raise RuntimeError('mkdir collision')
+            return subprocess.CompletedProcess(args, 0, '', '')
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as d, patch.object(m, 'save'), patch.object(m, 'native_guard', return_value='123'), patch.object(m, 'run', side_effect=command), patch.object(pathlib.Path, 'exists', side_effect=[False, True, True]), patch.object(pathlib.Path, 'is_symlink', return_value=False), patch.object(pathlib.Path, 'stat', return_value=SimpleNamespace(st_uid=600)):
+            with self.assertRaises(RuntimeError):
+                m.main()
+        self.assertFalse(any('/bin/rm' in c for c in calls), 'A failed mkdir must never grant deletion authority')
+
+    def test_cleanup_confirmation_requires_absence_not_errors_or_symlinks(self):
+        self.assertTrue(hasattr(m, 'account_and_home_absent'))
+        absent = subprocess.CompletedProcess([], 56, '', 'eDSRecordNotFound')
+        mixed = subprocess.CompletedProcess([], 56, '', 'eDSRecordNotFound eDSUnknownNodeName')
+        with tempfile.TemporaryDirectory() as d:
+            home = pathlib.Path(d) / 'home'
+            self.assertTrue(m.account_and_home_absent(absent, home))
+            self.assertFalse(m.account_and_home_absent(mixed, home))
+            self.assertFalse(m.account_and_home_absent(subprocess.CompletedProcess([], 0, '', ''), home))
+            home.symlink_to(pathlib.Path(d) / 'missing')
+            self.assertFalse(m.account_and_home_absent(absent, home), 'Dangling symlink is not absent')
+
     def test_existing_home_refused_before_mutation(self):
         miss = subprocess.CompletedProcess([], 1, '', 'eDSRecordNotFound')
         with tempfile.TemporaryDirectory() as d, patch.object(m, 'E', pathlib.Path(d)), patch.object(m, 'native_guard', return_value='123'), patch.object(m, 'run', return_value=miss) as run, patch.object(pathlib.Path, 'exists', return_value=True):
