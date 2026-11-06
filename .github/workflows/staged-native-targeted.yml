@@ -24,8 +24,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            kind: windows-installer-ready
+          - os: ubuntu-latest
+            kind: linux-real-staged-entry
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout helpers
