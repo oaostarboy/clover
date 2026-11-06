@@ -10,7 +10,7 @@ function Import-Function([string]$name) {
   $node = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }.GetNewClosure(), $true)
   if ($node) { . ([scriptblock]::Create($node.Extent.Text)); Set-Item "Function:script:$name" (Get-Item "Function:$name").ScriptBlock }
 }
-foreach ($name in @('Get-NativeProofPythonIdentity','Assert-NativeProofBasePython','Get-NativeProofInstalledGatewayPython','Read-ExactGateway')) { Import-Function $name }
+foreach ($name in @('Get-NativeProofPythonIdentity','Assert-NativeProofBasePython','Get-NativeProofInstalledGatewayPython','Read-ExactGateway','Wait-ExactGateway','Compare-TaskDefinition')) { Import-Function $name }
 . (Join-Path $PSScriptRoot '../win-e2e/supervisor-proof.ps1')
 function Assert-True($value, [string]$message) { if (-not $value) { throw $message } }
 $results = @()
@@ -23,6 +23,12 @@ New-Item -ItemType Directory $temp | Out-Null
 $env:INSTALL_DIR = 'C:\proof\install'; $env:API_PORT = '8791'; $env:E2E = 'C:\proof\helpers'
 $evidence = $temp
 try {
+  Case 'task comparison rejects changed definitions and accepts exact match' {
+    $before='<Task><Settings><Enabled>true</Enabled></Settings><Actions><Exec><Command>python</Command><Arguments>-m gateway</Arguments></Exec></Actions></Task>'
+    Assert-True ((Compare-TaskDefinition $before $before).unchanged) 'Identical definition refused'
+    Assert-True (-not (Compare-TaskDefinition $before ($before -replace '-m gateway','-m other')).unchanged) 'Changed action accepted'
+    Assert-True (-not (Compare-TaskDefinition $before ($before -replace 'true','false')).unchanged) 'Changed settings accepted'
+  }
   Case 'preinstall interpreter survives a real dot-source variable collision' {
     # Execute the real preinstall assignment, then the real import seam.
     $init = @($ast.EndBlock.Statements | Where-Object { $_.Extent.Text -match '^\$systemPy\s*=|^Set-Variable -Name NativeProofBasePython ' })
@@ -40,6 +46,7 @@ try {
     $collision = Join-Path $temp 'trusted-collision.ps1'
     Set-Content $collision '$systemPy = "$env:INSTALL_DIR\venv\Scripts\python.exe"'
     . $collision
+    function Start-PrivateModelFixture { return 12345 }
     function Start-Process { param($FilePath,$ArgumentList,$WindowStyle) $script:startedPython=$FilePath }
     $chat = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Extent.Text -match '^if \(\$env:UPDATE_PATH -eq ''chat''\)' }, $true) | Select-Object -First 1
     $env:UPDATE_PATH = 'chat'; $lines = @()
@@ -103,11 +110,34 @@ try {
     $script:task=[pscustomobject]@{ State='Running'; TaskName='Clover_Troy_Gateway' }
     Remove-Item (Join-Path $evidence 'gateway-refusal.json') -ErrorAction SilentlyContinue
   }
+  Case 'startup wait never retries a failed evidence write' {
+    $script:attempts = 0
+    function Read-ExactGateway { $script:attempts++; if ($script:attempts -eq 1) { throw 'NATIVE_PROOF_EVIDENCE_WRITE_FAILED' }; return 'accepted' }
+    function Start-Sleep { }
+    $refused = $false
+    try { $null = Wait-ExactGateway } catch { $refused = $true }
+    Assert-True ($refused -and $script:attempts -eq 1) 'Evidence persistence failure was retried or accepted'
+  }
+  Case 'healthy gateway refuses when observation evidence cannot be written' {
+    Reset-Gateway 'troy'
+    $savedEvidence = $evidence
+    $evidence = Join-Path $temp 'missing-parent/child'
+    $refused = $false
+    try { $null = Read-ExactGateway } catch { $refused = $true } finally { $evidence = $savedEvidence }
+    Assert-True $refused 'Gateway accepted without persisted observation evidence'
+  }
   foreach ($setup in @('troy','zyra')) {
     Case "$setup accepts a matching owned gateway" {
       Reset-Gateway $setup
       $actual=Read-ExactGateway
       Assert-True ($actual.pid -eq 100) 'Wrong returned identity'
+      $samples = @(Get-Content (Join-Path $evidence 'gateway-observations.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
+      $sample = $samples[-1]
+      Assert-True ($sample.state.pid -eq 100 -and $sample.listeners[0] -eq 100 -and $sample.predicates.expected_source_sha) 'Successful sample omitted predicate inputs'
+      Assert-True ($sample.observed_at -and $null -ne $sample.monotonic_ticks -and $sample.ancestors.Count -gt 0) 'Successful sample omitted timing or ancestry'
+      Assert-True ($null -ne $sample.ancestors[0].ancestors[0].PSObject.Properties['birth']) 'Ancestor birth must be present even if unknown'
+      Assert-True ($null -ne $sample.processes[0].PSObject.Properties['birth']) 'Gateway process birth must be present even if unknown'
+      Assert-True ((Get-Content (Join-Path $evidence 'gateway-observations.jsonl') -Raw) -notmatch 'SECRET-SENTINEL') 'Sample leaked ancestor command line'
     }
     Case "$setup accepts only the installed venv launcher and its measured base interpreter child" {
       Reset-Gateway $setup
@@ -183,6 +213,8 @@ try {
         Assert-True (Test-Path $diagPath) 'Refusal lost per-predicate diagnostic'
         $diag=Get-Content $diagPath -Raw | ConvertFrom-Json
         Assert-True ($diag.failed_predicates -contains $expectedPredicate) "Wrong predicate for $mutation"
+        $lastSample = @(Get-Content (Join-Path $evidence 'gateway-observations.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })[-1]
+        Assert-True ($lastSample.failed_predicates -contains $expectedPredicate) 'Failed sample was not appended'
         Assert-True ($null -ne $diag.processes -and $null -ne $diag.listeners -and $null -ne $diag.schedule) 'Diagnostic omitted boundary observations'
         Assert-True ((Get-Content $diagPath -Raw) -notmatch 'SECRET-SENTINEL') 'Diagnostic leaked ancestor command line'
       }

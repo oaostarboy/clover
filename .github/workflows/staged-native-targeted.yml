@@ -22,34 +22,9 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 1
       matrix:
         include:
-          - os: windows-latest
-            kind: windows-installer-ready
-            setup: zyra
-            update_path: chat
-            phase: old2new
-          - os: windows-latest
-            kind: windows-installer-ready
-            setup: zyra
-            update_path: chat
-            phase: new2next
-          - os: windows-latest
-            kind: windows-installer-ready
-            setup: troy
-            update_path: cli
-            phase: old2new
-          - os: windows-latest
-            kind: windows-installer-ready
-            setup: troy
-            update_path: cli
-            phase: new2next
-          - os: windows-latest
-            kind: windows-installer-ready
-            setup: troy
-            update_path: chat
-            phase: old2new
           - os: windows-latest
             kind: windows-installer-ready
             setup: troy

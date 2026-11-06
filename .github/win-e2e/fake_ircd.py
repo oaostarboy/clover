@@ -15,6 +15,7 @@ would count as a venv holder).
 
 from __future__ import annotations
 
+import datetime
 import os
 import socket
 import sys
@@ -31,7 +32,7 @@ _clients: list[dict] = []
 
 def log(text: str) -> None:
     with _lock, open(LOG, "a", encoding="utf-8") as fh:
-        fh.write(time.strftime("%H:%M:%S ") + text + "\n")
+        fh.write(datetime.datetime.now(datetime.timezone.utc).isoformat() + f" mono={time.monotonic():.9f} " + text + "\n")
 
 
 def send(client: dict, line: str) -> None:
