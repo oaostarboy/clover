@@ -107,9 +107,13 @@ def main(argv=None):
         sys.path[:0] = [str(stage), *dependencies]
         os.chdir(stage)
         sys.argv = ['clover', 'update', '--yes', '--branch', 'main']
-        from clover_cli._migration_target import bind_target, target_python
-        with bind_target(stage, target, options.stage_commit, options.old_commit):
+        from clover_cli._migration_target import bind_target, target_python, frozen_watcher_command
+        with bind_target(stage, target, options.stage_commit, options.old_commit,
+                         dependency_paths=dependencies):
             target_python()  # Refuse an unsupported runtime before importing updater code.
+            # Prove isolated watcher identity support before any update mutation.
+            frozen_watcher_command(stage / "clover_cli/update_restart_watcher.py",
+                                   home / ".clover-update-heartbeat.json")
             from clover_cli import main as cli
             if not Path(cli.__file__).resolve().is_relative_to(stage):
                 raise ValueError('updater code did not load from pinned stage')

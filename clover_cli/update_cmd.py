@@ -7964,6 +7964,11 @@ def _clear_restart_beacon_if_gateway_up() -> bool:
         return False
 
 
+def _frozen_watcher_command(script, beacon):
+    from clover_cli._migration_target import frozen_watcher_command
+    return frozen_watcher_command(script, beacon)
+
+
 def _staged_frozen_watcher_context() -> dict:
     """Anchor a pre-pull frozen safety watcher to its bound installation."""
     from clover_cli._migration_target import target_root, target_python, revalidate_target
@@ -8029,7 +8034,7 @@ def _arm_restart_watcher_before_pause() -> bool:
             watcher_kwargs["start_new_session"] = True
 
         subprocess.Popen(
-            [sys.executable, str(_watch_script), str(beacon)],
+            _frozen_watcher_command(_watch_script, beacon),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
@@ -8041,6 +8046,9 @@ def _arm_restart_watcher_before_pause() -> bool:
         _atexit.register(_m()._clear_restart_beacon_if_gateway_up)
         return True
     except Exception as exc:
+        from clover_cli._migration_target import target_root
+        if target_root() is not None:
+            raise RuntimeError('staged update cannot arm trusted restart watcher') from exc
         logger.debug("Could not pre-arm the update restart watcher: %s", exc)
         return False
 
@@ -8904,7 +8912,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         _watch_script = _beacon.parent / "logs" / "update_restart_watcher.py"
                         _watch_script.parent.mkdir(parents=True, exist_ok=True)
                         _shutil.copy2(_urw.__file__, _watch_script)
-                        _watcher_command = [sys.executable, str(_watch_script), str(_beacon)]
+                        _watcher_command = _frozen_watcher_command(_watch_script, _beacon)
                     subprocess.Popen(
                         _watcher_command,
                         stdout=subprocess.DEVNULL,
@@ -9694,7 +9702,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         else:
                             _watch_kwargs["start_new_session"] = True
                         subprocess.Popen(
-                            [sys.executable, str(_watch_script), str(_beacon)],
+                            _frozen_watcher_command(_watch_script, _beacon),
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             stdin=subprocess.DEVNULL, **_watch_kwargs,
                         )

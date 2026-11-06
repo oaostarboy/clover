@@ -8,17 +8,65 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import threading
 
 _target = None
 _identities = None
 _prepared_commit = None
+_trusted_dependencies = ()
 _lock = threading.Lock()
 
 
 def target_root():
     """Return the currently bound installation root, if any."""
     return _target
+
+
+def trusted_dependency_paths():
+    """Revalidate the explicit caller-trusted directories, never site/sys.path."""
+    if _target is None:
+        return ()
+    if not _trusted_dependencies:
+        raise ValueError('trusted watcher dependencies were not bound')
+    for path, identity in _trusted_dependencies:
+        if not path.is_dir() or path.resolve() != path:
+            raise ValueError('trusted watcher dependency directory changed')
+        stat = path.stat()
+        if (stat.st_dev, stat.st_ino) != identity:
+            raise ValueError('trusted watcher dependency identity changed')
+        if _identities and any(path == root or root in path.parents or path in root.parents
+                               for root in _identities[:2]):
+            raise ValueError('trusted watcher dependencies overlap source')
+    return tuple(path for path, _ in _trusted_dependencies)
+
+
+def frozen_watcher_command(script, beacon):
+    """Preflight psutil in isolated startup before returning a frozen command."""
+    if _target is None:
+        return [sys.executable, str(script), str(beacon)]
+    dependencies = [str(path) for path in trusted_dependency_paths()]
+    bootstrap = (
+        'import sys,runpy; from pathlib import Path; '
+        f'roots={dependencies!r}; sys.path[:0]=roots; '
+        'import psutil; '
+        'assert any(Path(psutil.__file__).resolve().is_relative_to(Path(p)) for p in roots), "untrusted psutil"; '
+        'assert psutil.Process().create_time() > 0; '
+        'check=sys.argv[-1] == "--check-trusted-watcher"; '
+        'sys.argv=sys.argv[1:]; '
+        'print("trusted-watcher-ready") if check else runpy.run_path(sys.argv[0], run_name="__main__")'
+    )
+    command = [sys.executable, '-I', '-S', '-c', bootstrap, str(script), str(beacon)]
+    env = {k: v for k, v in os.environ.items() if not k.startswith('PYTHON') and k != 'VIRTUAL_ENV'}
+    try:
+        result = subprocess.run(command + ['--check-trusted-watcher'], env=env,
+                                capture_output=True, text=True, timeout=15,
+                                stdin=subprocess.DEVNULL, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError('trusted watcher dependency preflight failed') from exc
+    if result.returncode or result.stdout.strip() != 'trusted-watcher-ready':
+        raise ValueError('trusted watcher dependency preflight failed')
+    return command
 
 
 def target_python():
@@ -181,13 +229,13 @@ def _verify_git(root, expected):
 
 
 @contextmanager
-def bind_target(stage, target, expected_stage_commit, expected_target_commit):
+def bind_target(stage, target, expected_stage_commit, expected_target_commit, *, dependency_paths=()):
     """Bind one validated target for the duration of a controller invocation.
 
     Identities must come from a trusted caller, never from the checkout itself.
     Nested or concurrent bindings are rejected, even to the same target.
     """
-    global _target, _identities, _prepared_commit
+    global _target, _identities, _prepared_commit, _trusted_dependencies
     if not _lock.acquire(blocking=False):
         raise RuntimeError('a migration target is already bound')
     try:
@@ -197,6 +245,16 @@ def bind_target(stage, target, expected_stage_commit, expected_target_commit):
             raise ValueError('stage and target must be disjoint')
         _verify_git(stage, expected_stage_commit)
         _verify_git(target, expected_target_commit)
+        trusted = []
+        for raw in dependency_paths:
+            path = Path(raw)
+            if not path.is_absolute() or not path.is_dir() or path.resolve() != path:
+                raise ValueError("trusted dependencies must be physical absolute directories")
+            if any(path == root or root in path.parents or path in root.parents for root in (stage, target)):
+                raise ValueError("trusted dependencies must be disjoint from source")
+            stat = path.stat()
+            trusted.append((path, (stat.st_dev, stat.st_ino)))
+        _trusted_dependencies = tuple(trusted)
         _target = target
         _identities = (stage, target, expected_stage_commit, expected_target_commit)
         try:
@@ -205,5 +263,6 @@ def bind_target(stage, target, expected_stage_commit, expected_target_commit):
             _target = None
             _identities = None
             _prepared_commit = None
+            _trusted_dependencies = ()
     finally:
         _lock.release()

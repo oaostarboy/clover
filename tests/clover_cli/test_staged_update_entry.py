@@ -51,9 +51,11 @@ def test_isolated_entry_pins_stage_before_importing_target(tmp_path, nested_inst
     old = git(target, 'rev-parse', 'HEAD')
     (target / '.git/info/exclude').write_text('venv/\n')
     subprocess.run([sys.executable, '-m', 'venv', '--without-pip', str(target / 'venv')], check=True)
+    import psutil
     args = [sys.executable, '-I', '-S', str(stage / 'scripts/staged_update.py'),
             '--target', str(target), '--old-commit', old,
-            '--stage-commit', commit, '--stage-tree', tree, '--home', str(home)]
+            '--stage-commit', commit, '--stage-tree', tree, '--home', str(home),
+            '--dependency-path', str(Path(psutil.__file__).resolve().parent.parent)]
     result = subprocess.run(args, cwd=target, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
     assert f'STAGED_TARGET={target}' in result.stdout
