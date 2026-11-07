@@ -233,6 +233,15 @@ def test_100ms_commit_budget_bounds_stop_and_ui_response(tmp_path):
         db.close()
 
 
+def _rollback_pending_reader(reader, release, errors):
+    try:
+        reader.rollback()
+    except BaseException as exc:
+        errors.append(exc)
+    finally:
+        release.set()
+
+
 def _cleanup_pending_fixture(events, threads, closers, *, active_error=None, join_timeout: float = 2.0):
     """Keep shared connections alive until workers stop; retain primary failures."""
     failures = []
@@ -332,8 +341,7 @@ def test_new_reader_retries_one_pending_lock_on_existing_read_path(tmp_path):
         except BaseException as exc:
             errors.append(exc)
         finally:
-            reader.rollback()
-            release.set()
+            _rollback_pending_reader(reader, release, errors)
 
     new_thread = threading.Thread(target=new_reader)
     release_thread = threading.Thread(target=release_reader)
@@ -391,6 +399,20 @@ def test_pending_fixture_thread_start_failure_keeps_original_and_closes_db(tmp_p
         test_new_reader_retries_one_pending_lock_on_existing_read_path(tmp_path)
     assert caught.value is original
     assert captured[0]._conn is None
+
+
+def test_pending_reader_rollback_failure_is_collected_and_signaled():
+    failure = sqlite3.OperationalError("injected rollback failure")
+    released = threading.Event()
+    errors = []
+
+    class FailedRollback:
+        def rollback(self):
+            raise failure
+
+    _rollback_pending_reader(FailedRollback(), released, errors)
+    assert errors == [failure]
+    assert released.is_set()
 
 
 def test_pending_fixture_cleanup_handles_unstarted_threads():
