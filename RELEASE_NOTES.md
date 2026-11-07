@@ -15,8 +15,7 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
-## 2.0.2.12 | Clover C2.0.2.12 | YYYY-MM-DD
-<!-- draft -->
+## 2.0.2.12 | Clover C2.0.2.12 | 2026-11-07
 - Pair a phone with Clover using a QR code from desktop settings.
 - Phone access uses device-specific permissions, and you can revoke a paired device.
 - Voice input works with the supported audio dependency versions.
