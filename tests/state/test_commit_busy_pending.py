@@ -242,34 +242,68 @@ def test_new_reader_retries_one_pending_lock_on_existing_read_path(tmp_path):
     cursor = reader.execute("SELECT id FROM messages")
     cursor.fetchone()
     commit_started = threading.Event()
-    db._conn.set_trace_callback(
-        lambda sql: commit_started.set() if sql == "COMMIT" else None
-    )
+    first_busy = threading.Event()
+    release = threading.Event()
+    trace = []
+
+    def record(sql):
+        trace.append(sql)
+        if sql == "COMMIT":
+            commit_started.set()
+
+    db._conn.set_trace_callback(record)
     observed = {}
     errors = []
 
     def new_reader():
-        assert commit_started.wait(2)
-        conn = sqlite3.connect(db.db_path, isolation_level=None, timeout=0)
-        attempts = 0
-
-        def query():
-            nonlocal attempts
-            attempts += 1
-            return conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
-
+        conn = None
         try:
+            assert commit_started.wait(2), "writer did not reach COMMIT"
+            conn = sqlite3.connect(db.db_path, isolation_level=None, timeout=0)
+            # COMMIT's trace callback runs before SQLite acquires PENDING.
+            # A separate real read must witness BUSY before the tested read.
+            deadline = time.monotonic() + 0.08
+            while True:
+                try:
+                    conn.execute("SELECT COUNT(*) FROM messages").fetchone()
+                except sqlite3.OperationalError as exc:
+                    if exc.sqlite_errorcode != sqlite3.SQLITE_BUSY:
+                        raise
+                    observed["probe_busy"] = exc.sqlite_errorcode
+                    break
+                assert time.monotonic() < deadline, "PENDING lock not observed"
+                release.wait(0.001)
+
+            attempts = 0
+
+            def query():
+                nonlocal attempts
+                attempts += 1
+                try:
+                    return conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+                except sqlite3.OperationalError as exc:
+                    if attempts == 1 and exc.sqlite_errorcode == sqlite3.SQLITE_BUSY:
+                        observed["first_busy"] = exc.sqlite_errorcode
+                        first_busy.set()
+                    raise
+
             observed["rows"] = db._retry_locked_read(query, patience_s=0.2)
             observed["attempts"] = attempts
         except BaseException as exc:
             errors.append(exc)
         finally:
-            conn.close()
+            release.set()
+            if conn is not None:
+                conn.close()
 
     def release_reader():
-        assert commit_started.wait(2)
-        time.sleep(0.06)
-        reader.rollback()
+        try:
+            assert first_busy.wait(0.2), "tested read did not encounter SQLITE_BUSY"
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            reader.rollback()
+            release.set()
 
     new_thread = threading.Thread(target=new_reader)
     release_thread = threading.Thread(target=release_reader)
@@ -282,11 +316,22 @@ def test_new_reader_retries_one_pending_lock_on_existing_read_path(tmp_path):
         release_thread.join(1)
         assert not new_thread.is_alive()
         assert not release_thread.is_alive()
-        assert not errors
+        assert not errors, errors
+        assert observed["probe_busy"] == sqlite3.SQLITE_BUSY
+        assert observed["first_busy"] == sqlite3.SQLITE_BUSY
         assert observed["attempts"] >= 2
         assert observed["rows"] == 1
         assert time.monotonic() - began < 0.25
+        assert sum(sql == "BEGIN IMMEDIATE" for sql in trace) == 1
+        assert db._conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE content='read retry'"
+        ).fetchone()[0] == 1
+        assert db._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 1
     finally:
+        first_busy.set()
+        release.set()
+        new_thread.join(2)
+        release_thread.join(2)
         cursor.close()
         reader.close()
         db._conn.set_trace_callback(None)
