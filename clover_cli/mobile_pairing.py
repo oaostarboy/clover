@@ -149,7 +149,7 @@ class DeviceStore:
         if self._cache is not None and mtime == self._mtime:
             return self._cache
         try:
-            data = json.loads(self.path.read_text("utf-8"))
+            data = json.loads(self.path.read_text(encoding="utf-8"))
             devices = [d for d in data.get("devices", []) if isinstance(d, dict)]
         except (OSError, ValueError, AttributeError):
             devices = []
