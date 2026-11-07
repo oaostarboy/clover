@@ -15,6 +15,13 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.2.12 | Clover C2.0.2.12 | YYYY-MM-DD
+<!-- draft -->
+- Pair a phone with Clover using a QR code from desktop settings.
+- Phone access uses device-specific permissions, and you can revoke a paired device.
+- Voice input works with the supported audio dependency versions.
+- Phone access requires the phone app and a configured, reachable HTTPS gateway.
+
 ## 2.0.2.11 | Clover C2.0.2.11 | 2026-11-03
 - Checklist items can now be given to a specific helper agent, or kept for yourself, instead of always being picked automatically.
 - Items you keep for yourself are never started by Clover.
