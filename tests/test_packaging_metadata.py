@@ -56,6 +56,23 @@ def test_faster_whisper_is_not_a_base_dependency():
     assert any(dep.startswith("faster-whisper") for dep in voice_extra)
 
 
+def test_voice_av_compatibility_matches_lazy_backend():
+    from packaging.requirements import Requirement
+
+    data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    project = data["project"]
+    voice = [Requirement(s) for s in project["optional-dependencies"]["voice"]]
+    lazy = [Requirement(s) for s in _lazy_deps_by_feature()["stt.faster_whisper"]]
+    voice_av = [r for r in voice if r.name == "av"]
+    lazy_av = [r for r in lazy if r.name == "av"]
+    assert len(voice_av) == len(lazy_av) == 1
+    assert voice_av[0].specifier == lazy_av[0].specifier
+    for requirement in (voice_av[0], lazy_av[0]):
+        assert "17.0.0" in requirement.specifier
+        assert "19.0.2" not in requirement.specifier
+    assert "av" not in {_distribution_name(s) for s in project["dependencies"]}
+
+
 # Minimum non-vulnerable Starlette: CVE-2026-48710 ("BadHost") was fixed in
 # 1.0.1. Anything below that lets a malformed Host header desync
 # ``request.url.path`` from the dispatched ASGI path, bypassing path-based
