@@ -1121,6 +1121,12 @@ def _announce_session_reclaimed(session: dict, end_reason: str) -> None:
                 "stored_session_id": str(session.get("session_key") or ""),
                 "reason": end_reason,
             },
+            # A present None is the established representation of launch-home
+            # sessions. Missing or malformed metadata must not gain authority.
+            source_session={"profile_home": (
+                _clover_home if "profile_home" in session and session["profile_home"] is None
+                else session.get("profile_home")
+            )},
         )
     except Exception:
         logger.debug("session.reclaimed broadcast failed", exc_info=True)
@@ -2644,13 +2650,23 @@ def unregister_live_transport(transport: Transport | None) -> None:
         _live_transports.discard(transport)
 
 
-def _broadcast_global_event(event: str, payload: dict | None = None) -> None:
+def _broadcast_global_event(event: str, payload: dict | None = None, *, source_session: dict | None = None) -> None:
     """Fan a session-less, surface-global event (``skin.changed``) to every
     connected client. Emitters like the skin watcher run on background threads
     where ``write_json``'s ladder bottoms out at stdio and WS peers never see
     the frame. No registered transports (stdio TUI, tests) → plain ``_emit``,
     which that path already tees where it needs to go.
     """
+    # Snapshot trusted session scope, not the wire payload or a later lookup.
+    scope = None
+    if isinstance(source_session, dict):
+        try:
+            from pathlib import Path
+            home = source_session.get("profile_home")
+            if isinstance(home, (str, Path)) and str(home):
+                scope = {"profile_home": str(Path(home).resolve())}
+        except (OSError, TypeError, ValueError):
+            pass
     with _live_transports_lock:
         targets = list(_live_transports)
 
@@ -2661,6 +2677,15 @@ def _broadcast_global_event(event: str, payload: dict | None = None) -> None:
     frame = _event_frame(event, "", payload)
     for transport in targets:
         try:
+            from tui_gateway.device_auth import device_principal, ensure_session_owned
+            principal = device_principal(transport)
+            if principal is not None:
+                if event == "session.reclaimed":
+                    if scope is None:
+                        continue
+                    ensure_session_owned(transport, scope)
+                elif event not in {"skin.changed"}:
+                    continue
             transport.write(frame)
         except Exception:
             # One wedged peer must not stall the rest; disconnect teardown
@@ -3032,6 +3057,12 @@ def handle_request(req: dict) -> dict | None:
         return normalized
 
     rid, method, params = normalized
+    from tui_gateway.device_auth import authorize_request, DeviceAccessDenied
+    try:
+        params = authorize_request(current_transport(), method, params, _sessions,
+                                   launch_home=_clover_home)
+    except DeviceAccessDenied as exc:
+        return _err(rid, 4030, str(exc))
     fn = _methods.get(method)
     if not fn:
         return _err(rid, -32601, f"unknown method: {method}")
@@ -3151,6 +3182,13 @@ def dispatch(req: dict, transport: Optional[Transport] = None,
             return normalized
 
         _rid, method, _params = normalized
+        # Check before scheduling and again in handle_request after any queue
+        # delay. Never promote a device transport to owner authority.
+        from tui_gateway.device_auth import authorize_request, DeviceAccessDenied
+        try:
+            authorize_request(t, method, _params, _sessions, launch_home=_clover_home)
+        except DeviceAccessDenied as exc:
+            return _err(_rid, 4030, str(exc))
         if method not in _LONG_HANDLERS:
             return handle_request(req)
 
@@ -3541,6 +3579,11 @@ def _sess_nowait(params, rid):
     sid = params.get("session_id") or ""
     s = _sessions.get(sid)
     if s:
+        from tui_gateway.device_auth import DeviceAccessDenied, ensure_session_owned
+        try:
+            ensure_session_owned(current_transport(), s, launch_home=_clover_home)
+        except DeviceAccessDenied as exc:
+            return (None, _err(rid, 4030, str(exc)))
         return (s, None)
     # A session-scoped RPC hit a runtime id the gateway no longer holds
     # (detached on WS disconnect and orphan-reaped, LRU-evicted, or torn down
@@ -13806,6 +13849,18 @@ def _respond(rid, params, key, *, allow_expired=False):
 def _(rid, params: dict) -> dict:
     key, value = params.get("key", ""), params.get("value", "")
     session = _sessions.get(params.get("session_id", ""))
+    # Never let a device fall through to the global configuration branch if
+    # its live session disappears between dispatch authorization and execution.
+    from tui_gateway.device_auth import device_principal, ensure_session_owned, DeviceAccessDenied
+    try:
+        if device_principal(current_transport()) is not None:
+            if key != "model" or session is None:
+                raise DeviceAccessDenied("live session required for model selection")
+            ensure_session_owned(current_transport(), session, launch_home=_clover_home)
+            # Override persist_switch_by_default, including deferred switches.
+            value = f"{value} --session"
+    except DeviceAccessDenied as exc:
+        return _err(rid, 4030, str(exc))
 
     if key == "model":
         try:

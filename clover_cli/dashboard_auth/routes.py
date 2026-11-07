@@ -943,13 +943,23 @@ async def api_auth_ws_ticket(request: Request):
     expected pattern.
     """
     sess = getattr(request.state, "session", None)
-    if sess is None:
+    principal = getattr(request.state, "device_principal", None)
+    if sess is None and principal is None:
         # Middleware should already have rejected, but check defensively.
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     # Import here so the routes module stays usable in test contexts that
     # don't load the ticket store.
     from clover_cli.dashboard_auth.ws_tickets import TTL_SECONDS, mint_ticket
+
+    if principal is not None:
+        from clover_cli.mobile_pairing import get_device_store
+        if not get_device_store().principal_is_active(principal):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        ticket = mint_ticket(user_id=principal.device_id, provider="mobile-device", device_principal=principal)
+        audit_log(AuditEvent.WS_TICKET_MINTED, provider="mobile-device",
+                  user_id=principal.device_id, ip=_client_ip(request))
+        return {"ticket": ticket, "ttl_seconds": TTL_SECONDS}
 
     ticket = mint_ticket(user_id=sess.user_id, provider=sess.provider)
     audit_log(

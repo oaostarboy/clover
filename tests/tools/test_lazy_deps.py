@@ -202,6 +202,14 @@ class TestIsSatisfiedVersionAware:
         self._fake_version(monkeypatch, {"honcho-ai": "2.2.0"})
         assert ld._is_satisfied("honcho-ai==2.2.0") is True
 
+    @pytest.mark.parametrize(("version", "expected"), [("17.0.0", True), ("19.0.2", False)])
+    def test_voice_av_version_drives_feature_missing(self, monkeypatch, version, expected):
+        specs = ld.LAZY_DEPS["stt.faster_whisper"]
+        av_spec = next(s for s in specs if ld._pkg_name_from_spec(s) == "av")
+        self._fake_version(monkeypatch, {"av": version, "faster-whisper": "1.2.1"})
+        assert ld._is_satisfied(av_spec) is expected
+        assert (av_spec not in ld.feature_missing("stt.faster_whisper")) is expected
+
 
     def test_range_within_returns_true(self, monkeypatch):
         self._fake_version(monkeypatch, {"slack-bolt": "1.27.0"})

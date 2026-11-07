@@ -226,6 +226,74 @@ def test_profile_resume_adopts_stranded_default_store_session(gateway):
     assert donor["end_reason"] == "adopted_by_profile"
 
 
+def _device_transport(gateway, monkeypatch, tmp_path):
+    from clover_cli import mobile_pairing, profiles
+
+    mod, _, _ = gateway
+    store = mobile_pairing.DeviceStore(tmp_path / "devices.json")
+    monkeypatch.setattr(mobile_pairing, "get_device_store", lambda: store)
+    monkeypatch.setattr(profiles, "get_active_profile_name", lambda: "developer")
+    device = store.create("phone")
+    class Transport:
+        pass
+
+    transport = Transport()
+    transport.auth_identity = {"provider": "mobile-device", "device_principal": store.authenticate(device["token"])}
+    monkeypatch.setattr(mod, "current_transport", lambda: transport)
+    monkeypatch.setattr(mod, "_clover_home", tmp_path / ".clover")
+    return transport
+
+
+def test_device_resume_never_adopts_default_donor(gateway, monkeypatch, tmp_path):
+    mod, default_db, profile_home = gateway
+    _device_transport(gateway, monkeypatch, tmp_path)
+    _seed_stranded(default_db)
+    before = default_db.get_session(STRANDED_ID)
+    messages = default_db.get_messages(STRANDED_ID)
+    response = mod._methods["session.resume"]("1", {"session_id": STRANDED_ID, "profile": "developer", "lazy": True})
+    assert response.get("error", {}).get("code") == 4007
+    assert default_db.get_session(STRANDED_ID) == before
+    assert default_db.get_messages(STRANDED_ID) == messages
+    db = SessionDB(db_path=profile_home / "state.db")
+    try:
+        assert db.get_session(STRANDED_ID) is None
+    finally:
+        db.close()
+
+
+def test_device_resume_own_persisted_and_live_session(gateway, monkeypatch, tmp_path):
+    mod, _, home = gateway
+    transport = _device_transport(gateway, monkeypatch, tmp_path)
+    db = SessionDB(db_path=home / "state.db")
+    _seed_stranded(db)
+    db.close()
+    params = {"session_id": STRANDED_ID, "profile": "developer", "lazy": True}
+    first = mod._methods["session.resume"]("1", params)
+    assert first["result"]["message_count"] == 6
+    sid = first["result"]["session_id"]
+    second = mod._methods["session.resume"]("2", params)
+    assert second["result"]["session_id"] == sid
+    assert mod._sessions[sid]["transport"] is transport
+
+
+def test_device_resume_rejects_foreign_live_key_collision(gateway, monkeypatch, tmp_path):
+    import threading
+
+    mod, _, home = gateway
+    _device_transport(gateway, monkeypatch, tmp_path)
+    db = SessionDB(db_path=home / "state.db")
+    _seed_stranded(db)
+    db.close()
+    foreign = {"session_key": STRANDED_ID, "profile_home": str(tmp_path / ".clover"),
+               "history": [{"role": "user", "content": "foreign secret"}],
+               "history_lock": threading.Lock(), "transport": None}
+    mod._sessions["foreign-runtime"] = foreign
+    response = mod._methods["session.resume"]("1", {"session_id": STRANDED_ID, "profile": "developer", "lazy": True})
+    assert response["error"]["code"] == 4030
+    assert "foreign secret" not in str(response)
+    assert foreign["transport"] is None
+
+
 def test_profile_resume_of_truly_unknown_session_still_4007s(gateway):
     """Adoption must not weaken the not-found contract: an id in NEITHER
     store keeps failing with 4007 exactly as before."""
