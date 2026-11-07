@@ -1,5 +1,6 @@
 """Real SessionDB COMMIT-pending lock tests (private DELETE-mode database)."""
 import sqlite3
+import sys
 import threading
 import time
 
@@ -232,6 +233,33 @@ def test_100ms_commit_budget_bounds_stop_and_ui_response(tmp_path):
         db.close()
 
 
+def _cleanup_pending_fixture(events, threads, closers, *, active_error=None, join_timeout: float = 2.0):
+    """Keep shared connections alive until workers stop; retain primary failures."""
+    failures = []
+    for event in events:
+        event.set()
+    for worker in threads:
+        if worker.ident is not None:
+            try:
+                worker.join(join_timeout)
+            except Exception as exc:
+                failures.append(exc)
+    if any(worker.is_alive() for worker in threads):
+        failures.append(RuntimeError("pending fixture worker still alive; connections left open"))
+    else:
+        for close in closers:
+            try:
+                close()
+            except Exception as exc:
+                failures.append(exc)
+    if failures:
+        detail = "; ".join(str(exc) for exc in failures)
+        if active_error is not None:
+            active_error.add_note("Pending fixture cleanup: " + detail)
+        else:
+            raise RuntimeError("Pending fixture cleanup: " + detail) from failures[0]
+
+
 def test_new_reader_retries_one_pending_lock_on_existing_read_path(tmp_path):
     db = _delete_db(tmp_path)
     db._TRANSCRIPT_WRITE_PATIENCE_S = 0.1
@@ -259,6 +287,8 @@ def test_new_reader_retries_one_pending_lock_on_existing_read_path(tmp_path):
         conn = None
         try:
             assert commit_started.wait(2), "writer did not reach COMMIT"
+            if release.is_set():
+                return
             conn = sqlite3.connect(db.db_path, isolation_level=None, timeout=0)
             # COMMIT's trace callback runs before SQLite acquires PENDING.
             # A separate real read must witness BUSY before the tested read.
@@ -328,11 +358,82 @@ def test_new_reader_retries_one_pending_lock_on_existing_read_path(tmp_path):
         ).fetchone()[0] == 1
         assert db._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 1
     finally:
-        first_busy.set()
-        release.set()
-        new_thread.join(2)
-        release_thread.join(2)
-        cursor.close()
-        reader.close()
-        db._conn.set_trace_callback(None)
-        db.close()
+        _cleanup_pending_fixture(
+            [commit_started, first_busy, release], [new_thread, release_thread],
+            [cursor.close, reader.close, lambda: db._conn.set_trace_callback(None), db.close],
+            active_error=sys.exc_info()[1],
+        )
+
+
+@pytest.mark.parametrize("failed_start", [1, 2])
+def test_pending_fixture_thread_start_failure_keeps_original_and_closes_db(tmp_path, monkeypatch, failed_start):
+    original = RuntimeError("injected start failure")
+    real_start = threading.Thread.start
+    real_delete_db = _delete_db
+    captured = []
+    starts = 0
+
+    def track_db(path):
+        db = real_delete_db(path)
+        captured.append(db)
+        return db
+
+    def start(worker):
+        nonlocal starts
+        starts += 1
+        if starts == failed_start:
+            raise original
+        return real_start(worker)
+
+    monkeypatch.setattr(sys.modules[__name__], "_delete_db", track_db)
+    monkeypatch.setattr(threading.Thread, "start", start)
+    with pytest.raises(RuntimeError, match="injected start failure") as caught:
+        test_new_reader_retries_one_pending_lock_on_existing_read_path(tmp_path)
+    assert caught.value is original
+    assert captured[0]._conn is None
+
+
+def test_pending_fixture_cleanup_handles_unstarted_threads():
+    closed = []
+    event = threading.Event()
+    worker = threading.Thread(target=lambda: None)
+    _cleanup_pending_fixture([event], [worker], [lambda: closed.append(True)])
+    assert event.is_set()
+    assert closed == [True]
+
+
+def test_pending_fixture_cleanup_does_not_close_live_worker_connections():
+    stop = threading.Event()
+    worker = threading.Thread(target=stop.wait)
+    closed = []
+    worker.start()
+    try:
+        with pytest.raises(RuntimeError, match="worker.*alive"):
+            _cleanup_pending_fixture([], [worker], [lambda: closed.append(True)], join_timeout=0.01)
+        assert not closed
+    finally:
+        stop.set()
+        worker.join(2)
+    assert not worker.is_alive()
+    _cleanup_pending_fixture([], [worker], [lambda: closed.append(True)])
+    assert closed == [True]
+
+
+def test_pending_fixture_cleanup_preserves_original_failure():
+    original = RuntimeError("thread start failed")
+    closed = []
+
+    def broken_close():
+        raise RuntimeError("cleanup failed")
+
+    with pytest.raises(RuntimeError, match="thread start failed") as caught:
+        try:
+            raise original
+        finally:
+            _cleanup_pending_fixture(
+                [], [threading.Thread(target=lambda: None)],
+                [broken_close, lambda: closed.append(True)], active_error=original,
+            )
+    assert caught.value is original
+    assert closed == [True]
+    assert any("cleanup failed" in note for note in original.__notes__)
