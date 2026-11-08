@@ -1,0 +1,25 @@
+name = "clover-managed-relay"
+main = "src/worker.mjs"
+compatibility_date = "2026-07-30"
+workers_dev = false
+preview_urls = false
+routes = [{ pattern = "relay.cloverai.ca", custom_domain = true }]
+
+[vars]
+ENROLLMENT_ENABLED = "false"
+
+[[durable_objects.bindings]]
+name = "INSTALLATIONS"
+class_name = "Installation"
+
+[[durable_objects.bindings]]
+name = "DIRECTORY"
+class_name = "Directory"
+
+[[durable_objects.bindings]]
+name = "GUARD"
+class_name = "Guard"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Installation", "Directory", "Guard"]
