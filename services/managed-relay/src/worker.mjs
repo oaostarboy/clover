@@ -46,6 +46,19 @@ const obj = (ns, name) => ns.get(ns.idFromName(name));
 const reasons = new WeakMap();
 const slog = (event, data = {}) => { try { console.log(JSON.stringify({ event, ...data })); } catch {} };
 const cid = id => String(id || '').slice(0, 8);
+// TEMPORARY: metadata-only RPC logging (method names / error codes, never params values or text).
+const rpcEvents = new Set(['message.start', 'message.complete', 'error', 'session.info']);
+function rpcLog(kind, id, text, bytes) {
+  try {
+    const ch = cid(id); let msg = null;
+    if (typeof text === 'string') { try { msg = JSON.parse(text); } catch {} }
+    if (!msg || typeof msg !== 'object') { slog(kind === 'rpc_up' ? 'rpc_up_raw' : 'rpc_down_raw', { ch, bytes }); return; }
+    if (kind === 'rpc_up') { slog('rpc_up', { ch, id: String(msg.id).slice(0, 40), method: String(msg.method).slice(0, 60), paramKeys: Object.keys(msg.params || {}).slice(0, 12) }); return; }
+    if (msg.id !== undefined && msg.method === undefined && ('result' in msg || 'error' in msg)) { slog('rpc_down', { ch, id: String(msg.id).slice(0, 40), ok: !msg.error, errCode: msg.error?.code, errMsg: String(msg.error?.message || '').slice(0, 120) }); return; }
+    const t = String(msg.params?.type ?? msg.type ?? '').slice(0, 60);
+    if (t && (rpcEvents.has(t) || t.includes('error'))) slog('rpc_event', { ch, type: t, method: msg.method === undefined ? undefined : String(msg.method).slice(0, 60) });
+  } catch {}
+}
 const redactProtocols = header => String(header || '').split(',').map(x => x.trim()).map(x => x.startsWith('clover-gateway-ticket.') ? 'clover-gateway-ticket.<redacted>' : x.slice(0, 64)).slice(0, 8);
 const reqFacts = request => ({ ua: (request.headers.get('user-agent') || '').slice(0, 120), protoCount: (request.headers.get('sec-websocket-protocol') || '').split(',').filter(Boolean).length, protocols: redactProtocols(request.headers.get('sec-websocket-protocol')), hasCookie: request.headers.has('cookie'), hasOrigin: request.headers.has('origin'), hasAuthorization: request.headers.has('authorization'), origin: (request.headers.get('origin') || '').slice(0, 200), cfRay: request.headers.get('cf-ray') || '' });
 const reply = (value, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -125,6 +138,7 @@ export class Installation {
               const binary = typeof e.data !== 'string'; const bytes = binary ? new Uint8Array(e.data instanceof Blob ? await e.data.arrayBuffer() : e.data) : new TextEncoder().encode(e.data);
               if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
               if (bytes.length > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
+              rpcLog('rpc_up', m.id, binary ? null : e.data, bytes.length);
               const forward = async () => {
                 const full = () => server.queue && server.queue.length >= server.queueCount;
                 while (full()) {
@@ -253,6 +267,7 @@ export class Installation {
               const data = m.binary ? Uint8Array.from(atob(m.data), c => c.charCodeAt(0)) : m.data;
               if ((m.binary ? data.byteLength : new TextEncoder().encode(data).length) > wsLimit) throw Error('oversize');
               const phone = channel.phone;
+              if (!m.binary) rpcLog('rpc_down', m.id, data, data.length);
               phone.send(m.binary ? data.buffer : data);
               // Hold the connector grant until the phone has consumed this message.
               // This propagates backpressure instead of filling the phone queue.
