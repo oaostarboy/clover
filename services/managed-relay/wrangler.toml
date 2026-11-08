@@ -7,6 +7,7 @@ routes = [{ pattern = "relay.cloverai.ca", custom_domain = true }]
 
 [vars]
 ENROLLMENT_ENABLED = "true"
+ALLOW_LEGACY_TEST_TRANSPORT = "true"
 
 [[durable_objects.bindings]]
 name = "INSTALLATIONS"
