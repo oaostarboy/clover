@@ -426,6 +426,10 @@ export class Directory {
 export class Guard {
   constructor(state, env) { this.state = state; this.env = env; }
   async fetch(request) {
+    try { return await this.guardFetch(request); }
+    catch (e) { slog('guard_error', { name: String(e?.name || ''), msg: String(e?.message || e).slice(0, 160) }); return reply({ error: 'unavailable', detail: 'guard ' + String(e?.name || '') + ': ' + String(e?.message || e).slice(0, 160) }, 503); }
+  }
+  async guardFetch(request) {
     const input = await request.json();
     const { id, secretHash, ip } = input;
     if (new URL(request.url).pathname === '/rate') {
@@ -503,7 +507,7 @@ export default {
         let value;
         try { value = JSON.parse(body); } catch { return reply({ error: 'invalid request' }, 400); }
         if (!value || typeof value !== 'object' || Object.keys(value).sort().join(',') !== 'id,secret' || typeof value.id !== 'string' || typeof value.secret !== 'string' || !/^[a-f0-9]{32}$/.test(value.id) || !/^[a-f0-9]{64}$/.test(value.secret)) return reply({ error: 'invalid request' }, 400);
-        return obj(env.GUARD, 'global').fetch('https://internal/enroll', { method: 'POST', body: JSON.stringify({ id: value.id, secretHash: await hash(value.secret), ip }) });
+        return await obj(env.GUARD, 'global').fetch('https://internal/enroll', { method: 'POST', body: JSON.stringify({ id: value.id, secretHash: await hash(value.secret), ip }) });
       }
       const status = /^\/v1\/installations\/([a-f0-9]{32})\/status$/.exec(url.pathname);
       if (status && request.method === 'GET' && !url.search) return obj(env.INSTALLATIONS, status[1]).fetch(new Request('https://internal/status', request));
@@ -552,7 +556,8 @@ export default {
       return reply({ error: 'not found' }, 404);
     } catch (e) {
       slog('handle_error', { path: (() => { try { return new URL(request.url).pathname; } catch { return ''; } })(), msg: String(e?.message || e).slice(0, 200) });
-      return reply({ error: 'unavailable' }, 503);
+      const detail = (() => { try { return new URL(request.url).pathname === '/v1/installations' ? String(e?.name || '') + ': ' + String(e?.message || e).slice(0, 160) : undefined; } catch { return undefined; } })();
+      return reply(detail ? { error: 'unavailable', detail } : { error: 'unavailable' }, 503);
     }
   }
 };
