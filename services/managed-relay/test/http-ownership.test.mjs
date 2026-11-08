@@ -18,7 +18,7 @@ test('storage failure after HTTP admission releases ownership', async () => {
 
 test('backend error body retains shared HTTP lease until cancellation', async () => {
   const create = () => {
-    const instance = new Installation({ storage: { async get() { return identity; } } }, { ALLOW_TEST_TIMEOUT: 'true', REQUEST_TIMEOUT_MS: '1000' });
+    const instance = new Installation({ storage: { async get() { return identity; } } }, { ALLOW_TEST_TIMEOUT: 'true', REQUEST_TIMEOUT_MS: '1000', MAX_HTTP_INFLIGHT: '1', HTTP_EXCHANGE_MB: '60', HTTP_QUEUE_WAIT_MS: '50' });
     instance.socket = { send() {} }; return instance;
   };
   const first = create(), second = create();
@@ -59,7 +59,7 @@ test('shared live ledger records combined HTTP and synthetic transport weights',
     return release;
   };
   t.after(() => { MemoryLedger.prototype.reserve = original; });
-  const instance = new Installation({ storage: { async get() { return identity; } } }, { ALLOW_TEST_TIMEOUT: 'true', REQUEST_TIMEOUT_MS: '1000' });
+  const instance = new Installation({ storage: { async get() { return identity; } } }, { ALLOW_TEST_TIMEOUT: 'true', REQUEST_TIMEOUT_MS: '1000', MAX_HTTP_INFLIGHT: '1', HTTP_EXCHANGE_MB: '60', HTTP_QUEUE_WAIT_MS: '50' });
   instance.socket = { send() {} };
   const pending = instance.fetch(request());
   while (!instance.pending.size) await new Promise(resolve => setImmediate(resolve));
@@ -115,7 +115,7 @@ test('body deadline keeps its lease until asynchronous reader cancellation compl
 test('stalled backend response deadline cancels source and frees admission', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let cancelled = false;
-  const instance = new Installation({ storage: { async get() { return identity; } } }, { ALLOW_TEST_TIMEOUT: 'true', REQUEST_TIMEOUT_MS: '1000' });
+  const instance = new Installation({ storage: { async get() { return identity; } } }, { ALLOW_TEST_TIMEOUT: 'true', REQUEST_TIMEOUT_MS: '1000', MAX_HTTP_INFLIGHT: '1', HTTP_EXCHANGE_MB: '60', HTTP_QUEUE_WAIT_MS: '50' });
   instance.socket = { send() {} };
   const pending = instance.fetch(request());
   while (!instance.pending.size) await new Promise(resolve => setImmediate(resolve));
@@ -133,7 +133,7 @@ test('response deadline reports immediately but holds lease until cancellation s
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let finishCancel;
   const cancellation = new Promise(resolve => { finishCancel = resolve; });
-  const instance = new Installation({ storage: { async get() { return identity; } } }, { ALLOW_TEST_TIMEOUT: 'true', REQUEST_TIMEOUT_MS: '1000' });
+  const instance = new Installation({ storage: { async get() { return identity; } } }, { ALLOW_TEST_TIMEOUT: 'true', REQUEST_TIMEOUT_MS: '1000', MAX_HTTP_INFLIGHT: '1', HTTP_EXCHANGE_MB: '60', HTTP_QUEUE_WAIT_MS: '50' });
   instance.socket = { send() {} };
   const pending = instance.fetch(request());
   while (!instance.pending.size) await new Promise(resolve => setImmediate(resolve));

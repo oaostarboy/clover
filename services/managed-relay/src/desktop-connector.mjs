@@ -90,9 +90,9 @@ export async function openConnector({ relayOrigin, identity, backendOrigin, allo
       const data = m.binary ? Buffer.from(m.data, 'base64') : m.data; if (Buffer.byteLength(data) > 1048576 || local.bufferedAmount > 2 * 1024 * 1024) { endChannel(m.id); return; }
       local.send(data, { binary: m.binary }, error => { if (error) endChannel(m.id); }); return;
     }
-    if (m.type !== 'http.request' || active >= 2 || !allowMobileRequest(m.method, m.target) || typeof m.body !== 'string' || m.body.length > 11184812 || !validBase64(m.body)) return;
+    if (m.type !== 'http.request' || active >= 16 || !allowMobileRequest(m.method, m.target) || typeof m.body !== 'string' || m.body.length > 11184812 || !validBase64(m.body)) return;
     active++; const job = new AbortController(); httpJobs.add(job);
-    // Transfer ownership into one of two bounded HTTP jobs, acknowledging the
+    // Transfer ownership into one of two bounded HTTP jobs (up to 16), acknowledging the
     // request before its response can begin. These jobs never replay requests.
     // The event-loop turn lets FlowSocket emit the admission ACK first; both
     // ACK and subsequent response use the same ordered connector socket.

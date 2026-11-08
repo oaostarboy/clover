@@ -5,7 +5,7 @@ import { MemoryLedger } from './memory-ledger.mjs';
 // Provisional weighted transport ceiling, not an isolate heap guarantee.
 const sharedMemoryLedger = new MemoryLedger(96 * 1024 * 1024);
 const reserveTransport = weight => sharedMemoryLedger.reserve(weight);
-const HTTP_EXCHANGE_WEIGHT = 60 * 1024 * 1024;
+const HTTP_QUEUE_LIMIT = 64, HTTP_QUEUE_WAIT_MS = 10000;
 
 // Keep the HTTP allocation lease until the consumer drains/cancels the body.
 // A deadline cancels a stalled body rather than releasing a still-retained copy.
@@ -86,8 +86,24 @@ const boundedNumber = (value, fallback, max) => {
 
 // Every durable object endpoint is internal: the public router constructs requests.
 export class Installation {
-  constructor(state, env) { this.state = state; this.env = env; this.socket = null; this.epoch = 0; this.pending = new Map(); this.channels = new Map(); this.controls = Promise.resolve(); this.controlCount = 0; }
-  endPending() { for (const resolve of this.pending.values()) resolve(reply({ error: 'offline' }, 503)); this.pending.clear(); for (const id of [...this.channels.keys()]) this.endChannel(id, 1012, 'connector offline'); }
+  constructor(state, env) { this.state = state; this.env = env; this.socket = null; this.epoch = 0; this.pending = new Map(); this.channels = new Map(); this.controls = Promise.resolve(); this.controlCount = 0; this.httpInFlight = 0; this.httpWaiters = []; }
+  get httpBusy() { return this.httpInFlight > 0; }
+  acquireHttpSlot() {
+    const limit = boundedNumber(this.env.MAX_HTTP_INFLIGHT, 8, 16);
+    if (this.httpInFlight < limit) { this.httpInFlight++; return Promise.resolve('ok'); }
+    if (this.httpWaiters.length >= HTTP_QUEUE_LIMIT) return Promise.resolve('busy');
+    const waitMs = this.env.ALLOW_TEST_TIMEOUT === 'true' ? boundedNumber(this.env.HTTP_QUEUE_WAIT_MS, HTTP_QUEUE_WAIT_MS, HTTP_QUEUE_WAIT_MS) : HTTP_QUEUE_WAIT_MS;
+    return new Promise(resolve => {
+      const w = { resolve: r => { clearTimeout(w.timer); resolve(r); } };
+      w.timer = setTimeout(() => { const i = this.httpWaiters.indexOf(w); if (i >= 0) this.httpWaiters.splice(i, 1); resolve('busy'); }, waitMs);
+      this.httpWaiters.push(w);
+    });
+  }
+  releaseHttpSlot() {
+    const next = this.httpWaiters.shift();
+    if (next) next.resolve('ok'); else this.httpInFlight = Math.max(0, this.httpInFlight - 1);
+  }
+  endPending() { for (const w of this.httpWaiters.splice(0)) { this.httpInFlight++; w.resolve('offline'); } for (const resolve of this.pending.values()) resolve(reply({ error: 'offline' }, 503)); this.pending.clear(); for (const id of [...this.channels.keys()]) this.endChannel(id, 1012, 'connector offline'); }
   endChannel(id, code = 1000, reason = '') {
     slog('channel_end', { ch: cid(id), code, reason });
     const channel = this.channels.get(id); if (!channel) return;
@@ -302,12 +318,13 @@ export class Installation {
       if (!identity?.devices.some(d => d.hash === deviceHash && d.expiresAt > Date.now())) return reply({ error: 'unauthorized' }, 401);
       if (!allowMobileRequest(method, target)) return reply({ error: 'forbidden' }, 403);
       if (!this.socket) return reply({ error: 'offline' }, 503);
-      if (this.httpBusy) return reply({ error: 'busy' }, 503);
-      const lease = sharedMemoryLedger.reserve(HTTP_EXCHANGE_WEIGHT);
-      if (!lease) return reply({ error: 'busy' }, 503);
-      this.httpBusy = true;
+      const slot = await this.acquireHttpSlot();
+      if (slot !== 'ok') { if (slot === 'offline') this.releaseHttpSlot(); return reply({ error: slot }, 503); }
+      if (!this.socket) { this.releaseHttpSlot(); return reply({ error: 'offline' }, 503); }
+      const lease = sharedMemoryLedger.reserve(boundedNumber(this.env.HTTP_EXCHANGE_MB, 12, 60) * 1024 * 1024);
+      if (!lease) { this.releaseHttpSlot(); return reply({ error: 'busy' }, 503); }
       let released = false;
-      const release = () => { if (released) return; released = true; this.httpBusy = false; lease(); };
+      const release = () => { if (released) return; released = true; this.releaseHttpSlot(); lease(); };
       try {
       const id = crypto.randomUUID(), socket = this.socket, epoch = this.epoch;
       let body, cancelling = false;

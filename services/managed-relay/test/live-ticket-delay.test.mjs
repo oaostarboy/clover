@@ -19,7 +19,7 @@ test('late live ticket claim retains admission then cancels the timed-out ticket
   // Test-only delay in the actual workerd Durable Object, not a fake claim result.
   await writeFile(file, bundle.replace(marker, marker + '\n await new Promise(resolve => setTimeout(resolve, 1500));'));
   t.after(() => rm(file, { force: true }));
-  const mf = new Miniflare({ workers: [{ name: 'relay', modules: true, scriptPath: file, compatibilityDate: '2026-07-30', bindings: { ENROLLMENT_ENABLED: 'true', REQUEST_TIMEOUT_MS: '500', ALLOW_TEST_TIMEOUT: 'true' }, durableObjects: { INSTALLATIONS: { className: 'Installation', useSQLite: true }, DIRECTORY: { className: 'Directory', useSQLite: true }, GUARD: { className: 'Guard', useSQLite: true } } }] });
+  const mf = new Miniflare({ workers: [{ name: 'relay', modules: true, scriptPath: file, compatibilityDate: '2026-07-30', bindings: { ENROLLMENT_ENABLED: 'true', REQUEST_TIMEOUT_MS: '500', ALLOW_TEST_TIMEOUT: 'true', MAX_HTTP_INFLIGHT: '1', HTTP_QUEUE_WAIT_MS: '50' }, durableObjects: { INSTALLATIONS: { className: 'Installation', useSQLite: true }, DIRECTORY: { className: 'Directory', useSQLite: true }, GUARD: { className: 'Guard', useSQLite: true } } }] });
   t.after(() => mf.dispose()); const origin = (await mf.ready).origin;
   const dir = await mkdtemp(join(tmpdir(), 'relay-late-ticket-')); t.after(() => rm(dir, { recursive: true, force: true }));
   const { identity } = await ensureEnrolled(origin, join(dir, 'identity'), { allowInsecureLocalhost: true });

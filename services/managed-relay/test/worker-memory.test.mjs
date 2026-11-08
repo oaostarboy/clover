@@ -58,7 +58,7 @@ test('real Worker shares incoming connector reservations across installations an
 test('real Worker phone shares the connector ledger and recovers after overload', { timeout: 30000 }, async t => {
   buildSync({ entryPoints: ['src/worker.mjs'], outfile: 'dist/memory-phone-worker.mjs', bundle: true, format: 'esm', platform: 'neutral' });
   t.after(() => rm('dist/memory-phone-worker.mjs', { force: true }));
-  const mf = new Miniflare({ workers: [{ name: 'relay', modules: true, scriptPath: 'dist/memory-phone-worker.mjs', compatibilityDate: '2026-07-30', bindings: { ENROLLMENT_ENABLED: 'true' }, durableObjects: { INSTALLATIONS: { className: 'Installation', useSQLite: true }, DIRECTORY: { className: 'Directory', useSQLite: true }, GUARD: { className: 'Guard', useSQLite: true } } }] });
+  const mf = new Miniflare({ workers: [{ name: 'relay', modules: true, scriptPath: 'dist/memory-phone-worker.mjs', compatibilityDate: '2026-07-30', bindings: { ENROLLMENT_ENABLED: 'true', HTTP_EXCHANGE_MB: '60' }, durableObjects: { INSTALLATIONS: { className: 'Installation', useSQLite: true }, DIRECTORY: { className: 'Directory', useSQLite: true }, GUARD: { className: 'Guard', useSQLite: true } } }] });
   t.after(() => mf.dispose());
   const identities = Array.from({ length: 4 }, id);
   for (const identity of identities) assert.equal((await mf.dispatchFetch(origin + '/v1/installations', { method: 'POST', body: JSON.stringify(identity) })).status, 201);

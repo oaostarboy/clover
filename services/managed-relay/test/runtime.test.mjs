@@ -169,7 +169,7 @@ test('expired device stops routing', async t => {
 });
 
 test('one potentially large HTTP exchange remains in flight per installation', async t => {
-  const mf = await start(); t.after(() => mf.dispose());
+  const mf = await start({ MAX_HTTP_INFLIGHT: '1', HTTP_QUEUE_WAIT_MS: '50' }); t.after(() => mf.dispose());
   const identity = makeIdentity(), token = 'cdt_' + randomBytes(32).toString('hex');
   await enroll(mf, identity); const connector = await connect(mf, identity, token, 'desktop'); t.after(() => connector.ws.close());
   const headers = { Authorization: `Bearer ${token}` };

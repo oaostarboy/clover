@@ -191,3 +191,20 @@ test('phone burst of 40 messages is forwarded through the flow connector without
   await Promise.race([done, new Promise((_, rej) => setTimeout(() => rej(new Error(`only ${got.size}/40 echoes, closed=${closed}`)), 15000))]);
   assert.equal(got.size, 40); assert.equal(closed, false);
 });
+
+test('six parallel phone HTTP requests all succeed through one connector', { timeout: 20000 }, async t => {
+  buildSync({ entryPoints: ['src/worker.mjs'], outfile: 'dist/worker.mjs', bundle: true, format: 'esm', platform: 'neutral' });
+  const mf = new Miniflare({ workers: [{ name: 'relay', modules: true, scriptPath: 'dist/worker.mjs', compatibilityDate: '2026-07-30', bindings: { ENROLLMENT_ENABLED: 'true' }, durableObjects: { INSTALLATIONS: { className: 'Installation', useSQLite: true }, DIRECTORY: { className: 'Directory', useSQLite: true }, GUARD: { className: 'Guard', useSQLite: true } } }] });
+  t.after(() => mf.dispose()); const origin = (await mf.ready).origin;
+  const dir = await mkdtemp(join(tmpdir(), 'relay-par-')); t.after(() => rm(dir, { recursive: true, force: true }));
+  const { identity } = await ensureEnrolled(origin, join(dir, 'identity'), { allowInsecureLocalhost: true });
+  const token = 'cdt_' + randomBytes(32).toString('hex');
+  // Backend answers in reverse order so responses return out of order.
+  const backend = createServer((req, res) => { const n = Number(new URL(req.url, 'http://x').searchParams.get('limit')) - 1; setTimeout(() => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ n })); }, (6 - n) * 40); });
+  await new Promise(resolve => backend.listen(0, '127.0.0.1', resolve)); t.after(() => { backend.closeAllConnections(); backend.close(); });
+  const connector = await openConnector({ relayOrigin: origin, identity, backendOrigin: `http://127.0.0.1:${backend.address().port}`, allowInsecureLocalhost: true });
+  t.after(() => connector.close());
+  await connector.replaceDevices([{ hash: createHash('sha256').update(token).digest('hex'), expiresAt: Date.now() + 60000 }]);
+  const results = await Promise.all(Array.from({ length: 6 }, async (_, n) => { const r = await fetch(origin + '/api/sessions?limit=' + (n + 1), { headers: { Authorization: `Bearer ${token}` } }); return [r.status, r.status === 200 ? await r.json() : null]; }));
+  assert.deepEqual(results.map(r => r[0]), Array(6).fill(200));
+});
