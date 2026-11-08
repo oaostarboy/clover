@@ -427,39 +427,42 @@ export class Guard {
   constructor(state, env) { this.state = state; this.env = env; }
   async fetch(request) {
     const input = await request.json();
-    return this.state.blockConcurrencyWhile(async () => {
-      const { id, secretHash, ip } = input;
-      if (new URL(request.url).pathname === '/rate') {
-        const bucket = Math.floor(Date.now() / 60000);
-        const old = await this.state.storage.get('rate-bucket');
-        const counts = old?.bucket === bucket ? old.counts : {};
-        const count = counts[ip] || 0;
-        if (!count && Object.keys(counts).length >= boundedNumber(this.env.MAX_TRACKED_IPS, 1024, 1024)) return reply({ error: 'rate limited' }, 429);
-        if (count >= boundedNumber(this.env.MAX_REQUESTS_PER_IP_MINUTE, 120, 100000)) return reply({ error: 'rate limited' }, 429);
-        counts[ip] = count + 1;
-        await this.state.storage.put('rate-bucket', { bucket, counts });
-        return reply({ ok: true });
-      }
+    const { id, secretHash, ip } = input;
+    if (new URL(request.url).pathname === '/rate') {
+      // In-memory only: no storage, no blockConcurrencyWhile. DO JS is single-threaded, so this is atomic.
+      const bucket = Math.floor(Date.now() / 60000);
+      if (!this.rate || this.rate.bucket !== bucket) this.rate = { bucket, counts: new Map() };
+      const counts = this.rate.counts;
+      const count = counts.get(ip) || 0;
+      if (!count && counts.size >= boundedNumber(this.env.MAX_TRACKED_IPS, 1024, 1024)) return reply({ error: 'rate limited' }, 429);
+      if (count >= boundedNumber(this.env.MAX_REQUESTS_PER_IP_MINUTE, 120, 100000)) return reply({ error: 'rate limited' }, 429);
+      counts.set(ip, count + 1);
+      return reply({ ok: true });
+    }
+    const early = await this.state.blockConcurrencyWhile(async () => {
       const allocation = await this.state.storage.get(`installation:${id}`);
-      if (allocation && allocation !== secretHash) return reply({ error: 'conflict' }, 409);
+      if (allocation && allocation !== secretHash) return { response: reply({ error: 'conflict' }, 409) };
       if (!allocation) {
         const max = boundedNumber(this.env.MAX_INSTALLATIONS, 1000, 1000000);
         const count = (await this.state.storage.get('count')) || 0;
-        if (count >= max) return reply({ error: 'enrollment unavailable' }, 429);
+        if (count >= max) return { response: reply({ error: 'enrollment unavailable' }, 429) };
         const day = Math.floor(Date.now() / 86400000);
         const key = `daily:${ip}`;
         const previous = await this.state.storage.get(key);
         const daily = previous?.day === day ? previous.count : 0;
-        if (daily >= boundedNumber(this.env.MAX_ENROLLMENTS_PER_IP_DAY, 10, 10000)) return reply({ error: 'enrollment unavailable' }, 429);
+        if (daily >= boundedNumber(this.env.MAX_ENROLLMENTS_PER_IP_DAY, 10, 10000)) return { response: reply({ error: 'enrollment unavailable' }, 429) };
         // Reserve verifier and both quotas atomically before any cross-object call.
         await this.state.storage.put({ [`installation:${id}`]: secretHash, count: count + 1, [key]: { day, count: daily + 1 } });
       }
-      const result = await obj(this.env.INSTALLATIONS, id).fetch('https://internal/initialize', {
-        method: 'POST', body: JSON.stringify({ id, secretHash })
-      });
-      if (result.status !== 201 && result.status !== 200) return reply({ error: 'unavailable' }, 503);
-      return reply({ id }, allocation ? 200 : 201);
+      return { existing: !!allocation };
     });
+    if (early.response) return early.response;
+    // Cross-object call happens OUTSIDE the input gate.
+    const result = await obj(this.env.INSTALLATIONS, id).fetch('https://internal/initialize', {
+      method: 'POST', body: JSON.stringify({ id, secretHash })
+    });
+    if (result.status !== 201 && result.status !== 200) return reply({ error: 'unavailable' }, 503);
+    return reply({ id }, early.existing ? 200 : 201);
   }
 }
 
@@ -478,8 +481,17 @@ export default {
       const started = Date.now();
       const url = new URL(request.url);
       const ip = await hash(request.headers.get('CF-Connecting-IP') || 'unknown');
-      const allowed = await obj(env.GUARD, 'global').fetch('https://internal/rate', { method: 'POST', body: JSON.stringify({ ip }) });
-      if (!allowed.ok) return reply({ error: 'rate limited' }, 429);
+      let limited = false;
+      try {
+        let timer;
+        const allowed = await Promise.race([
+          obj(env.GUARD, 'global').fetch('https://internal/rate', { method: 'POST', body: JSON.stringify({ ip }) }),
+          new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('guard rate timeout')), 1500); })
+        ]).finally(() => clearTimeout(timer));
+        if (allowed.status === 429) limited = true;
+        else if (!allowed.ok) slog('guard_rate_error', { msg: 'status ' + allowed.status });
+      } catch (e) { slog('guard_rate_error', { msg: String(e?.message || e).slice(0, 200) }); }
+      if (limited) return reply({ error: 'rate limited' }, 429);
       const declaredLength = request.headers.get('content-length');
       if (declaredLength !== null && !/^(?:0|[1-9][0-9]{0,15})$/.test(declaredLength)) return reply({ error: 'invalid request' }, 400);
       if (url.pathname === '/v1/installations' && request.method === 'POST') {
@@ -538,7 +550,8 @@ export default {
         return obj(env.INSTALLATIONS, id).fetch('https://internal/forward', { method: 'POST', headers, body: request.body });
       }
       return reply({ error: 'not found' }, 404);
-    } catch {
+    } catch (e) {
+      slog('handle_error', { path: (() => { try { return new URL(request.url).pathname; } catch { return ''; } })(), msg: String(e?.message || e).slice(0, 200) });
       return reply({ error: 'unavailable' }, 503);
     }
   }
