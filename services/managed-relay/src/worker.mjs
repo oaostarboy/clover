@@ -76,6 +76,7 @@ const stableProtocol = 'clover-gateway-v1';
 const phoneFlowProtocol = 'clover-relay-flow-v1';
 const ticketPrefix = 'clover-gateway-ticket.';
 const wsLimit = 1024 * 1024;
+const FORWARD_QUEUE_BYTES = 8 * 1024 * 1024;
 const validTicket = ticket => typeof ticket === 'string' && /^[A-Za-z0-9_-]{16,256}$/.test(ticket);
 const validId = id => typeof id === 'string' && /^[a-zA-Z0-9-]{1,128}$/.test(id);
 const validBase64 = s => typeof s === 'string' && s.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(s);
@@ -127,17 +128,26 @@ export class Installation {
               const forward = async () => {
                 const full = () => server.queue && server.queue.length >= server.queueCount;
                 while (full()) {
+                  // One shared drain/close listener per link; channels park a wake fn that endChannel also calls.
                   await new Promise(resolve => {
-                    const wake = () => { server.removeEventListener('drain', wake); server.removeEventListener('close', wake); resolve(); };
-                    server.addEventListener('drain', wake, { once: true }); server.addEventListener('close', wake, { once: true });
+                    if (!server.linkWaiters) {
+                      const set = server.linkWaiters = new Set();
+                      const wakeAll = () => { for (const w of [...set]) w(); };
+                      server.addEventListener('drain', wakeAll); server.addEventListener('close', wakeAll);
+                    }
+                    channel.waiters ||= new Set();
+                    const done = () => { channel.waiters.delete(done); server.linkWaiters.delete(done); resolve(); };
+                    channel.waiters.add(done); server.linkWaiters.add(done);
+                    if (!full()) done();
                   });
                   if (this.channels.get(m.id) !== channel || epoch !== this.epoch || server.closed || server.readyState > 1) return;
                 }
                 server.send(JSON.stringify({ type: 'ws.data', id: m.id, binary, data: binary ? base64(bytes) : e.data }));
               };
-              channel.pendingFwd = (channel.pendingFwd || 0) + 1;
-              if (channel.pendingFwd > 256) { this.endChannel(m.id, 1008, 'too many pending'); return; }
-              channel.fwd = (channel.fwd || Promise.resolve()).then(forward).catch(() => this.endChannel(m.id, 1011, 'transport error')).finally(() => { channel.pendingFwd--; });
+              const cost = bytes.length + 256;
+              channel.pendingFwdBytes = (channel.pendingFwdBytes || 0) + cost;
+              if (channel.pendingFwdBytes > FORWARD_QUEUE_BYTES) { this.endChannel(m.id, 1008, 'too many pending'); return; }
+              channel.fwd = (channel.fwd || Promise.resolve()).then(forward).catch(() => this.endChannel(m.id, 1011, 'transport error')).finally(() => { channel.pendingFwdBytes -= cost; });
             });
             const closePhone = e => { slog('phone_socket_close', { ch: cid(m.id), type: e?.type, code: e?.code, reason: String(e?.reason || '').slice(0, 80) }); if (this.channels.get(m.id) !== channel) return; try { server.send(JSON.stringify({ type: 'ws.close', id: m.id, code: 1000, reason: '' })); } catch {} this.endChannel(m.id); };
             phone.addEventListener('close', closePhone); phone.addEventListener('error', closePhone);
