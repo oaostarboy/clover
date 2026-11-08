@@ -323,6 +323,19 @@ test('managed phone requires flow negotiation and relays through bounded framing
   phone.send('hello'); assert.equal(await received,'bounded:hello');
 });
 
+test('PHONE_FLOW=off selects the plain protocol even when the phone offers flow', { timeout: 5000 }, async t => {
+  const mf = await start({ PHONE_FLOW: 'off' }); t.after(() => mf.dispose());
+  const identity = makeIdentity(), token = 'cdt_' + randomBytes(32).toString('hex'); await enroll(mf, identity);
+  const connector = await connect(mf, identity, token, 'plain'); t.after(() => connector.ws.close());
+  const minted = await (await mf.dispatchFetch(origin + '/api/auth/ws-ticket', {method:'POST',headers:{Authorization:`Bearer ${token}`}})).json();
+  const headers = { Upgrade:'websocket','Sec-WebSocket-Protocol': `clover-relay-flow-v1, clover-gateway-v1, clover-gateway-ticket.${minted.ticket}` };
+  const r = await mf.dispatchFetch(origin + '/api/ws', {headers}); assert.equal(r.status,101);
+  assert.equal(r.headers.get('Sec-WebSocket-Protocol'),'clover-gateway-v1');
+  const phone = r.webSocket; phone.accept(); t.after(() => phone.close());
+  const received = new Promise(resolve => phone.addEventListener('message', e => resolve(e.data), {once:true}));
+  phone.send('hello'); assert.equal(await received,'plain:hello');
+});
+
 test('native WebSocket ticket transport', async t => {
   const mf = await start(); t.after(() => mf.dispose());
   const a = makeIdentity(); await enroll(mf, a);

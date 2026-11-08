@@ -12,6 +12,9 @@ head_sampling_rate = 1
 [vars]
 ENROLLMENT_ENABLED = "true"
 ALLOW_LEGACY_TEST_TRANSPORT = "true"
+# iOS Build 54's flow client drops the socket on its opening request burst (send queue capped at 16).
+# Serve phones the plain gateway protocol until a fixed iOS build ships, then remove this.
+PHONE_FLOW = "off"
 
 [[durable_objects.bindings]]
 name = "INSTALLATIONS"

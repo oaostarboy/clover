@@ -455,7 +455,11 @@ export default {
         const result = await obj(env.DIRECTORY, `ticket:${await hash(ticket)}`).fetch('https://internal/ticket-consume', { method: 'POST' });
         if (!result.ok) return R({ error: 'unauthorized' }, 401, 'ticket_consume_failed');
         const { id, deviceHash } = await result.json();
-        const forwarded = await obj(env.INSTALLATIONS, id).fetch('https://internal/open-ws', { method: 'GET', headers: { Upgrade: 'websocket', 'x-relay-ticket': ticket, 'x-relay-device-hash': deviceHash, 'x-relay-phone-flow': flow ? 'v1' : 'legacy' } });
+        // PHONE_FLOW=off: select the plain gateway protocol even when the phone also offers flow.
+        // iOS Build 54's flow client caps its send queue at 16 and tears the socket down on its
+        // opening request burst; the plain protocol (same one direct gateways use) has no such cap.
+        const useFlow = flow && env.PHONE_FLOW !== 'off';
+        const forwarded = await obj(env.INSTALLATIONS, id).fetch('https://internal/open-ws', { method: 'GET', headers: { Upgrade: 'websocket', 'x-relay-ticket': ticket, 'x-relay-device-hash': deviceHash, 'x-relay-phone-flow': useFlow ? 'v1' : 'legacy' } });
         reasons.set(request, forwarded.status === 101 ? 'forward_ok' : 'forward_status_' + forwarded.status);
         return forwarded;
       }
