@@ -108,7 +108,20 @@ export class Installation {
               const binary = typeof e.data !== 'string'; const bytes = binary ? new Uint8Array(e.data instanceof Blob ? await e.data.arrayBuffer() : e.data) : new TextEncoder().encode(e.data);
               if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
               if (bytes.length > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
-              try { server.send(JSON.stringify({ type: 'ws.data', id: m.id, binary, data: binary ? base64(bytes) : e.data })); } catch { this.endChannel(m.id, 1011, 'transport error'); }
+              const forward = async () => {
+                const full = () => server.queue && server.queue.length >= server.queueCount;
+                while (full()) {
+                  await new Promise(resolve => {
+                    const wake = () => { server.removeEventListener('drain', wake); server.removeEventListener('close', wake); resolve(); };
+                    server.addEventListener('drain', wake, { once: true }); server.addEventListener('close', wake, { once: true });
+                  });
+                  if (this.channels.get(m.id) !== channel || epoch !== this.epoch || server.closed || server.readyState > 1) return;
+                }
+                server.send(JSON.stringify({ type: 'ws.data', id: m.id, binary, data: binary ? base64(bytes) : e.data }));
+              };
+              channel.pendingFwd = (channel.pendingFwd || 0) + 1;
+              if (channel.pendingFwd > 256) { this.endChannel(m.id, 1008, 'too many pending'); return; }
+              channel.fwd = (channel.fwd || Promise.resolve()).then(forward).catch(() => this.endChannel(m.id, 1011, 'transport error')).finally(() => { channel.pendingFwd--; });
             });
             const closePhone = e => { slog('phone_socket_close', { ch: cid(m.id), type: e?.type, code: e?.code, reason: String(e?.reason || '').slice(0, 80) }); if (this.channels.get(m.id) !== channel) return; try { server.send(JSON.stringify({ type: 'ws.close', id: m.id, code: 1000, reason: '' })); } catch {} this.endChannel(m.id); };
             phone.addEventListener('close', closePhone); phone.addEventListener('error', closePhone);
