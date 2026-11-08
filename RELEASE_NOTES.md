@@ -15,6 +15,11 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.3 | Clover C2.0.3 | 2026-11-08
+- The desktop app now sets up phone access for you automatically, with no gateway setup needed.
+- Scan the QR code in desktop settings and your phone connects through Clover's secure relay.
+- Computer control now respects your explicit permission and clicks more reliably.
+
 ## 2.0.2.12 | Clover C2.0.2.12 | 2026-11-07
 - Pair a phone with Clover using a QR code from desktop settings.
 - Phone access uses device-specific permissions, and you can revoke a paired device.
