@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process'
+import { createDesktopPairing } from '../../../services/managed-relay/src/desktop-pairing.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
@@ -12088,6 +12089,11 @@ async function startClover() {
   })
 
   backendConnectionState.setPromise(connectionAttempt, connectionPromise)
+  // Warm managed phone routing without delaying desktop readiness or spawning
+  // another gateway. Explicitly configured remote/direct connections are kept.
+  void connectionPromise.then(connection => desktopPhonePairing.status(
+    JSON.stringify(['legacy', primaryProfile]), primaryProfile, connection
+  )).catch(() => { /* Pairing surface reports a retryable failure; no secrets in logs. */ })
 
   return connectionPromise
 }
@@ -15280,7 +15286,27 @@ async function teardownConnectionScopedProfileBackend(connectionId, profile) {
   ])
 }
 
+const desktopPhonePairing = createDesktopPairing({
+  identityPath: scope => path.join(app.getPath('userData'), 'mobile-relay', crypto.createHash('sha256').update(scope).digest('hex') + '.json'),
+  request: (connection, requestPath, options = {}) => fetchJsonForBackend(connection, requestPath, { ...options, timeoutMs: 15000 })
+})
+app.on('will-quit', () => desktopPhonePairing.close())
+
+async function handleDesktopPhonePairing(request) {
+  const profile = String(request?.profile || primaryProfileKey())
+  const connectionId = apiRequestRegistryConnectionId(request)
+  const connection = connectionId ? await ensureRegistryBackend(connectionId, profile) : await ensureBackend(profile)
+  const scope = JSON.stringify([connectionId || 'legacy', profile])
+  if ((request?.method || 'GET').toUpperCase() === 'POST') {
+    return desktopPhonePairing.pair(scope, profile, connection)
+  }
+  return desktopPhonePairing.status(scope, profile, connection)
+}
+
 async function handleCloverApiRequest(request) {
+  if (request?.path === '/api/mobile/pairing' && ['GET', 'POST'].includes((request?.method || 'GET').toUpperCase())) {
+    return handleDesktopPhonePairing(request)
+  }
   // Registry-pinned request (request.connectionId): the renderer is working
   // against a REGISTERED gateway connection, so the data — cron jobs and their
   // run sessions included — lives in THAT host's state.db, not any local

@@ -209,6 +209,23 @@ class DeviceStore:
         with self._transaction():
             return [self.public(d, now) for d in self._load() if self._active(d, now)]
 
+    def relay_devices(self, profile: str) -> List[Dict[str, Any]]:
+        """Routing grants only; never disclose bearer credentials or owner keys."""
+        now = self._clock()
+        with self._transaction():
+            result = []
+            for device in self._load():
+                if device.get("profile") != profile or not self._active(device, now):
+                    continue
+                digest = device.get("token_hash", "")
+                if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+                    continue
+                expires = float(device["created_at"]) + ACTIVE_TOKEN_TTL_SECONDS
+                if device.get("last_seen_at") is None:
+                    expires = min(expires, float(device["created_at"]) + UNUSED_CODE_TTL_SECONDS)
+                result.append({"hash": digest, "expiresAt": int(expires * 1000)})
+            return result
+
     def revoke(self, device_id: str) -> bool:
         with self._transaction():
             devices = list(self._load())
@@ -324,6 +341,16 @@ def pairing_status(config: Dict[str, Any], api_key: Optional[str]) -> Dict[str, 
     if len((api_key or "").strip()) < 6:
         return {"configured": False, "reason": "no_gateway_key", "origin": origin}
     return {"configured": True, "reason": None, "origin": origin}
+
+
+def create_relay_pairing(store: DeviceStore) -> Dict[str, Any]:
+    """Owner-only desktop mint; Electron registers its hash before exposing QR."""
+    origin = "https://relay.cloverai.ca"
+    dev = store.create("iPhone")
+    token = dev.pop("token")
+    uri = f"clover://pair?origin={quote(origin, safe='')}&token={quote(token, safe='')}"
+    return {"configured": True, "reason": None, "origin": origin, "managed": True,
+            "device": dev, "uri": uri, "token": token, "expires_in": UNUSED_CODE_TTL_SECONDS}
 
 
 def create_pairing(config: Dict[str, Any], api_key: Optional[str], store: DeviceStore, name: str = "iPhone") -> Dict[str, Any]:

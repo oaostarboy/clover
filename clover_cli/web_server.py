@@ -7455,6 +7455,30 @@ async def create_mobile_pairing():
     )
 
 
+@app.get("/api/mobile/relay/devices")
+async def mobile_relay_devices(request: Request):
+    # Only the authenticated local desktop may administer managed routing.
+    if getattr(app.state, "auth_required", False) or not _has_valid_session_token(request):
+        raise HTTPException(status_code=401, detail="Desktop owner required")
+    from clover_cli.mobile_pairing import get_device_store
+    from clover_cli.profiles import get_active_profile_name
+    import hashlib
+    import json
+    profile = get_active_profile_name()
+    store = get_device_store()
+    identity = json.dumps([str(store.path.resolve()), profile], ensure_ascii=False, separators=(",", ":"))
+    gateway_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    return {"profile": profile, "gatewayId": gateway_id, "devices": await asyncio.to_thread(store.relay_devices, profile)}
+
+
+@app.post("/api/mobile/relay/pairing")
+async def mobile_relay_pairing(request: Request):
+    if getattr(app.state, "auth_required", False) or not _has_valid_session_token(request):
+        raise HTTPException(status_code=401, detail="Desktop owner required")
+    from clover_cli.mobile_pairing import create_relay_pairing, get_device_store
+    return await asyncio.to_thread(create_relay_pairing, get_device_store())
+
+
 @app.get("/api/mobile/devices")
 async def list_mobile_devices():
     from clover_cli.mobile_pairing import get_device_store
