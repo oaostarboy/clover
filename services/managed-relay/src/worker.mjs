@@ -91,6 +91,23 @@ export class Installation {
     if (channel.finish) { const finish = channel.finish; channel.finish = null; finish(reply({ error: 'unavailable' }, 503)); }
     if (channel.phone) { try { channel.phone.close(code, reason); } catch {} }
   }
+  async openPhone(m, channel, epoch, server) {
+            const identity = await this.state.storage.get('identity');
+            if (epoch !== this.epoch || this.channels.get(m.id) !== channel || !identity?.devices.some(d => d.hash === channel.deviceHash && d.expiresAt > Date.now())) { this.endChannel(m.id, 1008, 'device revoked'); return; }
+            const [client, rawPhone] = Object.values(new WebSocketPair()); rawPhone.accept(); rawPhone.binaryType = 'arraybuffer';
+            const phone = channel.flow ? new FlowSocket(rawPhone, { reserve: reserveTransport }) : rawPhone; channel.phone = phone;
+            phone.addEventListener('message', async e => {
+              if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
+              if (e.data instanceof Blob && e.data.size > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
+              const binary = typeof e.data !== 'string'; const bytes = binary ? new Uint8Array(e.data instanceof Blob ? await e.data.arrayBuffer() : e.data) : new TextEncoder().encode(e.data);
+              if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
+              if (bytes.length > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
+              try { server.send(JSON.stringify({ type: 'ws.data', id: m.id, binary, data: binary ? base64(bytes) : e.data })); } catch { this.endChannel(m.id, 1011, 'transport error'); }
+            });
+            const closePhone = () => { if (this.channels.get(m.id) !== channel) return; try { server.send(JSON.stringify({ type: 'ws.close', id: m.id, code: 1000, reason: '' })); } catch {} this.endChannel(m.id); };
+            phone.addEventListener('close', closePhone); phone.addEventListener('error', closePhone);
+            clearTimeout(channel.timer); const finish = channel.finish; channel.finish = null; finish(new Response(null, { status: 101, webSocket: client, headers: { 'Sec-WebSocket-Protocol': channel.flow ? phoneFlowProtocol : stableProtocol } }));
+  }
   revokeChannels(devices) {
     const now = Date.now();
     for (const [id, channel] of this.channels) {
@@ -177,22 +194,13 @@ export class Installation {
           const channel = this.channels.get(m.id); if (!channel || channel.epoch !== epoch) return;
           if (m.type === 'ws.opened') {
             if (!channel.finish || m.protocol !== stableProtocol) { this.endChannel(m.id, 1008, 'invalid protocol'); return; }
-            const identity = await this.state.storage.get('identity');
-            if (epoch !== this.epoch || this.channels.get(m.id) !== channel || !identity?.devices.some(d => d.hash === channel.deviceHash && d.expiresAt > Date.now())) { this.endChannel(m.id, 1008, 'device revoked'); return; }
-            const [client, rawPhone] = Object.values(new WebSocketPair()); rawPhone.accept(); rawPhone.binaryType = 'arraybuffer';
-            const phone = channel.flow ? new FlowSocket(rawPhone, { reserve: reserveTransport }) : rawPhone; channel.phone = phone;
-            phone.addEventListener('message', async e => {
-              if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
-              if (e.data instanceof Blob && e.data.size > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
-              const binary = typeof e.data !== 'string'; const bytes = binary ? new Uint8Array(e.data instanceof Blob ? await e.data.arrayBuffer() : e.data) : new TextEncoder().encode(e.data);
-              if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
-              if (bytes.length > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
-              try { server.send(JSON.stringify({ type: 'ws.data', id: m.id, binary, data: binary ? base64(bytes) : e.data })); } catch { this.endChannel(m.id, 1011, 'transport error'); }
-            });
-            const closePhone = () => { if (this.channels.get(m.id) !== channel) return; try { server.send(JSON.stringify({ type: 'ws.close', id: m.id, code: 1000, reason: '' })); } catch {} this.endChannel(m.id); };
-            phone.addEventListener('close', closePhone); phone.addEventListener('error', closePhone);
-            clearTimeout(channel.timer); const finish = channel.finish; channel.finish = null; finish(new Response(null, { status: 101, webSocket: client, headers: { 'Sec-WebSocket-Protocol': channel.flow ? phoneFlowProtocol : stableProtocol } }));
-          } else if (m.type === 'ws.error') this.endChannel(m.id, 1011, 'backend unavailable');
+            // ws.data from the connector can arrive while we await storage; make it wait for the phone socket.
+            let opened; channel.opening = new Promise(r => { opened = r; });
+            try { await this.openPhone(m, channel, epoch, server); } finally { channel.opening = null; opened(); }
+            return;
+          }
+          if (channel.opening && m.type !== 'ws.error' && m.type !== 'ws.close') { await channel.opening; if (this.channels.get(m.id) !== channel || channel.epoch !== this.epoch) return; }
+          if (m.type === 'ws.error') this.endChannel(m.id, 1011, 'backend unavailable');
           else if (m.type === 'ws.close') this.endChannel(m.id, 1000, '');
           else {
             if (!channel.phone || typeof m.binary !== 'boolean' || typeof m.data !== 'string' || m.data.length > (m.binary ? 1398104 : wsLimit) || (m.binary && !validBase64(m.data))) { this.endChannel(m.id, 1008, 'invalid frame'); return; }
