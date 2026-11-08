@@ -43,6 +43,11 @@ function leasedResponse(response, release) {
 const hex = (bytes) => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join('');
 const hash = async value => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
 const obj = (ns, name) => ns.get(ns.idFromName(name));
+const reasons = new WeakMap();
+const slog = (event, data = {}) => { try { console.log(JSON.stringify({ event, ...data })); } catch {} };
+const cid = id => String(id || '').slice(0, 8);
+const redactProtocols = header => String(header || '').split(',').map(x => x.trim()).map(x => x.startsWith('clover-gateway-ticket.') ? 'clover-gateway-ticket.<redacted>' : x.slice(0, 64)).slice(0, 8);
+const reqFacts = request => ({ ua: (request.headers.get('user-agent') || '').slice(0, 120), protoCount: (request.headers.get('sec-websocket-protocol') || '').split(',').filter(Boolean).length, protocols: redactProtocols(request.headers.get('sec-websocket-protocol')), hasCookie: request.headers.has('cookie'), hasOrigin: request.headers.has('origin'), hasAuthorization: request.headers.has('authorization'), origin: (request.headers.get('origin') || '').slice(0, 200), cfRay: request.headers.get('cf-ray') || '' });
 const reply = (value, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 let bodyReads = 0;
 async function readBytes(request, limit, timeout = 10000, onCancel = () => {}) {
@@ -84,6 +89,7 @@ export class Installation {
   constructor(state, env) { this.state = state; this.env = env; this.socket = null; this.epoch = 0; this.pending = new Map(); this.channels = new Map(); this.controls = Promise.resolve(); this.controlCount = 0; }
   endPending() { for (const resolve of this.pending.values()) resolve(reply({ error: 'offline' }, 503)); this.pending.clear(); for (const id of [...this.channels.keys()]) this.endChannel(id, 1012, 'connector offline'); }
   endChannel(id, code = 1000, reason = '') {
+    slog('channel_end', { ch: cid(id), code, reason });
     const channel = this.channels.get(id); if (!channel) return;
     this.channels.delete(id); clearTimeout(channel.timer); clearTimeout(channel.expiryTimer);
     for (const done of channel.waiters || []) done();
@@ -104,9 +110,9 @@ export class Installation {
               if (bytes.length > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
               try { server.send(JSON.stringify({ type: 'ws.data', id: m.id, binary, data: binary ? base64(bytes) : e.data })); } catch { this.endChannel(m.id, 1011, 'transport error'); }
             });
-            const closePhone = () => { if (this.channels.get(m.id) !== channel) return; try { server.send(JSON.stringify({ type: 'ws.close', id: m.id, code: 1000, reason: '' })); } catch {} this.endChannel(m.id); };
+            const closePhone = e => { slog('phone_socket_close', { ch: cid(m.id), type: e?.type, code: e?.code, reason: String(e?.reason || '').slice(0, 80) }); if (this.channels.get(m.id) !== channel) return; try { server.send(JSON.stringify({ type: 'ws.close', id: m.id, code: 1000, reason: '' })); } catch {} this.endChannel(m.id); };
             phone.addEventListener('close', closePhone); phone.addEventListener('error', closePhone);
-            clearTimeout(channel.timer); const finish = channel.finish; channel.finish = null; finish(new Response(null, { status: 101, webSocket: client, headers: { 'Sec-WebSocket-Protocol': channel.flow ? phoneFlowProtocol : stableProtocol } }));
+            slog('channel_opened_101', { ch: cid(m.id) }); clearTimeout(channel.timer); const finish = channel.finish; channel.finish = null; finish(new Response(null, { status: 101, webSocket: client, headers: { 'Sec-WebSocket-Protocol': channel.flow ? phoneFlowProtocol : stableProtocol } }));
   }
   revokeChannels(devices) {
     const now = Date.now();
@@ -200,7 +206,7 @@ export class Installation {
             return;
           }
           if (channel.opening && m.type !== 'ws.error' && m.type !== 'ws.close') { await channel.opening; if (this.channels.get(m.id) !== channel || channel.epoch !== this.epoch) return; }
-          if (m.type === 'ws.error') this.endChannel(m.id, 1011, 'backend unavailable');
+          if (m.type === 'ws.error') { slog('connector_ws_error', { ch: cid(m.id) }); this.endChannel(m.id, 1011, 'backend unavailable'); }
           else if (m.type === 'ws.close') this.endChannel(m.id, 1000, '');
           else {
             if (!channel.phone || typeof m.binary !== 'boolean' || typeof m.data !== 'string' || m.data.length > (m.binary ? 1398104 : wsLimit) || (m.binary && !validBase64(m.data))) { this.endChannel(m.id, 1008, 'invalid frame'); return; }
@@ -260,13 +266,14 @@ export class Installation {
     if (url.pathname === '/open-ws' && request.method === 'GET') {
       const ticket = request.headers.get('x-relay-ticket'), deviceHash = request.headers.get('x-relay-device-hash'); const identity = await this.state.storage.get('identity');
       const device = identity?.devices.find(d => d.hash === deviceHash && d.expiresAt > Date.now());
-      if (!device || !validTicket(ticket)) return reply({ error: 'unauthorized' }, 401);
-      if (!this.socket) return reply({ error: 'offline' }, 503);
-      if (this.channels.size >= 4) return reply({ error: 'busy' }, 503);
+      if (!device || !validTicket(ticket)) { slog('open_ws_reject', { reason: 'open_ws_unauthorized' }); return reply({ error: 'unauthorized' }, 401); }
+      if (!this.socket) { slog('open_ws_reject', { reason: 'open_ws_offline' }); return reply({ error: 'offline' }, 503); }
+      if (this.channels.size >= 4) { slog('open_ws_reject', { reason: 'open_ws_busy' }); return reply({ error: 'busy' }, 503); }
       const id = crypto.randomUUID(), socket = this.socket, epoch = this.epoch;
       return await new Promise(resolve => {
         const channel = { deviceHash, epoch, socket, finish: resolve, phone: null, flow: request.headers.get('x-relay-phone-flow') === 'v1' };
         this.channels.set(id, channel);
+        slog('channel_open_requested', { ch: cid(id), flow: channel.flow });
         const configured = boundedNumber(this.env.REQUEST_TIMEOUT_MS, 15000, 120000);
         const timeout = this.env.ALLOW_TEST_TIMEOUT === 'true' ? Math.max(100, configured) : Math.max(5000, configured);
         channel.timer = setTimeout(() => this.endChannel(id, 1011, 'deadline exceeded'), timeout);
@@ -398,6 +405,15 @@ export class Guard {
 
 export default {
   async fetch(request, env) {
+    const response = await this.handle(request, env);
+    try {
+      const path = new URL(request.url).pathname;
+      if (path === '/api/ws' || path === '/api/auth/ws-ticket' || (path.startsWith('/api/') && response.status >= 400)) slog('api_request', { path, method: request.method, status: response.status, reason: reasons.get(request), ...reqFacts(request) });
+    } catch {}
+    return response;
+  },
+  async handle(request, env) {
+    const R = (value, status, reason) => { reasons.set(request, reason); return reply(value, status); };
     try {
       const started = Date.now();
       const url = new URL(request.url);
@@ -422,19 +438,26 @@ export default {
       const connector = /^\/v1\/installations\/([a-f0-9]{32})\/connect$/.exec(url.pathname);
       if (connector && request.method === 'GET' && !url.search) return obj(env.INSTALLATIONS, connector[1]).fetch(new Request('https://internal/connect', request));
       if (url.pathname === '/api/ws') {
-        if (request.method !== 'GET' || url.search || request.headers.get('upgrade')?.toLowerCase() !== 'websocket' || request.headers.has('authorization') || request.headers.has('x-destination')) return reply({ error: 'invalid upgrade' }, 400);
+        if (request.method !== 'GET') return R({ error: 'invalid upgrade' }, 400, 'bad_method');
+        if (url.search) return R({ error: 'invalid upgrade' }, 400, 'has_query');
+        if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return R({ error: 'invalid upgrade' }, 400, 'not_upgrade');
+        if (request.headers.has('authorization')) return R({ error: 'invalid upgrade' }, 400, 'has_authorization');
+        if (request.headers.has('x-destination')) return R({ error: 'invalid upgrade' }, 400, 'has_x_destination');
         const header = request.headers.get('sec-websocket-protocol') || '';
-        if (header.length > 512) return reply({ error: 'invalid upgrade' }, 400);
+        if (header.length > 512) return R({ error: 'invalid upgrade' }, 400, 'proto_too_long');
         const protocols = header.split(',').map(x => x.trim());
         const flow = protocols.includes(phoneFlowProtocol);
-        if (protocols.length !== (flow ? 3 : 2) || new Set(protocols).size !== protocols.length || protocols.filter(x => x === stableProtocol).length !== 1) return reply({ error: 'invalid upgrade' }, 400);
+        if (protocols.length !== (flow ? 3 : 2)) return R({ error: 'invalid upgrade' }, 400, 'proto_count');
+        if (new Set(protocols).size !== protocols.length || protocols.filter(x => x === stableProtocol).length !== 1) return R({ error: 'invalid upgrade' }, 400, 'proto_dupe');
         const entry = protocols.find(x => x.startsWith(ticketPrefix)); const ticket = entry?.slice(ticketPrefix.length);
-        if (!validTicket(ticket)) return reply({ error: 'invalid upgrade' }, 400);
-        if (!flow && env.ALLOW_LEGACY_TEST_TRANSPORT !== 'true') return reply({ error: 'phone update required', protocol: phoneFlowProtocol }, 426);
+        if (!validTicket(ticket)) return R({ error: 'invalid upgrade' }, 400, 'bad_ticket_format');
+        if (!flow && env.ALLOW_LEGACY_TEST_TRANSPORT !== 'true') return R({ error: 'phone update required', protocol: phoneFlowProtocol }, 426, 'legacy_426');
         const result = await obj(env.DIRECTORY, `ticket:${await hash(ticket)}`).fetch('https://internal/ticket-consume', { method: 'POST' });
-        if (!result.ok) return reply({ error: 'unauthorized' }, 401);
+        if (!result.ok) return R({ error: 'unauthorized' }, 401, 'ticket_consume_failed');
         const { id, deviceHash } = await result.json();
-        return obj(env.INSTALLATIONS, id).fetch('https://internal/open-ws', { method: 'GET', headers: { Upgrade: 'websocket', 'x-relay-ticket': ticket, 'x-relay-device-hash': deviceHash, 'x-relay-phone-flow': flow ? 'v1' : 'legacy' } });
+        const forwarded = await obj(env.INSTALLATIONS, id).fetch('https://internal/open-ws', { method: 'GET', headers: { Upgrade: 'websocket', 'x-relay-ticket': ticket, 'x-relay-device-hash': deviceHash, 'x-relay-phone-flow': flow ? 'v1' : 'legacy' } });
+        reasons.set(request, forwarded.status === 101 ? 'forward_ok' : 'forward_status_' + forwarded.status);
+        return forwarded;
       }
       if (url.pathname.startsWith('/api/')) {
         if (!allowMobileRequest(request.method, url.pathname + url.search)) return reply({ error: 'forbidden' }, 403);

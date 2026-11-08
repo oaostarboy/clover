@@ -5,6 +5,10 @@ workers_dev = false
 preview_urls = false
 routes = [{ pattern = "relay.cloverai.ca", custom_domain = true }]
 
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 [vars]
 ENROLLMENT_ENABLED = "true"
 ALLOW_LEGACY_TEST_TRANSPORT = "true"
