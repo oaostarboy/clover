@@ -321,8 +321,13 @@ export class Installation {
       const slot = await this.acquireHttpSlot();
       if (slot !== 'ok') { if (slot === 'offline') this.releaseHttpSlot(); return reply({ error: slot }, 503); }
       if (!this.socket) { this.releaseHttpSlot(); return reply({ error: 'offline' }, 503); }
-      const lease = sharedMemoryLedger.reserve(boundedNumber(this.env.HTTP_EXCHANGE_MB, 12, 60) * 1024 * 1024);
-      if (!lease) { this.releaseHttpSlot(); return reply({ error: 'busy' }, 503); }
+      const leaseBytes = boundedNumber(this.env.HTTP_EXCHANGE_MB, 8, 60) * 1024 * 1024;
+      const leaseWaitMs = this.env.ALLOW_TEST_TIMEOUT === 'true' ? boundedNumber(this.env.HTTP_QUEUE_WAIT_MS, HTTP_QUEUE_WAIT_MS, HTTP_QUEUE_WAIT_MS) : HTTP_QUEUE_WAIT_MS;
+      // Memory pressure queues like a full slot table: retry until a lease frees up, within the same wait cap.
+      let lease = sharedMemoryLedger.reserve(leaseBytes);
+      for (const until = Date.now() + leaseWaitMs; !lease && Date.now() < until && this.socket;) { await new Promise(r => setTimeout(r, 25)); lease = sharedMemoryLedger.reserve(leaseBytes); }
+      if (!lease) { this.releaseHttpSlot(); return reply({ error: this.socket ? 'busy' : 'offline' }, 503); }
+      if (!this.socket) { lease(); this.releaseHttpSlot(); return reply({ error: 'offline' }, 503); }
       let released = false;
       const release = () => { if (released) return; released = true; this.releaseHttpSlot(); lease(); };
       try {
