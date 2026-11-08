@@ -230,7 +230,7 @@ export class Installation {
       if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket' || (!flow && !offered.includes('clover-relay-connector-v1'))) return reply({ error: 'invalid upgrade' }, 400);
       if (!flow && this.env.ALLOW_LEGACY_TEST_TRANSPORT !== 'true') return reply({ error: 'desktop update required' }, 426);
       const [client, rawServer] = Object.values(new WebSocketPair()); rawServer.accept();
-      const server = flow ? new FlowSocket(rawServer, { maxMessageBytes: 12582912, reserve: reserveTransport }) : rawServer;
+      const server = flow ? new FlowSocket(rawServer, { maxMessageBytes: 12582912, reserve: reserveTransport, closeOnCapacity: false }) : rawServer;
       const epoch = ++this.epoch;
       const previous = this.socket; this.socket = server; this.endPending();
       if (previous) { try { previous.close(1012, 'replaced'); } catch {} }
