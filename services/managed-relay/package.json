@@ -1,0 +1,19 @@
+{
+  "name": "clover-managed-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/worker.mjs --bundle --format=esm --platform=neutral --outfile=dist/worker.mjs",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "miniflare": "^4.20260730.0",
+    "wrangler": "^4.158.0"
+  },
+  "dependencies": { "ws": "^8.22.1" },
+  "overrides": {
+    "miniflare@^4.20260730.0": { "sharp": "0.35.5", "undici": "7.30.1" }
+  }
+}
