@@ -221,6 +221,8 @@ def test_http_gate_codes(env, monkeypatch):
     p = env.store.authenticate(dev["token"])
     assert gate(snap, p) is None
     assert gate(make_request("GET", "/desk/displays"), p) is None
+    assert gate(make_request("GET", "/desk/snapshot", "display=0&q=60&w=800"), p) is None
+    assert gate(make_request("GET", "/desk/snapshot", "w=abc"), p) == "unauthorized"
     assert gate(make_request("GET", "/desk/snapshot", "display=x"), p) == "unauthorized"
     assert gate(make_request("GET", "/desk/snapshot", "token=1"), p) == "unauthorized"
     assert gate(make_request("GET", "/desk/stream"), p) == "unauthorized"
