@@ -351,3 +351,23 @@ def test_dispatch_crew_list_runs_through_the_rebound_handler(env, monkeypatch):
     dev = env.store.create("p")
     env.store.set_capabilities(dev["id"], BASE + ["crew_read"])
     assert _dispatch(_Tr(transport_for(env.store, dev["token"]).auth_identity), "crew.list")["result"]["agents"]
+
+
+def test_telegram_notice_uses_home_channel_and_env_token(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from clover_cli import mobile_device_notify as n
+    import cron.scheduler as sched, gateway.config as gc, tools.send_message_tool as smt, clover_cli.config as cfg
+    sent = {}
+    pconfig = SimpleNamespace(enabled=True, token=None)
+    monkeypatch.setattr(sched, "_get_home_target_chat_id", lambda p: "8172525590")
+    monkeypatch.setattr(sched, "_get_home_target_thread_id", lambda p: None)
+    monkeypatch.setattr(gc, "load_gateway_config", lambda: SimpleNamespace(platforms={gc.Platform.TELEGRAM: pconfig}))
+    monkeypatch.setattr(cfg, "get_env_value", lambda k: "tok" if k == "TELEGRAM_BOT_TOKEN" else None)
+
+    async def fake_send(platform, pc, chat_id, text, thread_id=None, **kw):
+        sent.update(chat=chat_id, text=text, token=pc.token)
+        return {"success": True}
+    monkeypatch.setattr(smt, "_send_to_platform", fake_send)
+    n._send_telegram("iPhone wants Crew view. Code 4821. Approve in Clover on your PC.")
+    assert sent["chat"] == "8172525590" and sent["token"] == "tok" and "4821" in sent["text"]

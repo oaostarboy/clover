@@ -52,8 +52,15 @@ def _send_telegram(text: str) -> None:
     if not pconfig or not pconfig.enabled:
         _log.info("device request: telegram not enabled; popup only")
         return
+    if not getattr(pconfig, "token", None):
+        # The isolated phone gateway does not load ~/.clover/.env into os.environ.
+        from clover_cli.config import get_env_value
+
+        pconfig.token = get_env_value("TELEGRAM_BOT_TOKEN")
     thread_id = _get_home_target_thread_id("telegram")
-    asyncio.run(_send_to_platform(Platform.TELEGRAM, pconfig, chat_id, text, thread_id=thread_id))
+    result = asyncio.run(_send_to_platform(Platform.TELEGRAM, pconfig, chat_id, text, thread_id=thread_id))
+    if isinstance(result, dict) and result.get("error"):
+        raise RuntimeError(str(result["error"])[:200])
 
 
 def announce_request(device: Dict[str, Any], request: Dict[str, Any]) -> None:
