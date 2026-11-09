@@ -45,6 +45,19 @@ const hash = async value => hex(await crypto.subtle.digest('SHA-256', new TextEn
 const obj = (ns, name) => ns.get(ns.idFromName(name));
 const reasons = new WeakMap();
 const slog = (event, data = {}) => { try { console.log(JSON.stringify({ event, ...data })); } catch {} };
+const logPhoneDiag = (id, channel, req) => {
+  try {
+    if (req.id !== undefined) return;
+    const list = Array.isArray(req.params?.closes) ? req.params.closes.slice(0, 20) : [];
+    const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+    const str = (v, n) => (typeof v === 'string' ? v.slice(0, n) : undefined);
+    const build = str(req.params?.build, 16);
+    for (const c of list) {
+      if (!c || typeof c !== 'object' || Array.isArray(c)) continue;
+      slog('phone_diag', { ch: cid(id), dev: cid(channel.deviceHash), build, at: num(c.at), code: num(c.code), reason: str(c.reason, 120), clean: typeof c.clean === 'boolean' ? c.clean : undefined, by: c.by === 'app' || c.by === 'native' ? c.by : undefined, appState: str(c.appState, 24), openMs: num(c.openMs), net: c.net === null ? null : str(c.net, 24) });
+    }
+  } catch {}
+};
 const cid = id => String(id || '').slice(0, 8);
 // TEMPORARY: metadata-only RPC logging (method names / error codes, never params values or text).
 const rpcEvents = new Set(['message.start', 'message.complete', 'error', 'session.info']);
@@ -120,8 +133,9 @@ export class Installation {
   }
   endPending() { for (const w of this.httpWaiters.splice(0)) { this.httpInFlight++; w.resolve('offline'); } for (const resolve of this.pending.values()) resolve(reply({ error: 'offline' }, 503)); this.pending.clear(); for (const id of [...this.channels.keys()]) this.endChannel(id, 1012, 'connector offline'); }
   endChannel(id, code = 1000, reason = '') {
-    slog('channel_end', { ch: cid(id), code, reason });
-    const channel = this.channels.get(id); if (!channel) return;
+    const channel = this.channels.get(id);
+    slog('channel_end', { ch: cid(id), code, reason, ...(channel?.pings ? { pings: channel.pings } : {}) });
+    if (!channel) return;
     this.channels.delete(id); clearTimeout(channel.timer); clearTimeout(channel.expiryTimer);
     for (const done of channel.waiters || []) done();
     if (channel.socket === this.socket && channel.epoch === this.epoch) { try { channel.socket.send(JSON.stringify({ type: 'ws.close', id, code: 1000, reason: '' })); } catch {} }
@@ -140,6 +154,16 @@ export class Installation {
               if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
               if (bytes.length > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
               rpcLog('rpc_up', m.id, binary ? null : e.data, bytes.length);
+              // Relay-local phone methods: relay.ping is answered here (phone<->relay leg only); relay.diag is logged here. Neither is forwarded.
+              if (!binary && e.data.includes('relay.')) {
+                let req = null; try { req = JSON.parse(e.data); } catch {}
+                if (req && req.method === 'relay.ping' && req.id !== undefined && req.id !== null) {
+                  channel.pings = (channel.pings || 0) + 1;
+                  try { phone.send(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: { ok: true, t: Date.now() } })); } catch {}
+                  return;
+                }
+                if (req && req.method === 'relay.diag') { if (bytes.length <= 8192) logPhoneDiag(m.id, channel, req); return; }
+              }
               // Build 54 re-sends an identical push.register ~20/s (its token listener re-fires on every registration). Answer repeats of an
               // already-successful identical registration locally from the gateway's own earlier result; anything different still goes upstream.
               if (!binary && bytes.length < 4096 && e.data.includes('push.register')) {

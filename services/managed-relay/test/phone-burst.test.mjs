@@ -8,10 +8,10 @@ import { FlowSocket } from '../src/flow-socket.mjs';
 
 const origin = 'https://relay.test';
 const push = async (ws, d) => { while (ws.queue.length >= ws.queueCount) await new Promise(r => { const f = () => { ws.removeEventListener('drain', f); r(); }; ws.addEventListener('drain', f); setTimeout(f, 20); }); ws.send(d); };
-async function setup(t, stall = false) {
+async function setup(t, stall = false, logs = null) {
   buildSync({ entryPoints: ['src/worker.mjs'], outfile: 'dist/burst-worker.mjs', bundle: true, format: 'esm', platform: 'neutral' });
   t.after(() => rm('dist/burst-worker.mjs', { force: true }));
-  const mf = new Miniflare({ workers: [{ name: 'relay', modules: true, scriptPath: 'dist/burst-worker.mjs', compatibilityDate: '2026-07-30', bindings: { ENROLLMENT_ENABLED: 'true' }, durableObjects: { INSTALLATIONS: { className: 'Installation', useSQLite: true }, DIRECTORY: { className: 'Directory', useSQLite: true }, GUARD: { className: 'Guard', useSQLite: true } } }] });
+  const mf = new Miniflare({ ...(logs ? { handleStructuredLogs: l => { logs.push(String(l.message) + '\n'); } } : {}), workers: [{ name: 'relay', modules: true, scriptPath: 'dist/burst-worker.mjs', compatibilityDate: '2026-07-30',  bindings: { ENROLLMENT_ENABLED: 'true' }, durableObjects: { INSTALLATIONS: { className: 'Installation', useSQLite: true }, DIRECTORY: { className: 'Directory', useSQLite: true }, GUARD: { className: 'Guard', useSQLite: true } } }] });
   t.after(() => mf.dispose());
   const owner = { id: randomBytes(16).toString('hex'), secret: randomBytes(32).toString('hex') };
   assert.equal((await mf.dispatchFetch(origin + '/v1/installations', { method: 'POST', body: JSON.stringify(owner) })).status, 201);
@@ -112,5 +112,41 @@ test('300 identical push.register sent before any reply are coalesced to one ups
   assert.equal(seen.methods.filter(m => m === 'push.register').length, 1);
   assert.equal(seen.methods.filter(m => m === 'session.create').length, 1);
   for (let i = 0; i < 300; i++) assert.deepEqual(replies.get('r' + i)?.result, { registered: true, enabled: true }, 'r' + i);
+  ws.close();
+});
+
+test('relay.ping is answered locally and never reaches the connector, even while the connector is stalled', { timeout: 30000 }, async t => {
+  const { phone, seen } = await setup(t, true);
+  const ws = await phone(); let closed = null; ws.addEventListener('close', e => { closed = e.reason || e.code; });
+  const replies = new Map(); ws.addEventListener('message', e => { try { const j = JSON.parse(e.data); replies.set(j.id, j); } catch {} });
+  const t0 = Date.now();
+  for (let i = 0; i < 3; i++) await push(ws, JSON.stringify({ jsonrpc: '2.0', id: 'p' + i, method: 'relay.ping', params: {} }));
+  while (replies.size < 3 && Date.now() - t0 < 3000) await new Promise(r => setTimeout(r, 20));
+  assert.equal(closed, null);
+  for (let i = 0; i < 3; i++) { const r = replies.get('p' + i); assert.equal(r?.jsonrpc, '2.0'); assert.equal(r.result.ok, true); assert.ok(Math.abs(r.result.t - Date.now()) < 5000); }
+  await new Promise(r => setTimeout(r, 300));
+  assert.equal(seen.methods.filter(m => m === 'relay.ping').length, 0);
+  assert.equal([...seen.data.values()].reduce((a, b) => a + b, 0), 0);
+  ws.close();
+});
+
+test('relay.diag is not forwarded, gets no reply, is validated and logged per close entry', { timeout: 30000 }, async t => {
+  const logs = []; const { phone, seen } = await setup(t, false, logs);
+  const ws = await phone(); let closed = null; ws.addEventListener('close', e => { closed = e.reason || e.code; });
+  const got = []; ws.addEventListener('message', e => got.push(e.data));
+  const close = (i, extra = {}) => ({ at: 1000 + i, code: 1006, reason: 'x'.repeat(130), clean: false, by: 'native', appState: 'active', openMs: 5, net: null, secret: 'nope', ...extra });
+  const diag = closes => JSON.stringify({ jsonrpc: '2.0', method: 'relay.diag', params: { build: '55', closes } });
+  await push(ws, diag(Array.from({ length: 30 }, (_, i) => close(i))));
+  await push(ws, diag([close(99, { code: 'bad', by: 'evil' }), 'junk']));
+  await push(ws, JSON.stringify({ jsonrpc: '2.0', method: 'relay.diag', params: { build: '55', closes: [close(0)], pad: 'y'.repeat(9000) } }));
+  await push(ws, 'not json relay.diag');
+  await push(ws, JSON.stringify({ jsonrpc: '2.0', id: 'z', method: 'session.create', params: {} }));
+  await new Promise(r => setTimeout(r, 700));
+  const evs = logs.join('').split('\n').map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(e => e?.event === 'phone_diag');
+  assert.equal(evs.length, 21);
+  assert.equal(evs[0].reason.length, 120); assert.equal(evs[0].secret, undefined); assert.equal(evs[0].code, 1006); assert.equal(evs[0].net, null); assert.equal(evs[0].by, 'native');
+  assert.ok(evs[0].ch && evs[0].dev); assert.equal(evs[20].code, undefined); assert.equal(evs[20].by, undefined);
+  assert.equal(seen.methods.filter(m => m === 'relay.diag').length, 0);
+  assert.equal(got.filter(d => !String(d).includes('"id":"z"')).length, 0, 'no reply to diag');
   ws.close();
 });
