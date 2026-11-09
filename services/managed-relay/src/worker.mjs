@@ -427,7 +427,7 @@ export class Guard {
   constructor(state, env) { this.state = state; this.env = env; }
   async fetch(request) {
     try { return await this.guardFetch(request); }
-    catch (e) { slog('guard_error', { name: String(e?.name || ''), msg: String(e?.message || e).slice(0, 160) }); return reply({ error: 'unavailable', detail: 'guard ' + String(e?.name || '') + ': ' + String(e?.message || e).slice(0, 160) }, 503); }
+    catch (e) { slog('guard_error', { name: String(e?.name || ''), msg: String(e?.message || e).slice(0, 160) }); return reply({ error: 'unavailable' }, 503); }
   }
   async guardFetch(request) {
     const input = await request.json();
@@ -556,8 +556,7 @@ export default {
       return reply({ error: 'not found' }, 404);
     } catch (e) {
       slog('handle_error', { path: (() => { try { return new URL(request.url).pathname; } catch { return ''; } })(), msg: String(e?.message || e).slice(0, 200) });
-      const detail = (() => { try { return new URL(request.url).pathname === '/v1/installations' ? String(e?.name || '') + ': ' + String(e?.message || e).slice(0, 160) : undefined; } catch { return undefined; } })();
-      return reply(detail ? { error: 'unavailable', detail } : { error: 'unavailable' }, 503);
+      return reply({ error: 'unavailable' }, 503);
     }
   }
 };
