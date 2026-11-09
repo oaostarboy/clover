@@ -230,3 +230,23 @@ test('backend replacement closes old connector without stopping either gateway',
   await f.service.status('x', 'default', { ...f.connection, baseUrl: 'http://127.0.0.1:12346' });
   assert.equal(f.calls.open, 2); assert.equal(f.calls.close, 1);
 });
+
+test('a failed device-list snapshot keeps the connector open and keeps retrying', async t => {
+  let fail = false, snaps = 0, closes = 0, errors = 0;
+  const connection = { mode: 'local', baseUrl: 'http://127.0.0.1:12345', token: 'x' };
+  const request = async (_c, path) => {
+    if (path === '/api/mobile/pairing') return { configured: false, origin: null };
+    snaps++; if (fail) throw Error('devices timeout');
+    return { profile: 'default', gatewayId: 'a'.repeat(64), devices: [] };
+  };
+  const service = createDesktopPairing({ identityPath: () => '/tmp/x', request, syncIntervalMs: 5, onSyncError: () => { errors++; },
+    enroll: async () => ({ identity: {} }), connect: async () => ({ replaceDevices: async () => {}, close: () => { closes++; } }) });
+  t.after(() => service.close());
+  await service.status('s', 'default', connection);
+  fail = true;
+  await new Promise(r => setTimeout(r, 400));
+  assert.equal(closes, 0); assert.ok(errors >= 2);
+  fail = false; const before = snaps;
+  await new Promise(r => setTimeout(r, 700));
+  assert.ok(snaps > before + 1); assert.equal(closes, 0);
+});
