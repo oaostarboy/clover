@@ -90,6 +90,7 @@ const phoneFlowProtocol = 'clover-relay-flow-v1';
 const ticketPrefix = 'clover-gateway-ticket.';
 const wsLimit = 1024 * 1024;
 const FORWARD_QUEUE_BYTES = 8 * 1024 * 1024;
+const PUSH_DEDUPE_MS = 10 * 60 * 1000;
 const validTicket = ticket => typeof ticket === 'string' && /^[A-Za-z0-9_-]{16,256}$/.test(ticket);
 const validId = id => typeof id === 'string' && /^[a-zA-Z0-9-]{1,128}$/.test(id);
 const validBase64 = s => typeof s === 'string' && s.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(s);
@@ -139,6 +140,20 @@ export class Installation {
               if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
               if (bytes.length > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
               rpcLog('rpc_up', m.id, binary ? null : e.data, bytes.length);
+              // Build 54 re-sends an identical push.register ~20/s (its token listener re-fires on every registration). Answer repeats of an
+              // already-successful identical registration locally from the gateway's own earlier result; anything different still goes upstream.
+              if (!binary && bytes.length < 4096 && e.data.includes('push.register')) {
+                let req = null; try { req = JSON.parse(e.data); } catch {}
+                if (req && req.method === 'push.register' && req.id !== undefined && req.id !== null) {
+                  const key = JSON.stringify(req.params ?? null); const now = Date.now(); const last = channel.pushReg;
+                  if (last && last.key === key && last.result !== undefined && now - last.at < PUSH_DEDUPE_MS) {
+                    try { phone.send(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: last.result })); } catch {}
+                    slog('push_register_deduped', { ch: cid(m.id) });
+                    return;
+                  }
+                  channel.pushReg = { key, id: req.id, at: now, result: undefined };
+                }
+              }
               const forward = async () => {
                 const full = () => server.queue && server.queue.length >= server.queueCount;
                 while (full()) {
@@ -268,6 +283,9 @@ export class Installation {
               if ((m.binary ? data.byteLength : new TextEncoder().encode(data).length) > wsLimit) throw Error('oversize');
               const phone = channel.phone;
               if (!m.binary) rpcLog('rpc_down', m.id, data, data.length);
+              if (!m.binary && channel.pushReg && channel.pushReg.result === undefined && data.includes('"result"')) {
+                try { const r = JSON.parse(data); if (r.id === channel.pushReg.id && r.result && r.result.registered === true && !r.error) channel.pushReg.result = r.result; } catch {}
+              }
               phone.send(m.binary ? data.buffer : data);
               // Hold the connector grant until the phone has consumed this message.
               // This propagates backpressure instead of filling the phone queue.

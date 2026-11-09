@@ -19,7 +19,7 @@ async function setup(t, stall = false) {
   const r = await mf.dispatchFetch(`${origin}/v1/installations/${owner.id}/connect`, { headers: { Upgrade: 'websocket', Authorization: `Bearer ${owner.secret}`, 'Sec-WebSocket-Protocol': 'clover-relay-connector-v2' } });
   assert.equal(r.status, 101); r.webSocket.accept();
   const connector = new FlowSocket(r.webSocket); t.after(() => connector.close());
-  const seen = { data: new Map(), open: 0 }; let ctl; const control = new Promise(res => { ctl = res; });
+  const seen = { data: new Map(), open: 0, methods: [] }; let ctl; const control = new Promise(res => { ctl = res; });
   const ticket = () => 'fixture-ticket-' + randomBytes(16).toString('hex'); let nextTicket;
   const gate = { wait: Promise.resolve(), release() {}, hold() { this.wait = new Promise(r => { this.release = r; }); } }; if (stall) gate.hold();
   connector.addEventListener('message', async ({ data }) => {
@@ -27,7 +27,7 @@ async function setup(t, stall = false) {
     if (m.type === 'control.result') ctl(m);
     if (m.type === 'http.request') connector.send(JSON.stringify({ type: 'http.response', id: m.id, status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify({ ticket: nextTicket, ttl_seconds: 30 })).toString('base64') }));
     if (m.type === 'ws.open') { seen.open++; connector.send(JSON.stringify({ type: 'ws.opened', id: m.id, protocol: 'clover-gateway-v1' })); }
-    if (m.type === 'ws.data') { seen.data.set(m.id, (seen.data.get(m.id) || 0) + 1); await gate.wait; }
+    if (m.type === 'ws.data') { seen.data.set(m.id, (seen.data.get(m.id) || 0) + 1); try { const j = JSON.parse(m.data); seen.methods.push(j.method); if (j.method === 'push.register') connector.send(JSON.stringify({ type: 'ws.data', id: m.id, binary: false, data: JSON.stringify({ jsonrpc: '2.0', id: j.id, result: { registered: true, enabled: true } }) })); } catch {} await gate.wait; }
   });
   connector.send(JSON.stringify({ type: 'devices.replace', id: 'control', devices: [{ hash: createHash('sha256').update(token).digest('hex'), expiresAt: Date.now() + 60000 }] }));
   assert.equal((await control).ok, true);
@@ -72,4 +72,18 @@ test('channels ended while the connector link is full do not exhaust link listen
   await push(ws, 'final'); await new Promise(r => setTimeout(r, 1500));
   assert.equal(closed, null);
   assert.ok(seen.data.size >= 1);
+});
+
+test('identical repeated push.register is answered locally after the first succeeds; a different token still goes upstream', { timeout: 30000 }, async t => {
+  const { phone, seen } = await setup(t);
+  const ws = await phone(); const replies = new Map(); ws.addEventListener('message', e => { try { const j = JSON.parse(e.data); replies.set(j.id, j); } catch {} });
+  const reg = (id, token) => push(ws, JSON.stringify({ jsonrpc: '2.0', id, method: 'push.register', params: { token, env: 'production', device_name: 'iPhone' } }));
+  await reg('a1', 'ab'.repeat(32)); await new Promise(r => setTimeout(r, 500));
+  for (let i = 0; i < 50; i++) await reg('r' + i, 'ab'.repeat(32));
+  await new Promise(r => setTimeout(r, 800));
+  assert.equal(seen.methods.filter(m => m === 'push.register').length, 1);
+  for (let i = 0; i < 50; i++) assert.deepEqual(replies.get('r' + i)?.result, { registered: true, enabled: true });
+  await reg('b1', 'cd'.repeat(32)); await new Promise(r => setTimeout(r, 500));
+  assert.equal(seen.methods.filter(m => m === 'push.register').length, 2);
+  ws.close();
 });
