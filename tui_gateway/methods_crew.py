@@ -70,6 +70,9 @@ def _(rid, params: dict) -> dict:
     Result ``{agents: [{id, display_name, kind, runtime, host_label, online,
     last_seen, avatar_initial}]}``. Never includes URLs or keys.
     """
+    # Handlers are rebound onto server.py's globals, so module helpers are imported here.
+    from tui_gateway.methods_crew import crew_roster
+
     try:
         return _ok(rid, {"agents": crew_roster()})
     except Exception as e:

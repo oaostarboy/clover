@@ -340,3 +340,14 @@ def test_dispatch_device_status_and_request_access_and_4030(env, monkeypatch):
 def test_dispatch_owner_transport_cannot_call_device_rpcs_and_keeps_peer_turn(env):
     r = _dispatch(_Tr(None), "device.status")
     assert r["error"]["code"] == 4031
+
+
+def test_dispatch_crew_list_runs_through_the_rebound_handler(env, monkeypatch):
+    """crew.list used to NameError (crew_roster) once server.py rebound the handler's globals."""
+    from tui_gateway import methods_crew
+    monkeypatch.setattr(methods_crew, "crew_roster", lambda: [{"id": "octavia"}])
+    r = _dispatch(_Tr(None), "crew.list")
+    assert r["result"] == {"agents": [{"id": "octavia"}]}
+    dev = env.store.create("p")
+    env.store.set_capabilities(dev["id"], BASE + ["crew_read"])
+    assert _dispatch(_Tr(transport_for(env.store, dev["token"]).auth_identity), "crew.list")["result"]["agents"]
