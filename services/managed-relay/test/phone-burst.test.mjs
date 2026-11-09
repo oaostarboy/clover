@@ -27,7 +27,7 @@ async function setup(t, stall = false) {
     if (m.type === 'control.result') ctl(m);
     if (m.type === 'http.request') connector.send(JSON.stringify({ type: 'http.response', id: m.id, status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify({ ticket: nextTicket, ttl_seconds: 30 })).toString('base64') }));
     if (m.type === 'ws.open') { seen.open++; connector.send(JSON.stringify({ type: 'ws.opened', id: m.id, protocol: 'clover-gateway-v1' })); }
-    if (m.type === 'ws.data') { seen.data.set(m.id, (seen.data.get(m.id) || 0) + 1); try { const j = JSON.parse(m.data); seen.methods.push(j.method); if (j.method === 'push.register') connector.send(JSON.stringify({ type: 'ws.data', id: m.id, binary: false, data: JSON.stringify(j.params.token === 'ee'.repeat(32) ? { jsonrpc: '2.0', id: j.id, error: { code: 4030, message: 'operation is not permitted for this device' } } : { jsonrpc: '2.0', id: j.id, result: { registered: true, enabled: true } }) })); } catch {} await gate.wait; }
+    if (m.type === 'ws.data') { seen.data.set(m.id, (seen.data.get(m.id) || 0) + 1); try { const j = JSON.parse(m.data); seen.methods.push(j.method); if (j.method === 'push.register') (j.params.token === 'dd'.repeat(32) ? (f => setTimeout(f, 700)) : (f => f()))(() => connector.send(JSON.stringify({ type: 'ws.data', id: m.id, binary: false, data: JSON.stringify(j.params.token === 'ee'.repeat(32) ? { jsonrpc: '2.0', id: j.id, error: { code: 4030, message: 'operation is not permitted for this device' } } : { jsonrpc: '2.0', id: j.id, result: { registered: true, enabled: true } }) }))); } catch {} await gate.wait; }
   });
   connector.send(JSON.stringify({ type: 'devices.replace', id: 'control', devices: [{ hash: createHash('sha256').update(token).digest('hex'), expiresAt: Date.now() + 60000 }] }));
   assert.equal((await control).ok, true);
@@ -97,5 +97,20 @@ test('identical repeated push.register that failed with a device-permission erro
   await new Promise(r => setTimeout(r, 800));
   assert.equal(seen.methods.filter(m => m === 'push.register').length, 1);
   for (let i = 0; i < 50; i++) assert.equal(replies.get('r' + i)?.error?.code, 4030);
+  ws.close();
+});
+
+test('300 identical push.register sent before any reply are coalesced to one upstream call; all get replies; channel stays open', { timeout: 30000 }, async t => {
+  const { phone, seen } = await setup(t);
+  const ws = await phone(); let closed = null; ws.addEventListener('close', e => { closed = e.reason || e.code; });
+  const replies = new Map(); ws.addEventListener('message', e => { try { const j = JSON.parse(e.data); replies.set(j.id, j); } catch {} });
+  for (let i = 0; i < 300; i++) await push(ws, JSON.stringify({ jsonrpc: '2.0', id: 'r' + i, method: 'push.register', params: { token: 'dd'.repeat(32), env: 'production', device_name: 'iPhone' } }));
+  await push(ws, JSON.stringify({ jsonrpc: '2.0', id: 's1', method: 'session.create', params: {} }));
+  const deadline = Date.now() + 15000;
+  while (replies.size < 300 && !closed && Date.now() < deadline) await new Promise(r => setTimeout(r, 50));
+  assert.equal(closed, null);
+  assert.equal(seen.methods.filter(m => m === 'push.register').length, 1);
+  assert.equal(seen.methods.filter(m => m === 'session.create').length, 1);
+  for (let i = 0; i < 300; i++) assert.deepEqual(replies.get('r' + i)?.result, { registered: true, enabled: true }, 'r' + i);
   ws.close();
 });

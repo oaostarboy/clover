@@ -151,6 +151,15 @@ export class Installation {
                     slog('push_register_deduped', { ch: cid(m.id) });
                     return;
                   }
+                  // Identical push.register already in flight on this channel: park this id and answer it when the upstream reply lands.
+                  const pend = channel.pushPend && [...channel.pushPend.values()].find(p => p.key === key);
+                  if (pend) {
+                    if (pend.waiters.length >= 512) { try { phone.send(JSON.stringify({ jsonrpc: '2.0', id: req.id, error: { code: 4290, message: 'push.register in progress' } })); } catch {} }
+                    else pend.waiters.push(req.id);
+                    slog('push_register_coalesced', { ch: cid(m.id) });
+                    return;
+                  }
+                  (channel.pushPend ||= new Map()).set(req.id, { key, waiters: [] });
                   channel.pushReg = { key, id: req.id, at: now, result: undefined };
                 }
               }
@@ -283,6 +292,28 @@ export class Installation {
               if ((m.binary ? data.byteLength : new TextEncoder().encode(data).length) > wsLimit) throw Error('oversize');
               const phone = channel.phone;
               if (!m.binary) rpcLog('rpc_down', m.id, data, data.length);
+              if (!m.binary && channel.pushPend && channel.pushPend.size && (data.includes('"result"') || data.includes('"error"'))) {
+                try {
+                  const r = JSON.parse(data); const pend = r && channel.pushPend.get(r.id);
+                  if (pend) {
+                    channel.pushPend.delete(r.id);
+                    const ids = pend.waiters.splice(0); const ph = channel.phone;
+                    // The phone link has a small flow-controlled queue: pace the parked replies on its drain events instead of overflowing it.
+                    queueMicrotask(async () => {
+                      for (const wid of ids) {
+                        const frame = JSON.stringify(r.error !== undefined ? { jsonrpc: '2.0', id: wid, error: r.error } : { jsonrpc: '2.0', id: wid, result: r.result });
+                        for (let tries = 0; ; tries++) {
+                          if (this.channels.get(m.id) !== channel || epoch !== this.epoch || ph.readyState !== 1) return;
+                          try { ph.send(frame); break; } catch (err) {
+                            if (tries > 200 || !/capacity/.test(String(err?.message))) return;
+                            await new Promise(resolve => { const done = () => { clearTimeout(tm); ph.removeEventListener('drain', done); resolve(); }; const tm = setTimeout(done, 50); ph.addEventListener('drain', done); });
+                          }
+                        }
+                      }
+                    });
+                  }
+                } catch {}
+              }
               if (!m.binary && channel.pushReg && channel.pushReg.result === undefined && channel.pushReg.error === undefined && (data.includes('"result"') || data.includes('"error"'))) {
                 try {
                   const r = JSON.parse(data);
