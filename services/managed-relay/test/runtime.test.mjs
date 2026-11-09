@@ -93,12 +93,14 @@ export async function connect(mf, identity, token, name, options = {}) {
     if (m.type === 'control.result') { pending.get(m.id)?.(m); pending.delete(m.id); }
     if (m.type === 'http.request') {
       if (m.target.includes('offset=999')) return; // Deliberately offline response for deadline test.
+      if (options.http) { const r = options.http(m); ws.send(JSON.stringify({ type: 'http.response', id: m.id, status: r.status, headers: r.headers, body: Buffer.from(r.body).toString('base64') })); return; }
       const isTicket = m.target === '/api/auth/ws-ticket';
       const valid = m.headers.authorization === `Bearer ${token}`;
       const body = valid ? (isTicket ? { ticket: `fixture-ticket-${identity.id}-${seq++}`, ttl_seconds: options.ttl ?? 30 } : { owner: name, headers: m.headers }) : { error: 'unauthorized' };
       ws.send(JSON.stringify({ type: 'http.response', id: m.id, status: valid ? 200 : 401, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify(body)).toString('base64') }));
     }
     if (m.type === 'ws.open' && options.wsMode !== 'timeout') ws.send(JSON.stringify(options.wsMode === 'error' ? { type: 'ws.error', id: m.id } : { type: 'ws.opened', id: m.id, protocol: options.wsMode === 'wrong' ? 'wrong' : 'clover-gateway-v1' }));
+    if (m.type === 'ws.data' && options.data) { ws.send(JSON.stringify({ ...m, data: options.data(m.data) })); return; }
     if (m.type === 'ws.data') ws.send(JSON.stringify({ ...m, data: m.binary ? m.data : `${name}:${m.data}` }));
   });
   const control = (type, data) => new Promise((resolve, reject) => { const id = `control-${seq++}`; const timer = setTimeout(() => { pending.delete(id); reject(new Error('control timeout')); }, 2000); pending.set(id, result => { clearTimeout(timer); resolve(result); }); ws.send(JSON.stringify({ type, id, ...data })); });
@@ -349,4 +351,56 @@ test('native WebSocket ticket transport', async t => {
   const phone = r.webSocket; phone.accept(); const response = new Promise(resolve => phone.addEventListener('message', e => resolve(e.data), { once: true }));
   phone.send('hello'); assert.equal(await response, 'A:hello'); phone.close();
   assert.equal((await mf.dispatchFetch(origin + '/api/ws', { headers })).status, 401);
+});
+
+const jpeg = size => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(size - 3, 7)]);
+const deskHttp = size => m => m.target.startsWith('/desk/snapshot') ? { status: 200, headers: { 'content-type': 'image/jpeg' }, body: jpeg(size) }
+  : m.target === '/desk/displays' ? { status: 403, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ error: 'capability', capability: 'control_view' }) } : { status: 404, headers: {}, body: '{}' };
+
+test('desk still-screenshot paths relay JPEG unchanged and pass PC 403 bodies through', async t => {
+  const mf = await start(); t.after(() => mf.dispose());
+  const id = makeIdentity(); await enroll(mf, id); const token = 'cdt_' + randomBytes(32).toString('hex');
+  const c = await connect(mf, id, token, 'pc', { http: deskHttp(100000) }); t.after(() => c.ws.close());
+  const headers = { Authorization: `Bearer ${token}` };
+  const d = await mf.dispatchFetch(origin + '/desk/displays', { headers });
+  assert.equal(d.status, 403); assert.deepEqual(await d.json(), { error: 'capability', capability: 'control_view' });
+  const snap = await mf.dispatchFetch(origin + '/desk/snapshot?display=1&q=60&w=800', { headers });
+  assert.equal(snap.status, 200); assert.equal(snap.headers.get('content-type'), 'image/jpeg'); assert.equal(snap.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(Buffer.from(await snap.arrayBuffer()), jpeg(100000));
+  assert.equal((await mf.dispatchFetch(origin + '/desk/stream', { headers })).status, 404);
+  assert.equal((await mf.dispatchFetch(origin + '/desk/input', { method: 'POST', headers })).status, 404);
+  assert.equal((await mf.dispatchFetch(origin + '/desk/displays')).status, 401);
+});
+
+test('desk snapshot over 2 MiB is a 502 and snapshots are limited to 4 per second per device', async t => {
+  const mf = await start(); t.after(() => mf.dispose());
+  const id = makeIdentity(); await enroll(mf, id); const token = 'cdt_' + randomBytes(32).toString('hex');
+  // Legacy plain transport carries a single large frame; the flow link caps frames at 1 MiB.
+  const r0 = await mf.dispatchFetch(`${origin}/v1/installations/${id.id}/connect`, { headers: { Upgrade: 'websocket', Authorization: `Bearer ${id.secret}`, 'Sec-WebSocket-Protocol': 'clover-relay-connector-v1' } });
+  assert.equal(r0.status, 101); const ws = r0.webSocket; ws.accept(); t.after(() => ws.close());
+  ws.addEventListener('message', e => { const m = JSON.parse(e.data);
+    if (m.type === 'http.request') ws.send(JSON.stringify({ type: 'http.response', id: m.id, status: 200, headers: { 'content-type': 'image/jpeg' }, body: jpeg(2 * 1024 * 1024 + 1024).toString('base64') })); });
+  ws.send(JSON.stringify({ type: 'devices.replace', id: 'c1', devices: [{ hash: digest(token), expiresAt: Date.now() + 600000 }] }));
+  await new Promise(r => setTimeout(r, 200));
+  const headers = { Authorization: `Bearer ${token}` };
+  const statuses = [];
+  for (let i = 0; i < 5; i++) { const r = await mf.dispatchFetch(origin + '/desk/snapshot?display=1', { headers }); statuses.push(r.status); if (i === 0) assert.deepEqual(await r.json(), { error: 'frame too large' }); else await r.body?.cancel(); }
+  assert.deepEqual(statuses, [502, 502, 502, 502, 429]);
+});
+
+test('device.status and device.request_access JSON-RPC pass untouched, including 4030 errors', { timeout: 5000 }, async t => {
+  const mf = await start(); t.after(() => mf.dispose());
+  const a = makeIdentity(); await enroll(mf, a); const ta = 'cdt_' + randomBytes(32).toString('hex');
+  const seen = [];
+  const ca = await connect(mf, a, ta, 'A', { data: text => { const m = JSON.parse(text); seen.push(m.method);
+    return JSON.stringify(m.method === 'device.request_access' ? { jsonrpc: '2.0', id: m.id, error: { code: 4030, message: 'pending', data: { capability: 'control_view' } } } : { jsonrpc: '2.0', id: m.id, result: { method: m.method } }); } });
+  t.after(() => ca.ws.close());
+  const { ticket } = await (await mf.dispatchFetch(origin + '/api/auth/ws-ticket', { method: 'POST', headers: { Authorization: `Bearer ${ta}` } })).json();
+  const r = await mf.dispatchFetch(origin + '/api/ws', { headers: { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': `clover-gateway-v1, clover-gateway-ticket.${ticket}` } });
+  const phone = r.webSocket; phone.accept();
+  const rpc = (id, method) => new Promise(resolve => { phone.addEventListener('message', e => { const m = JSON.parse(e.data); if (m.id === id) resolve(m); }); phone.send(JSON.stringify({ jsonrpc: '2.0', id, method, params: {} })); });
+  assert.deepEqual((await rpc(1, 'device.status')).result, { method: 'device.status' });
+  const denied = await rpc(2, 'device.request_access');
+  assert.equal(denied.error.code, 4030); assert.deepEqual(denied.error.data, { capability: 'control_view' });
+  assert.deepEqual(seen, ['device.status', 'device.request_access']); phone.close();
 });

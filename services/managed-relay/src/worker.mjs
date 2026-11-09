@@ -370,6 +370,7 @@ export class Installation {
           try {
             if (!Number.isInteger(m.status) || m.status < 200 || m.status > 599 || typeof m.body !== 'string' || m.body.length > 11184812 || !validBase64(m.body)) throw Error('bad response');
             const binary = atob(m.body); if (binary.length > 8 * 1024 * 1024) throw Error('oversize');
+            if (resolve.snapshot && binary.length > 2 * 1024 * 1024) { response = reply({ error: 'frame too large' }, 502); this.pending.delete(m.id); try { await resolve(response, true); } finally { resolve.processingDone(); } return; }
             const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
             const headers = new Headers();
             const contentType = m.headers?.['content-type'];
@@ -422,6 +423,15 @@ export class Installation {
       const identity = await this.state.storage.get('identity');
       if (!identity?.devices.some(d => d.hash === deviceHash && d.expiresAt > Date.now())) return reply({ error: 'unauthorized' }, 401);
       if (!allowMobileRequest(method, target)) return reply({ error: 'forbidden' }, 403);
+      const snapshot = target.startsWith('/desk/snapshot');
+      if (snapshot) {
+        // Per-device cap so a misbehaving phone cannot flood the PC with screen captures.
+        const now = Date.now(); this.snapshotTimes ??= new Map();
+        const recent = (this.snapshotTimes.get(deviceHash) || []).filter(t => now - t < 1000);
+        if (recent.length >= 4) { this.snapshotTimes.set(deviceHash, recent); return reply({ error: 'rate limited' }, 429); }
+        recent.push(now); this.snapshotTimes.set(deviceHash, recent);
+        if (this.snapshotTimes.size > 64) for (const [k, v] of this.snapshotTimes) if (!v.some(t => now - t < 1000)) this.snapshotTimes.delete(k);
+      }
       if (!this.socket) return reply({ error: 'offline' }, 503);
       const slot = await this.acquireHttpSlot();
       if (slot !== 'ok') { if (slot === 'offline') this.releaseHttpSlot(); return reply({ error: slot }, 503); }
@@ -456,7 +466,7 @@ export class Installation {
           else { if (finish.processing) deferredRelease = true; else release(); resolve(response); }
         };
         finish.processingDone = () => { finish.processing = false; if (deferredRelease) release(); };
-        Object.assign(finish, { ticketRequest: method === 'POST' && target === '/api/auth/ws-ticket', started: Number(request.headers.get('x-relay-started')), deviceHash, installationId: identity.id });
+        Object.assign(finish, { ticketRequest: method === 'POST' && target === '/api/auth/ws-ticket', snapshot, started: Number(request.headers.get('x-relay-started')), deviceHash, installationId: identity.id });
         this.pending.set(id, finish); timer = setTimeout(() => finish(reply({ error: 'deadline exceeded' }, 504)), timeout);
         try { socket.send(JSON.stringify({ type: 'http.request', id, method, target, headers, body: base64(body) })); }
         catch { finish(reply({ error: 'offline' }, 503)); }
@@ -619,7 +629,7 @@ export default {
         reasons.set(request, forwarded.status === 101 ? 'forward_ok' : 'forward_status_' + forwarded.status);
         return forwarded;
       }
-      if (url.pathname.startsWith('/api/')) {
+      if (url.pathname.startsWith('/api/') || url.pathname === '/desk/displays' || url.pathname === '/desk/snapshot') {
         if (!allowMobileRequest(request.method, url.pathname + url.search)) return reply({ error: 'forbidden' }, 403);
         const authorization = request.headers.get('authorization') || '';
         const token = /^Bearer (cdt_[A-Za-z0-9_-]{16,256})$/.exec(authorization);

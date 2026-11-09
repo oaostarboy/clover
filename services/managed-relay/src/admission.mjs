@@ -11,6 +11,8 @@ export function allowMobileRequest(method, target) {
     return entries.length === 0 || (entries.length === 1 && entries[0][0] === 'profile' && entries[0][1].length > 0);
   }
   if (method !== 'GET') return false;
+  if (path === '/desk/displays') return !rest.length;
+  if (path === '/desk/snapshot') return [...query.entries()].every(([k, v]) => ['display', 'q', 'w'].includes(k) && /^[A-Za-z0-9_.:-]{1,64}$/.test(v)) && new Set(query.keys()).size === [...query.keys()].length;
   if (path === '/api/sessions') return [...query.keys()].every(key => ['limit', 'offset', 'min_messages', 'archived', 'order'].includes(key));
   return /^\/api\/sessions\/[A-Za-z0-9_-]+\/messages$/.test(path) && !rest.length;
 }
