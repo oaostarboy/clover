@@ -3062,7 +3062,7 @@ def handle_request(req: dict) -> dict | None:
         params = authorize_request(current_transport(), method, params, _sessions,
                                    launch_home=_clover_home)
     except DeviceAccessDenied as exc:
-        return _err(rid, 4030, str(exc))
+        return _err(rid, 4030, str(exc), getattr(exc, 'data', None))
     fn = _methods.get(method)
     if not fn:
         return _err(rid, -32601, f"unknown method: {method}")
@@ -3188,7 +3188,7 @@ def dispatch(req: dict, transport: Optional[Transport] = None,
         try:
             authorize_request(t, method, _params, _sessions, launch_home=_clover_home)
         except DeviceAccessDenied as exc:
-            return _err(_rid, 4030, str(exc))
+            return _err(_rid, 4030, str(exc), getattr(exc, 'data', None))
         if method not in _LONG_HANDLERS:
             return handle_request(req)
 

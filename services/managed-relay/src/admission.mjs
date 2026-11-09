@@ -11,6 +11,9 @@ export function allowMobileRequest(method, target) {
     return entries.length === 0 || (entries.length === 1 && entries[0][0] === 'profile' && entries[0][1].length > 0);
   }
   if (method !== 'GET') return false;
+  // Control view over stills. The gateway decides the grant (control_view); this is only path admission.
+  if (path === '/desk/displays') return !rest.length;
+  if (path === '/desk/snapshot') return [...query.keys()].every(key => key === 'display') && [...query.values()].every(v => /^[0-9]{1,3}$/.test(v)) && [...query].length <= 1;
   if (path === '/api/sessions') return [...query.keys()].every(key => ['limit', 'offset', 'min_messages', 'archived', 'order'].includes(key));
   return /^\/api\/sessions\/[A-Za-z0-9_-]+\/messages$/.test(path) && !rest.length;
 }

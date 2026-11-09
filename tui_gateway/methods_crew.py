@@ -26,6 +26,11 @@ def _owner_ok():
         return True
     if not isinstance(identity, dict):
         return False
+    if identity.get("provider") == "mobile-device" or identity.get("device_principal") is not None:
+        # A paired phone is never the owner. crew_act is enforced in device_auth;
+        # this is the second lock should a rule ever be widened by mistake.
+        principal = identity.get("device_principal")
+        return "crew_act" in getattr(principal, "capabilities", ())
     uid, prov = identity.get("user_id"), identity.get("provider")
     if not (isinstance(uid, str) and uid.strip() and isinstance(prov, str) and prov.strip()):
         return False
@@ -95,6 +100,60 @@ def _(rid, params: dict) -> dict:
         return _err(rid, e.code, e.message)
     except Exception:
         return _err(rid, 5121, "peer relay failed")
+
+
+def _device_of_transport():
+    from tui_gateway.device_auth import device_principal
+    from tui_gateway.transport import current_transport
+
+    return device_principal(current_transport())
+
+
+@method("device.status")
+def _(rid, params: dict) -> dict:
+    """What this paired phone may do right now. Result ``{status, capabilities,
+    expires: {cap: iso}, pending_request?: {request_id, match_code, capabilities}}``."""
+    from clover_cli.mobile_pairing import get_device_store
+
+    principal = _device_of_transport()
+    if principal is None:
+        return _err(rid, 4031, "device.status is for paired phones")
+    row = get_device_store().get(principal.device_id)
+    if row is None:
+        return _err(rid, 4030, "device authorization expired or revoked")
+    out = {"status": row["status"], "capabilities": row["effective_capabilities"], "expires": row["expires"]}
+    if "pending_request" in row:
+        out["pending_request"] = {k: row["pending_request"][k] for k in ("request_id", "match_code", "capabilities")}
+    return _ok(rid, out)
+
+
+@method("device.request_access")
+def _(rid, params: dict) -> dict:
+    """Ask the owner for rights. Params ``{capabilities: [...]}``. Result ``{request_id, match_code}``;
+    the PC shows a popup and Telegram pings the owner. Rate limited to one per 10 s."""
+    from clover_cli.mobile_pairing import get_device_store, normalize_capabilities
+    from clover_cli.mobile_device_notify import announce_request
+
+    principal = _device_of_transport()
+    if principal is None:
+        return _err(rid, 4031, "device.request_access is for paired phones")
+    try:
+        caps = normalize_capabilities(params.get("capabilities") or [])
+    except ValueError as exc:
+        return _err(rid, 4002, str(exc))
+    if not caps:
+        return _err(rid, 4002, "capabilities required")
+    store = get_device_store()
+    try:
+        req = store.request_access(principal.device_id, caps)
+    except ValueError as exc:
+        return _err(rid, 4290 if str(exc) == "rate_limited" else 4002, str(exc))
+    if req is None:
+        return _err(rid, 4030, "device authorization expired or revoked")
+    if req["created"]:
+        store.audit(principal.device_id, ",".join(caps), "device.request_access", "request")
+        announce_request(store.get(principal.device_id) or {}, req)
+    return _ok(rid, {"request_id": req["request_id"], "match_code": req["match_code"]})
 
 
 def register(server) -> None:

@@ -37,3 +37,23 @@ describe('newlyConnected', () => {
     expect(newlyConnected([dev({ connected: true })], 'a1')).toBe(true)
   })
 })
+
+describe('grant helpers', () => {
+  it('maps switches to capabilities and back, with implied rights', async () => {
+    const { capsFromRights, rightsFromCaps, initialRights } = await import('./phone-pairing')
+    const caps = capsFromRights(new Set(['chat', 'crew_act']))
+
+    expect(caps).toEqual(expect.arrayContaining(['chat', 'audio_speak', 'crew_read', 'crew_act']))
+    expect([...rightsFromCaps(caps)].sort()).toEqual(['chat', 'crew_act', 'crew_read'])
+    expect([...initialRights({ capabilities: ['crew_act', 'control_drive'], created_at: 0, match_code: '1', request_id: 'x' })].sort()).toEqual(['chat', 'control_view', 'crew_read'])
+  })
+
+  it('labels the timed right', async () => {
+    const { timedRightLabel } = await import('./phone-pairing')
+    const now = Date.parse('2026-11-09T20:00:00Z')
+
+    expect(timedRightLabel('2026-11-09T20:42:00Z', now)).toBe('42 min left')
+    expect(timedRightLabel('2026-11-09T19:00:00Z', now)).toBe('Expired')
+    expect(timedRightLabel(undefined, now)).toBeNull()
+  })
+})
