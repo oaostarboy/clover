@@ -6,7 +6,7 @@ export const MANAGED_RELAY_ORIGIN = 'https://relay.cloverai.ca';
 // backend descriptor supplied by the existing desktop startup machinery.
 // No backend is spawned, killed, reconfigured, or promoted to owner authority.
 export function createDesktopPairing({ identityPath, request, enroll = ensureEnrolled,
-  connect = openConnector, syncIntervalMs = 2000 }) {
+  connect = openConnector, syncIntervalMs = 2000, onSyncError }) {
   const entries = new Map();
   const aliases = new Map();
   const generations = new Map();
@@ -20,14 +20,20 @@ export function createDesktopPairing({ identityPath, request, enroll = ensureEnr
   const dispose = e => { e.disposed = true; clearInterval(e.timer); e.connector?.close(); e.connector = null; };
   async function snapshot(e) {
     const data = await request(e.connection, '/api/mobile/relay/devices');
+    e.verifying = true;
     if (data.profile !== e.profile || !/^[0-9a-f]{64}$/.test(data.gatewayId || '') || (e.gatewayId && data.gatewayId !== e.gatewayId) || !Array.isArray(data.devices)) throw Error('Mobile gateway identity or profile verification failed');
     if (data.devices.length > 64) throw Error('Mobile relay device capacity exceeded (maximum 64); revoke a device and retry');
     return data;
   }
   async function synchronize(e) {
     let devices;
+    e.verifying = false;
     try { ({ devices } = await snapshot(e)); }
-    catch (error) { e.connector?.close(); e.connector = null; throw error; }
+    catch (error) {
+      // Transport/timeout failures keep the live connector and last good list; identity/profile/capacity rejections close it.
+      if (e.verifying) { e.connector?.close(); e.connector = null; }
+      throw error;
+    }
     if (e.disposed || stopped) throw Error('Pairing stopped');
     if (!e.connector) {
       const { identity } = await enroll(MANAGED_RELAY_ORIGIN, identityPath(e.scope));
@@ -36,7 +42,8 @@ export function createDesktopPairing({ identityPath, request, enroll = ensureEnr
       if (e.disposed || stopped) { connector.close(); throw Error('Pairing stopped'); }
       e.connector = connector;
     }
-    await e.connector.replaceDevices(devices);
+    try { await e.connector.replaceDevices(devices); }
+    catch (error) { e.connector?.close(); e.connector = null; throw error; }
     if (e.disposed || stopped) throw Error('Pairing stopped');
     e.failures = 0;
   }
@@ -55,10 +62,12 @@ export function createDesktopPairing({ identityPath, request, enroll = ensureEnr
       e.ready = serial(e, () => synchronize(e)).catch(error => { dispose(e); if (entries.get(scope) === e) entries.delete(scope); throw error; });
       if (syncIntervalMs > 0) {
         e.timer = setInterval(() => {
-          if (e.disposed || e.ticking || e.failures >= 6) return;
+          if (e.disposed || e.ticking || Date.now() < (e.nextAt || 0)) return;
           e.ticking = true;
-          void serial(e, () => synchronize(e)).catch(() => {
-            e.connector?.close(); e.connector = null; e.failures++;
+          void serial(e, () => synchronize(e)).then(() => { e.nextAt = 0; }).catch(error => {
+            e.failures++; // never stop syncing: exponential backoff capped at 30 s
+            e.nextAt = Date.now() + Math.min(30000, syncIntervalMs * 2 ** Math.min(e.failures, 10));
+            onSyncError?.(error, e.failures);
           }).finally(() => { e.ticking = false; });
         }, syncIntervalMs);
         e.timer.unref?.();
