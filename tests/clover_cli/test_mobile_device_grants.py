@@ -293,3 +293,50 @@ def test_notification_text_is_short_and_secret_free():
     from clover_cli.mobile_device_notify import request_text
     t = request_text("iPhone", ["crew_read", "control_view", "control_drive"], "4821")
     assert t == "iPhone wants Crew view, Control drive. Code 4821. Approve in Clover on your PC."
+
+
+# ---- the real dispatcher (handle_request), not just authorize_request ------------------
+
+def _dispatch(transport, method, params=None, rid=1):
+    from tui_gateway import server
+    from tui_gateway.transport import bind_transport, reset_transport
+    tok = bind_transport(transport)
+    try:
+        return server.handle_request({"jsonrpc": "2.0", "id": rid, "method": method, "params": params or {}})
+    finally:
+        reset_transport(tok)
+
+
+class _Tr:
+    def __init__(self, identity):
+        self.auth_identity = identity
+        self.closed = False
+
+
+def test_dispatch_device_status_and_request_access_and_4030(env, monkeypatch):
+    from clover_cli import mobile_device_notify
+    sent = []
+    monkeypatch.setattr(mobile_device_notify, "announce_request", lambda dev, req: sent.append((dev, req)))
+    dev = env.store.create("My iPhone", pending=True)
+    env.store.authenticate(dev["token"])
+    t = _Tr(transport_for(env.store, dev["token"]).auth_identity)
+
+    r = _dispatch(t, "device.status")
+    assert r["result"] == {"status": "pending", "capabilities": [], "expires": {}}
+
+    r = _dispatch(t, "device.request_access", {"capabilities": ["crew_read", "control_view"]})
+    assert len(r["result"]["match_code"]) == 4 and r["result"]["request_id"]
+    assert len(sent) == 1 and "token" not in json.dumps(sent[0][1])
+    again = _dispatch(t, "device.request_access", {"capabilities": ["crew_read", "control_view"]})
+    assert again["result"] == r["result"] and len(sent) == 1  # no second alert
+    assert _dispatch(t, "device.status")["result"]["pending_request"]["match_code"] == r["result"]["match_code"]
+
+    r = _dispatch(t, "crew.list")
+    assert r["error"]["code"] == 4030 and r["error"]["data"] == {"capability": "crew_read", "reason": "pending"}
+    bad = _dispatch(t, "device.request_access", {"capabilities": ["root"]})
+    assert bad["error"]["code"] == 4002
+
+
+def test_dispatch_owner_transport_cannot_call_device_rpcs_and_keeps_peer_turn(env):
+    r = _dispatch(_Tr(None), "device.status")
+    assert r["error"]["code"] == 4031

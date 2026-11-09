@@ -102,20 +102,16 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 5121, "peer relay failed")
 
 
-def _device_of_transport():
-    from tui_gateway.device_auth import device_principal
-    from tui_gateway.transport import current_transport
-
-    return device_principal(current_transport())
-
-
 @method("device.status")
 def _(rid, params: dict) -> dict:
     """What this paired phone may do right now. Result ``{status, capabilities,
     expires: {cap: iso}, pending_request?: {request_id, match_code, capabilities}}``."""
     from clover_cli.mobile_pairing import get_device_store
 
-    principal = _device_of_transport()
+    from tui_gateway.device_auth import device_principal
+    from tui_gateway.transport import current_transport
+
+    principal = device_principal(current_transport())
     if principal is None:
         return _err(rid, 4031, "device.status is for paired phones")
     row = get_device_store().get(principal.device_id)
@@ -134,7 +130,10 @@ def _(rid, params: dict) -> dict:
     from clover_cli.mobile_pairing import get_device_store, normalize_capabilities
     from clover_cli.mobile_device_notify import announce_request
 
-    principal = _device_of_transport()
+    from tui_gateway.device_auth import device_principal
+    from tui_gateway.transport import current_transport
+
+    principal = device_principal(current_transport())
     if principal is None:
         return _err(rid, 4031, "device.request_access is for paired phones")
     try:
