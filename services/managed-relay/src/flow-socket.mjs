@@ -15,9 +15,9 @@ function utf8Bytes(value) {
 // A bounded application queue around the negotiated wire protocol. Construct only
 // after the endpoint has selected a flow subprotocol; never wrap legacy sockets.
 export class FlowSocket {
-  constructor(raw, { queueBytes = 1048576, queueCount = 16, timeoutMs = 30000, maxMessageBytes = FLOW_LIMITS.messageBytes, reserve = () => () => {} } = {}) {
+  constructor(raw, { queueBytes = 1048576, queueCount = 16, timeoutMs = 30000, maxMessageBytes = FLOW_LIMITS.messageBytes, reserve = () => () => {}, closeOnCapacity = true } = {}) {
     if (!Number.isSafeInteger(queueBytes) || queueBytes < 0 || queueBytes > 12582912 || !Number.isSafeInteger(queueCount) || queueCount < 1 || queueCount > 64) throw Error('invalid queue budget');
-    this.raw = raw; this.queueBytes = queueBytes; this.queueCount = queueCount; this.maxMessageBytes = maxMessageBytes; this.reserve = reserve;
+    this.raw = raw; this.queueBytes = queueBytes; this.queueCount = queueCount; this.maxMessageBytes = maxMessageBytes; this.reserve = reserve; this.closeOnCapacity = closeOnCapacity;
     this.queue = []; this.queuedBytes = 0; this.listeners = new Map(); this.closed = false;
     this.flow = new FlowTransport({ timeoutMs, maxMessageBytes, reserve, send: wire => raw.send(wire),
       onWritable: () => this.drain(), onClose: () => this.close(1008, 'transport closed'),
@@ -55,12 +55,12 @@ export class FlowSocket {
     if (bytes > this.maxMessageBytes) throw Error('message capacity');
     if (!this.queue.length) {
       if (this.flow.trySend(data)) return;
-      if (this.flow.sendFailure === 'memory capacity') { this.close(1008, 'memory capacity'); throw Error('memory capacity'); }
+      if (this.flow.sendFailure === 'memory capacity') { if (this.closeOnCapacity) this.close(1008, 'memory capacity'); throw Error('memory capacity'); }
     }
     if (this.flow.closed) throw Error('transport closed');
     if (this.queue.length >= this.queueCount || this.queuedBytes + bytes > this.queueBytes) throw Error('queue capacity');
     const release = this.reserve(typeof data === 'string' ? data.length * 2 + bytes : bytes);
-    if (!release) { this.close(1008, 'memory capacity'); throw Error('memory capacity'); }
+    if (!release) { if (this.closeOnCapacity) this.close(1008, 'memory capacity'); throw Error('memory capacity'); }
     try { this.queue.push({ data: typeof data === 'string' ? data : data.slice(), bytes, release }); this.queuedBytes += bytes; }
     catch (error) { release(); throw error; }
   }
@@ -69,7 +69,7 @@ export class FlowSocket {
     if (this.queue.length) {
       const item = this.queue[0];
       if (this.flow.trySend(item.data)) { this.queue.shift(); this.queuedBytes -= item.bytes; item.release(); }
-      else if (this.flow.sendFailure === 'memory capacity') { this.close(1008, 'memory capacity'); return; }
+      else if (this.flow.sendFailure === 'memory capacity') { if (this.closeOnCapacity) { this.close(1008, 'memory capacity'); return; } setTimeout(() => this.drain(), 50); return; }
     }
     if (!this.queue.length && !this.flow.tx) void this.dispatch('drain', {}).catch(() => this.close(1011, 'consumer failed'));
   }

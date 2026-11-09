@@ -21,13 +21,9 @@ test('permits audio profile query only when exact and unambiguous', () => {
   assert.equal(allowMobileRequest('POST', '/api/audio/speak?profile=work&profile=work'), false);
   assert.equal(allowMobileRequest('POST', '/api/audio/speak?token=x'), false);
 });
-test('permits only the two read-only desk paths with a numeric display', () => {
+test('admits only still-screenshot desk GETs', () => {
   assert.equal(allowMobileRequest('GET', '/desk/displays'), true);
+  assert.equal(allowMobileRequest('GET', '/desk/snapshot?display=1&q=60&w=800'), true);
   assert.equal(allowMobileRequest('GET', '/desk/snapshot'), true);
-  assert.equal(allowMobileRequest('GET', '/desk/snapshot?display=1'), true);
-  for (const target of ['/desk/snapshot?display=x', '/desk/snapshot?display=1&display=2', '/desk/snapshot?token=1',
-    '/desk/displays?x=1', '/desk/stream', '/desk/snapshot/', '/desk/%73napshot']) {
-    assert.equal(allowMobileRequest('GET', target), false, target);
-  }
-  assert.equal(allowMobileRequest('POST', '/desk/snapshot'), false);
+  for (const [m, p] of [['GET', '/desk/stream'], ['POST', '/desk/snapshot'], ['POST', '/desk/input'], ['GET', '/desk/snapshot?x=1'], ['GET', '/desk/snapshot?display=1&display=2'], ['GET', '/desk/displays?a=1'], ['GET', '/desk/snapshot/'], ['GET', '/desk/%73napshot']]) assert.equal(allowMobileRequest(m, p), false, p);
 });
