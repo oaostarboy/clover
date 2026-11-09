@@ -146,8 +146,8 @@ export class Installation {
                 let req = null; try { req = JSON.parse(e.data); } catch {}
                 if (req && req.method === 'push.register' && req.id !== undefined && req.id !== null) {
                   const key = JSON.stringify(req.params ?? null); const now = Date.now(); const last = channel.pushReg;
-                  if (last && last.key === key && last.result !== undefined && now - last.at < PUSH_DEDUPE_MS) {
-                    try { phone.send(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: last.result })); } catch {}
+                  if (last && last.key === key && (last.result !== undefined || last.error !== undefined) && now - last.at < PUSH_DEDUPE_MS) {
+                    try { phone.send(JSON.stringify(last.error !== undefined ? { jsonrpc: '2.0', id: req.id, error: last.error } : { jsonrpc: '2.0', id: req.id, result: last.result })); } catch {}
                     slog('push_register_deduped', { ch: cid(m.id) });
                     return;
                   }
@@ -283,8 +283,15 @@ export class Installation {
               if ((m.binary ? data.byteLength : new TextEncoder().encode(data).length) > wsLimit) throw Error('oversize');
               const phone = channel.phone;
               if (!m.binary) rpcLog('rpc_down', m.id, data, data.length);
-              if (!m.binary && channel.pushReg && channel.pushReg.result === undefined && data.includes('"result"')) {
-                try { const r = JSON.parse(data); if (r.id === channel.pushReg.id && r.result && r.result.registered === true && !r.error) channel.pushReg.result = r.result; } catch {}
+              if (!m.binary && channel.pushReg && channel.pushReg.result === undefined && channel.pushReg.error === undefined && (data.includes('"result"') || data.includes('"error"'))) {
+                try {
+                  const r = JSON.parse(data);
+                  if (r.id === channel.pushReg.id) {
+                    if (r.result && r.result.registered === true && !r.error) channel.pushReg.result = r.result;
+                    // Cache device-permission/validation failures too (4030 not permitted, other 40xx, -32602 invalid params); never transport errors.
+                    else if (r.error && typeof r.error.code === 'number' && (r.error.code === -32602 || (r.error.code >= 4000 && r.error.code < 4100))) channel.pushReg.error = { code: r.error.code, message: String(r.error.message ?? '') };
+                  }
+                } catch {}
               }
               phone.send(m.binary ? data.buffer : data);
               // Hold the connector grant until the phone has consumed this message.
