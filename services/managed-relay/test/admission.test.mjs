@@ -27,3 +27,22 @@ test('admits only still-screenshot desk GETs', () => {
   assert.equal(allowMobileRequest('GET', '/desk/snapshot'), true);
   for (const [m, p] of [['GET', '/desk/stream'], ['POST', '/desk/snapshot'], ['POST', '/desk/input'], ['GET', '/desk/snapshot?x=1'], ['GET', '/desk/snapshot?display=1&display=2'], ['GET', '/desk/displays?a=1'], ['GET', '/desk/snapshot/'], ['GET', '/desk/%73napshot']]) assert.equal(allowMobileRequest(m, p), false, p);
 });
+
+test('carries Creations downloads and thumbnails with exact queries only', () => {
+  assert.equal(allowMobileRequest('GET', '/api/files/download?path=%2Fhome%2Fa%2Fpic.png'), true);
+  assert.equal(allowMobileRequest('GET', '/api/files/download'), false);
+  assert.equal(allowMobileRequest('GET', '/api/files/download?path=%2Fa&token=x'), false);
+  assert.equal(allowMobileRequest('GET', '/api/files/download?path=%2Fa&path=%2Fb'), false);
+  assert.equal(allowMobileRequest('GET', '/api/files/download?path=relative.png'), false);
+  assert.equal(allowMobileRequest('POST', '/api/files/download?path=%2Fa'), false);
+  assert.equal(allowMobileRequest('GET', '/api/files/upload'), false);
+  assert.equal(allowMobileRequest('GET', '/api/files/stream?path=%2Fa'), false);
+  assert.equal(allowMobileRequest('GET', '/api/artifacts/thumb?id=0123456789abcdef'), true);
+  assert.equal(allowMobileRequest('GET', '/api/artifacts/thumb?id=0123456789abcdef&size=320'), true);
+  assert.equal(allowMobileRequest('GET', '/api/artifacts/thumb?id=../etc'), false);
+  assert.equal(allowMobileRequest('GET', '/api/artifacts/thumb?id=0123456789abcdef&x=1'), false);
+});
+test('desk input never rides HTTP; it is a JSON-RPC method on the phone socket', () => {
+  for (const p of ['/desk/stream', '/desk/input', '/api/desk/input']) assert.equal(allowMobileRequest('POST', p), false);
+  assert.equal(allowMobileRequest('GET', '/desk/stream'), false);
+});
