@@ -155,6 +155,7 @@ SNAPSHOT_DEFAULT_MAX_WIDTH = 2560
 SNAPSHOT_MIN_WIDTH = 320
 SNAPSHOT_DEFAULT_QSCALE = 3      # mjpeg -q:v: 2 = best .. 31 = worst
 STREAM_QSCALE = 6
+SNAPSHOT_TTL = 0.12              # s a still is reused by pipelined requests
 SNAPSHOT_SOFT_LIMIT = 1_800_000  # relay caps a response at 2 MiB
 
 
@@ -703,6 +704,8 @@ class DesktopController:
     def __init__(self, backend: Backend, settings: Dict[str, Any]):
         self.backend = backend
         self.settings = settings
+        self._snap_cache: Dict[tuple, Tuple[float, bytes]] = {}
+        self._snap_inflight: Dict[tuple, Any] = {}
         self.owner: Any = None
         self.since = 0.0
         self.inputs = 0
@@ -798,7 +801,29 @@ class DesktopController:
 
     async def snapshot(self, d: dict) -> bytes:
         """One JPEG of display ``d`` (already sized/quality-tagged by snapshot_plan, or the
-        plain display). Over ~1.8 MB it is re-encoded once at lower quality."""
+        plain display). Over ~1.8 MB it is re-encoded once at lower quality.
+
+        Pipelined phones ask for the next still before the last one lands, so identical
+        requests share one capture (single flight) and a result younger than
+        ``SNAPSHOT_TTL`` is reused instead of spawning another ffmpeg.
+        """
+        key = (d.get("id"), d.get("stream_width"), d.get("stream_height"), d.get("qscale"), d.get("crop"))
+        hit = self._snap_cache.get(key)
+        if hit and time.monotonic() - hit[0] < SNAPSHOT_TTL:
+            return hit[1]
+        fut = self._snap_inflight.get(key)
+        if fut is None:
+            fut = asyncio.ensure_future(self._snapshot_uncached(d))
+            self._snap_inflight[key] = fut
+            fut.add_done_callback(lambda _f, k=key: self._snap_inflight.pop(k, None))
+        data = await asyncio.shield(fut)
+        if data:
+            self._snap_cache[key] = (time.monotonic(), data)
+            while len(self._snap_cache) > 8:
+                self._snap_cache.pop(next(iter(self._snap_cache)))
+        return data
+
+    async def _snapshot_uncached(self, d: dict) -> bytes:
         data = await self._grab(d)
         if len(data) > SNAPSHOT_SOFT_LIMIT and "qscale" in d:
             retry = {**d, "qscale": min(31, int(d["qscale"]) + 6)}
@@ -926,7 +951,11 @@ def build_router(
         data = await c.snapshot(plan)
         if not data:
             return JSONResponse({"error": "capture failed"}, status_code=500)
-        return Response(content=data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+        etag = '"' + hashlib.blake2s(data, digest_size=8).hexdigest() + '"'
+        hdrs = {"Cache-Control": "no-store", "ETag": etag}
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=hdrs)  # screen unchanged: no body over the relay
+        return Response(content=data, media_type="image/jpeg", headers=hdrs)
 
     async def _deny(ws: WebSocket, status: int, msg: str) -> None:
         try:

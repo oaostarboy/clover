@@ -341,4 +341,44 @@ def test_oversize_snapshot_retries_once_at_lower_quality(monkeypatch):
     assert len(out) == 900_000 and qs == [3, 9]
     sizes = iter([100])
     qs.clear()
+    ctl._snap_cache.clear()
     assert len(asyncio.run(ctl.snapshot(dc.snapshot_plan(ULTRA)))) == 100 and qs == [3]
+
+
+# ---- pipelined snapshots: single flight + short reuse + ETag ----------------------
+
+def test_concurrent_snapshots_share_one_capture(monkeypatch):
+    import asyncio
+    ctl = dc.DesktopController(FakeBackend(), dc.read_settings({"desktop_control": {"enabled": True}}))
+    grabs = []
+
+    async def fake_grab(d):
+        grabs.append(d["qscale"])
+        await asyncio.sleep(0.05)
+        return b"\xff\xd8jpeg\xff\xd9"
+
+    monkeypatch.setattr(ctl, "_grab", fake_grab)
+    plan = dc.snapshot_plan(DISPLAY, 640, 60)
+
+    async def run():
+        a = await asyncio.gather(*(ctl.snapshot(plan) for _ in range(4)))
+        assert len(set(a)) == 1
+        await ctl.snapshot(plan)            # inside SNAPSHOT_TTL: reused
+        monkeypatch.setattr(dc, "SNAPSHOT_TTL", 0)
+        await ctl.snapshot(plan)            # expired: a new capture
+
+    asyncio.run(run())
+    assert len(grabs) == 2
+
+
+def test_snapshot_etag_returns_304_when_unchanged():
+    client, ctl = make_app()
+
+    async def fake_grab(d):
+        return b"\xff\xd8same\xff\xd9"
+
+    ctl._grab = fake_grab
+    r = client.get("/desk/snapshot?w=640&q=60", headers={"authorization": GOOD})
+    assert r.status_code == 200 and r.headers["etag"]
+    r2 = client.get("/desk/snapshot?w=640&q=60", headers={"authorization": GOOD, "if-none-match": r.headers["etag"]})
+    assert r2.status_code == 304 and r2.content == b""
