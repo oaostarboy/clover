@@ -20,7 +20,9 @@ import mimetypes
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -214,14 +216,8 @@ def _flatten_content(content: Any) -> str:
     return ""
 
 
-def build_artifacts(rows: Iterable[Dict[str, Any]], *, stat=os.stat) -> List[Dict[str, Any]]:
-    """rows: ``{id, session_id, session_title, timestamp, content}`` per assistant message.
-
-    Returns artifacts newest first, one per path (the newest mention wins),
-    only for files that exist, are regular files, not sensitive and not huge.
-    """
-    home = _clover_home_str()
-    best: Dict[str, Dict[str, Any]] = {}
+def merge_rows(best: Dict[str, Dict[str, Any]], rows: Iterable[Dict[str, Any]]) -> None:
+    """Fold message rows into ``best`` (path -> newest mention); the newest timestamp wins."""
     for row in rows:
         text = _flatten_content(row.get("content"))
         for path, label in extract_refs(text):
@@ -233,6 +229,22 @@ def build_artifacts(rows: Iterable[Dict[str, Any]], *, stat=os.stat) -> List[Dic
                 "path": path, "label": label, "created_at": ts, "session_id": row.get("session_id"),
                 "message_id": row.get("id"), "session_title": row.get("session_title") or "",
             }
+
+
+def build_artifacts(rows: Iterable[Dict[str, Any]], *, stat=os.stat) -> List[Dict[str, Any]]:
+    """rows: ``{id, session_id, session_title, timestamp, content}`` per assistant message.
+
+    Returns artifacts newest first, one per path (the newest mention wins),
+    only for files that exist, are regular files, not sensitive and not huge.
+    """
+    best: Dict[str, Dict[str, Any]] = {}
+    merge_rows(best, rows)
+    return finalize_artifacts(best, stat=stat)
+
+
+def finalize_artifacts(best: Dict[str, Dict[str, Any]], *, stat=os.stat) -> List[Dict[str, Any]]:
+    """Turn ``path -> newest mention`` into the listed artifacts (existence/sensitivity checked now)."""
+    home = _clover_home_str()
     out: List[Dict[str, Any]] = []
     for path, meta in best.items():
         if is_sensitive(path, home=home):
@@ -381,40 +393,246 @@ def thumbnail(home: Path, path: str, size: int = 480) -> Optional[Path]:
 
 
 # ---------------------------------------------------------------- database scan
+#
+# The index is incremental and persistent.  ``cache/artifacts/index.json`` holds, per file path, the
+# newest message that mentions it, plus two id frontiers over ``messages.id`` (the primary key):
+#   * ``high`` - every message with id > high is still unscanned (the cheap, per-call range scan);
+#   * ``low``  - every message with id >= low has been scanned (the one-time backfill walks this down).
+# A request only scans ``id > high`` (a PK range, a handful of rows) and never the whole table.  The
+# first-ever backfill, and any large catch-up, runs in one background thread in short id-range chunks
+# so no request waits on it and no query holds the database; ``artifacts.list`` reports
+# ``indexing: true`` until it finishes.
+#
+# Messages later made inactive (compaction/rewind) are deliberately not reconciled: the listing is of
+# files, and ``finalize_artifacts`` stats every path on each rebuild, so a deleted file drops out by
+# itself while a file that still exists stays a creation.
 
 _SCAN_LIMIT = 4000
+_CHUNK = 20000          # message ids per query
+_SEED = 2000            # ids scanned inline on the very first call so it is not empty
+_PAUSE = 0.02           # seconds between backfill chunks (yield CPU / the DB)
+_INDEX_VERSION = 1
 _cache: Dict[str, Any] = {"at": 0.0, "key": None, "items": []}
+_states: Dict[str, "_IndexState"] = {}
+_states_lock = threading.Lock()
+
+_WHERE = (
+    "m.role = 'assistant' AND m.active = 1 AND m.content IS NOT NULL "
+    "AND (m.content LIKE '%MEDIA:%' OR m.content LIKE '%](/%' OR m.content LIKE '%](file://%' "
+    "OR m.content LIKE '%](~/%' OR m.content LIKE '%](<%')"
+)
+_SELECT = (
+    "SELECT m.id AS id, m.session_id AS session_id, m.content AS content, m.timestamp AS timestamp, "
+    "s.title AS session_title FROM messages m LEFT JOIN sessions s ON s.id = m.session_id "
+)
 
 
-def scan_rows(db, limit: int = _SCAN_LIMIT) -> List[Dict[str, Any]]:
-    """Newest assistant messages that mention a file (MEDIA tag / markdown link or image)."""
-    sql = (
-        "SELECT m.id AS id, m.session_id AS session_id, m.content AS content, m.timestamp AS timestamp, "
-        "s.title AS session_title FROM messages m LEFT JOIN sessions s ON s.id = m.session_id "
-        "WHERE m.role = 'assistant' AND m.active = 1 AND m.content IS NOT NULL "
-        "AND (m.content LIKE '%MEDIA:%' OR m.content LIKE '%](/%' OR m.content LIKE '%](file://%' OR m.content LIKE '%](~/%' "
-        "OR m.content LIKE '%](<%') ORDER BY m.id DESC LIMIT ?"
-    )
+def _decode(content: Any) -> Any:
+    try:
+        from clover_state import SessionDB
+
+        return SessionDB._decode_content(content)
+    except Exception:
+        return content
+
+
+def _rows_from(cur) -> List[Dict[str, Any]]:
+    return [{"id": r["id"], "session_id": r["session_id"], "content": _decode(r["content"]),
+             "timestamp": r["timestamp"], "session_title": r["session_title"]} for r in cur.fetchall()]
+
+
+def scan_rows(db, limit: int = _SCAN_LIMIT, *, min_id: Optional[int] = None,
+              max_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Assistant messages that mention a file (MEDIA tag / markdown link or image), newest first.
+
+    ``min_id``/``max_id`` bound the scan to a primary-key range (inclusive); without them it is the
+    legacy newest-``limit`` scan.
+    """
+    sql = _SELECT + "WHERE " + _WHERE
+    args: List[Any] = []
+    if min_id is not None:
+        sql += " AND m.id >= ?"
+        args.append(int(min_id))
+    if max_id is not None:
+        sql += " AND m.id <= ?"
+        args.append(int(max_id))
+    sql += " ORDER BY m.id DESC LIMIT ?"
+    args.append(int(limit))
     with db._read_ctx() as conn:
-        rows = conn.execute(sql, (limit,)).fetchall()
-    out = []
-    for r in rows:
-        content = r["content"]
+        return _rows_from(conn.execute(sql, args))
+
+
+def _max_id(conn) -> int:
+    row = conn.execute("SELECT MAX(id) FROM messages").fetchone()
+    return int((row[0] if row else 0) or 0)
+
+
+class _IndexState:
+    def __init__(self, home: Path):
+        self.home = Path(home)
+        self.lock = threading.RLock()
+        self.best: Dict[str, Dict[str, Any]] = {}
+        self.high: Optional[int] = None      # None -> never initialised
+        self.low: int = 1
+        self.thread: Optional[threading.Thread] = None
+        self.dirty = False
+        self._load()
+
+    @property
+    def path(self) -> Path:
+        return _cache_root(self.home) / "index.json"
+
+    def _load(self) -> None:
         try:
-            content = db._decode_content(content)
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            if data.get("version") == _INDEX_VERSION and isinstance(data.get("entries"), dict):
+                self.best = data["entries"]
+                self.high = int(data["high"])
+                self.low = int(data["low"])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+
+    def save(self) -> None:
+        root = _cache_root(self.home)
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            tmp = root / "index.json.tmp"
+            tmp.write_text(json.dumps({"version": _INDEX_VERSION, "high": self.high, "low": self.low,
+                                       "entries": self.best}), encoding="utf-8")
+            os.replace(tmp, self.path)
+        except OSError:
+            pass
+
+    @property
+    def indexing(self) -> bool:
+        with self.lock:
+            return self.low > 1 or bool(self.thread and self.thread.is_alive())
+
+    def _fold(self, rows: List[Dict[str, Any]]) -> None:
+        with self.lock:
+            merge_rows(self.best, rows)
+            self.dirty = True
+
+    def _worker(self, db_path: Optional[str]) -> None:
+        """Catch up ``id > high`` then walk ``low`` down to 1, one short PK-range query at a time."""
+        try:
+            try:
+                os.nice(5)
+            except (AttributeError, OSError):
+                pass
+            conn = _open_ro(db_path)
+            if conn is None:
+                return
+            try:
+                while True:
+                    top = _max_id(conn)
+                    with self.lock:
+                        high = self.high or 0
+                    if top <= high:
+                        break
+                    hi = min(top, high + _CHUNK)
+                    rows = _rows_from(conn.execute(
+                        _SELECT + "WHERE " + _WHERE + " AND m.id > ? AND m.id <= ? ORDER BY m.id DESC",
+                        (high, hi)))
+                    with self.lock:
+                        self._fold(rows)
+                        self.high = hi
+                        self.save()
+                    time.sleep(_PAUSE)
+                while True:
+                    with self.lock:
+                        low = self.low
+                    if low <= 1:
+                        break
+                    lo = max(1, low - _CHUNK)
+                    rows = _rows_from(conn.execute(
+                        _SELECT + "WHERE " + _WHERE + " AND m.id >= ? AND m.id < ? ORDER BY m.id DESC",
+                        (lo, low)))
+                    with self.lock:
+                        self._fold(rows)
+                        self.low = lo
+                        self.save()
+                    time.sleep(_PAUSE)
+            finally:
+                conn.close()
         except Exception:
             pass
-        out.append({"id": r["id"], "session_id": r["session_id"], "content": content,
-                    "timestamp": r["timestamp"], "session_title": r["session_title"]})
-    return out
+        finally:
+            with self.lock:
+                self.thread = None
+                self.dirty = True   # rebuild the listing from the final state
+
+    def ensure_worker(self, db_path: Optional[str]) -> None:
+        with self.lock:
+            if self.thread and self.thread.is_alive():
+                return
+            self.thread = threading.Thread(target=self._worker, args=(db_path,), name="artifact-index",
+                                           daemon=True)
+            self.thread.start()
 
 
-def index_for(db, home: Path, *, ttl: float = 20.0, force: bool = False) -> List[Dict[str, Any]]:
+def _open_ro(db_path: Optional[str]):
+    if not db_path:
+        return None
+    try:
+        conn = sqlite3.connect(f"{Path(db_path).resolve().as_uri()}?mode=ro", uri=True, timeout=5,
+                               check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.Error:
+        return None
+
+
+def _state_for(home: Path) -> _IndexState:
+    key = str(home)
+    with _states_lock:
+        st = _states.get(key)
+        if st is None:
+            st = _states[key] = _IndexState(home)
+        return st
+
+
+def is_indexing(home: Path) -> bool:
+    """True while the one-time backfill (or a large catch-up) is still running."""
+    st = _states.get(str(home))
+    return bool(st and st.indexing)
+
+
+def index_for(db, home: Path, *, ttl: float = 2.0, force: bool = False) -> List[Dict[str, Any]]:
+    """Artifacts newest first.  Never scans more than a small id range inline (see module notes)."""
     now = time.monotonic()
     key = str(home)
-    if not force and _cache["key"] == key and now - _cache["at"] < ttl:
+    st = _state_for(home)
+    if not force and _cache["key"] == key and now - _cache["at"] < ttl and not st.dirty:
         return _cache["items"]
-    items = build_artifacts(scan_rows(db))
+    db_path = str(getattr(db, "db_path", "") or "") or None
+    with db._read_ctx() as conn:
+        top = _max_id(conn)
+    if st.high is None:                           # first ever call: seed with the newest id range only
+        lo = max(1, top - _SEED + 1)
+        rows = scan_rows(db, limit=_SEED, min_id=lo, max_id=top) if top else []
+        with st.lock:
+            if st.high is None:
+                st._fold(rows)
+                st.high, st.low = top, lo
+                st.save()
+    with st.lock:
+        high = st.high
+    if top - high > _CHUNK:                       # long gap: catch up off the request path
+        st.ensure_worker(db_path)
+    elif top > high:                              # the normal case: a few new messages
+        rows = scan_rows(db, limit=_CHUNK, min_id=high + 1, max_id=top)
+        with st.lock:
+            if st.high == high:                   # not advanced meanwhile by the worker
+                st._fold(rows)
+                st.high = top
+                st.save()
+    if st.low > 1:
+        st.ensure_worker(db_path)
+    with st.lock:
+        st.dirty = False
+        best = dict(st.best)
+    items = finalize_artifacts(best)
     try:
         save_registry(home, items)
     except OSError:
