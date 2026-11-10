@@ -59,12 +59,14 @@ def env(tmp_path, monkeypatch):
     full = {**dc.read_settings({"desktop_control": settings})}
     cfg = {"v": full}
     monkeypatch.setattr(dc, "read_settings", lambda config=None: cfg["v"])
+    relay_drive = {"v": True}
+    monkeypatch.setattr(desk_drive, "relay_drive_enabled", lambda: relay_drive["v"])
     backend = FakeBackend()
     ctl = dc.DesktopController(backend, full)
     dc.reset_controller_for_tests(ctl)
     desk_drive.reset_for_tests()
     monkeypatch.setattr(desk_drive, "_now", clock)
-    yield SimpleNamespace(store=store, clock=clock, backend=backend, ctl=ctl, cfg=cfg, tmp=tmp_path)
+    yield SimpleNamespace(relay_drive=relay_drive, store=store, clock=clock, backend=backend, ctl=ctl, cfg=cfg, tmp=tmp_path)
     desk_drive.reset_for_tests()
     dc.reset_controller_for_tests(None)
 
@@ -256,3 +258,28 @@ def test_with_input_enabled_nothing_without_drive_can_reach_input(env):
     r = call(Tr({"provider": "mobile-device", "device_principal": ghost}), "desk.take_control")
     assert r["error"]["code"] == 4030
     assert env.backend.calls == [] and env.ctl.owner is None
+
+
+def test_relay_drive_off_by_default_refuses_with_disabled(env, monkeypatch):
+    from tui_gateway import desk_drive
+    env.relay_drive["v"] = False
+    _, t = phone(env, ["control_drive"])
+    r = call(t, "desk.take_control", {"display": 0})
+    assert r["error"]["code"] == 4030 and r["error"]["data"] == {"capability": "control_drive", "reason": "disabled"}
+    assert env.backend.calls == [] and env.ctl.owner is None
+
+
+def test_relay_drive_config_default_is_false(tmp_path, monkeypatch):
+    from clover_cli import config as cfgmod
+    from tui_gateway import desk_drive
+    monkeypatch.setenv("CLOVER_HOME", str(tmp_path))
+    assert desk_drive.relay_drive_enabled() is False
+
+
+def test_release_for_other_device_keeps_current_owner(env):
+    from clover_cli import web_server
+    _, t = phone(env, ["control_drive"])
+    other = env.store.create("other")
+    call(t, "desk.take_control")
+    web_server._release_desk_for_device(other["id"])
+    assert env.ctl.owner is not None

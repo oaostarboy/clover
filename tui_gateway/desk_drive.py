@@ -62,10 +62,19 @@ def release_device(key: str, why: str) -> bool:
     return ctl.release(client, why)
 
 
+def relay_drive_enabled() -> bool:
+    """mobile.relay_drive (default false): phone desk control needs this until frames are E2E-authenticated."""
+    try:
+        from clover_cli.config import load_config_readonly
+        return (load_config_readonly().get("mobile") or {}).get("relay_drive") is True
+    except Exception:
+        return False
+
+
 def _gate(disabled_reason: Optional[str] = None) -> Any:
     from clover_cli import desktop_control as dc
     s = dc.read_settings()
-    if not s["enabled"] or not dc.input_allowed(s):
+    if not relay_drive_enabled() or not s["enabled"] or not dc.input_allowed(s):
         raise DriveError(4030, "operation is not permitted for this device",
                          {"capability": "control_drive", "reason": "disabled"})
     return dc.get_controller(s)

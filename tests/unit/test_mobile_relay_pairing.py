@@ -16,6 +16,7 @@ def test_relay_pairing_uses_scoped_device_and_hash_only_snapshot(tmp_path, monke
     assert records == [{'hash': hashlib.sha256(result['token'].encode()).hexdigest(), 'expiresAt': 1600000}]
     assert store.relay_devices('other') == []
     principal = store.authenticate(result['token'])
+    assert principal.status == 'pending' and principal.capabilities == frozenset()
     assert principal.profile == 'default'
     assert store.relay_devices('default')[0]['expiresAt'] > 1600000
     store.revoke(result['device']['id'])
