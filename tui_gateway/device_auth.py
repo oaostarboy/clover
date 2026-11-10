@@ -84,6 +84,18 @@ _DESK = {'desk.take_control': {'display'}, 'desk.input': {'events'}, 'desk.relea
 
 _AUDIT_SEEN = {}
 
+# A phone on a fresh chat picks a model before any session exists. Keep it per device
+# (memory only) until that device's next session.create; never touches global config.
+PENDING_MODELS = {}
+
+
+def set_pending_model(device_id, override):
+    PENDING_MODELS[device_id] = {'model': override.get('model'), 'provider': override.get('provider')}
+
+
+def take_pending_model(device_id):
+    return PENDING_MODELS.pop(device_id, None)
+
 
 def _audit(principal, capability, method, decision):
     """One audit line per (device, method, decision) per 30 s. No params, no tokens."""
@@ -300,7 +312,7 @@ def authorize_request(transport, method, params, sessions, *, launch_home=None):
             ensure_session_owned(transport, session, launch_home=launch_home)
         elif method != 'session.resume':
             raise DeviceAccessDenied('session unavailable')
-    elif method not in {'session.create', 'model.options'}:
+    elif method not in {'session.create', 'model.options'} and not (method == 'config.set' and params.get('key') == 'model'):
         raise DeviceAccessDenied('session identifier required')
     scoped = dict(params)
     if method in {'session.create', 'session.resume', 'model.options'}:
