@@ -77,10 +77,10 @@ export async function openConnector({ relayOrigin, identity, backendOrigin, allo
     if (m.type === 'ws.open') {
       if (!/^[a-zA-Z0-9-]{1,128}$/.test(m.id) || channels.has(m.id) || channels.size >= 4 || typeof m.ticket !== 'string' || !/^[A-Za-z0-9_-]{16,256}$/.test(m.ticket) || !Array.isArray(m.protocols) || m.protocols.length !== 2 || m.protocols[0] !== 'clover-gateway-v1' || m.protocols[1] !== `clover-gateway-ticket.${m.ticket}`) { try { send({ type: 'ws.error', id: m.id }); } catch {} return; }
       const url = new URL('/api/ws', backend); url.protocol = 'ws:';
-      const local = new WebSocket(url, m.protocols, { maxPayload: 1024 * 1024, handshakeTimeout: 10000, followRedirects: false }); channels.set(m.id, local);
+      const local = new WebSocket(url, m.protocols, { maxPayload: 10 * 1024 * 1024, handshakeTimeout: 10000, followRedirects: false }); channels.set(m.id, local);
       local.on('error', () => { if (channels.get(m.id) !== local) return; try { send({ type: 'ws.error', id: m.id }); } catch {} endChannel(m.id); });
       local.on('open', () => { if (channels.get(m.id) !== local) return; if (local.protocol !== 'clover-gateway-v1') { try { send({ type: 'ws.error', id: m.id }); } catch {} endChannel(m.id); return; } try { send({ type: 'ws.opened', id: m.id, protocol: local.protocol }); } catch { endChannel(m.id); } });
-      local.on('message', (data, binary) => { if (channels.get(m.id) !== local) return; try { if (data.length > 1024 * 1024) throw Error('oversize'); send({ type: 'ws.data', id: m.id, binary, data: binary ? data.toString('base64') : data.toString('utf8') }); } catch { endChannel(m.id); } });
+      local.on('message', (data, binary) => { if (channels.get(m.id) !== local) return; try { if (data.length > 10 * 1024 * 1024 || (binary && data.length > 8 * 1024 * 1024)) throw Error('oversize'); send({ type: 'ws.data', id: m.id, binary, data: binary ? data.toString('base64') : data.toString('utf8') }); } catch { endChannel(m.id); } });
       local.on('close', () => { if (channels.get(m.id) !== local) return; channels.delete(m.id); try { send({ type: 'ws.close', id: m.id, code: 1000, reason: '' }); } catch {} });
       return;
     }

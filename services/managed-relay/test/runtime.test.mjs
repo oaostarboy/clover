@@ -242,7 +242,7 @@ test('oversized phone frame and connector replacement close channels', { timeout
   const identity = makeIdentity(), token = 'cdt_' + randomBytes(32).toString('hex'); await enroll(mf, identity);
   const first = await connect(mf, identity, token, 'first'); t.after(() => { try { first.ws.close(); } catch {} });
   const open = async () => { const minted = await (await mf.dispatchFetch(origin + '/api/auth/ws-ticket', { method: 'POST', headers: { Authorization: `Bearer ${token}` } })).json(); const r = await mf.dispatchFetch(origin + '/api/ws', { headers: { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': `clover-gateway-v1, clover-gateway-ticket.${minted.ticket}` } }); assert.equal(r.status, 101); r.webSocket.accept(); return r.webSocket; };
-  const large = await open(); const largeClosed = new Promise(resolve => large.addEventListener('close', resolve, { once: true })); large.send('x'.repeat(1048577)); assert.equal((await largeClosed).code, 1009);
+  const large = await open(); const largeClosed = new Promise(resolve => large.addEventListener('close', resolve, { once: true })); large.send('x'.repeat(10 * 1024 * 1024 + 1)); assert.equal((await largeClosed).code, 1009);
   const phone = await open(); const closed = new Promise(resolve => phone.addEventListener('close', resolve, { once: true }));
   const second = await connect(mf, identity, token, 'second'); t.after(() => second.ws.close()); await closed;
 });

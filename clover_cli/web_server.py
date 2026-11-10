@@ -7583,9 +7583,6 @@ def _release_desk_for_device(device_id: str) -> None:
         if "control_drive" not in caps:
             from tui_gateway import desk_drive
             desk_drive.release_device(f"dev:{device_id}", "revoked")
-        controller = desktop_control._controller
-        if controller is not None and "control_drive" not in caps and controller.owner is not None:
-            controller.release(controller.owner, "revoked")
     except Exception:
         _log.debug("desk release after grant change failed", exc_info=True)
 

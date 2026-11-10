@@ -673,7 +673,8 @@ def pairing_status(config: Dict[str, Any], api_key: Optional[str]) -> Dict[str, 
 def create_relay_pairing(store: DeviceStore) -> Dict[str, Any]:
     """Owner-only desktop mint; Electron registers its hash before exposing QR."""
     origin = "https://relay.cloverai.ca"
-    dev = store.create("iPhone")
+    # Pending: a photographed QR gets no rights until the owner approves the match code.
+    dev = store.create("iPhone", pending=True)
     token = dev.pop("token")
     uri = f"clover://pair?origin={quote(origin, safe='')}&token={quote(token, safe='')}"
     return {"configured": True, "reason": None, "origin": origin, "managed": True,
