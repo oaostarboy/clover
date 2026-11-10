@@ -3303,14 +3303,17 @@ class CuaDriverBackend(ComputerUseBackend):
                     )
         else:
             # get_window_state: AX tree + screenshot.
-            gws_out = self._call_capture_tool(
-                "get_window_state",
-                {
-                    "pid": self._active_pid,
-                    "window_id": self._active_window_id,
-                    "session": self._session_id,
-                },
-            )
+            # Current drivers return markdown by default; it has row numbers
+            # but no opaque snapshot tokens. Request canonical rows when the
+            # live schema supports them, rather than reconstructing handles.
+            capture_args = {
+                "pid": self._active_pid,
+                "window_id": self._active_window_id,
+                "session": self._session_id,
+            }
+            if self._session.supports_input_property("get_window_state", "tree_format") is True:
+                capture_args["tree_format"] = "elements"
+            gws_out = self._call_capture_tool("get_window_state", capture_args)
             # The persistent MCP session can return a degenerate result —
             # empty/partial data with NO exception — when the bridge is flaky
             # (e.g. it reconnected mid-call and dropped the heavy
@@ -3341,13 +3344,7 @@ class CuaDriverBackend(ComputerUseBackend):
                 )
                 try:
                     cli_out = self._session._call_tool_via_cli(
-                        "get_window_state",
-                        {
-                            "pid": self._active_pid,
-                            "window_id": self._active_window_id,
-                            "session": self._session_id,
-                        },
-                        30.0,
+                        "get_window_state", capture_args, 30.0,
                     )
                     if cli_out.get("isError") is True:
                         self._clear_active_target()
@@ -4093,9 +4090,9 @@ class CuaDriverBackend(ComputerUseBackend):
         token = self._snapshot_tokens.get(idx)
         if not token:
             return
-        if not self._session.supports_capability(
+        if not (self._session.supports_capability(
             "accessibility.element_tokens", tool=tool
-        ):
+        ) or self._session.supports_input_property(tool, "element_token")):
             return
         args["element_token"] = token
 
@@ -4109,6 +4106,12 @@ class CuaDriverBackend(ComputerUseBackend):
         # Attach the snapshot's element_token whenever the call carries
         # an element_index and the target tool advertises support.
         self._maybe_attach_element_token(name, args)
+        if "element_index" in args and self._session.supports_input_property(name, "element_token") is True:
+            if not args.get("element_token"):
+                return ActionResult(ok=False, action=name, code="element_snapshot_missing",
+                                    message="Element is not in the current capture; capture again.")
+            if not self._session.supports_input_property(name, "element_index"):
+                args.pop("element_index")
         # Carry this run's session id so the cua-driver agent cursor
         # and per-session state (config overrides, recording ownership)
         # stay tied to this run. setdefault preserves any explicit

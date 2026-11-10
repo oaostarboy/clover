@@ -239,7 +239,7 @@ test('a failed device-list snapshot keeps the connector open and keeps retrying'
     snaps++; if (fail) throw Error('devices timeout');
     return { profile: 'default', gatewayId: 'a'.repeat(64), devices: [] };
   };
-  const service = createDesktopPairing({ identityPath: () => '/tmp/x', request, syncIntervalMs: 5, onSyncError: () => { errors++; },
+  const service = createDesktopPairing({ identityPath: () => '/tmp/x', request, syncIntervalMs: 5, backoffMinMs: 5, backoffMaxMs: 40, onSyncError: () => { errors++; },
     enroll: async () => ({ identity: {} }), connect: async () => ({ replaceDevices: async () => {}, close: () => { closes++; } }) });
   t.after(() => service.close());
   await service.status('s', 'default', connection);

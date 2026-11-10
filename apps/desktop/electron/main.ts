@@ -1,5 +1,4 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { createDesktopPairing } from '../../../services/managed-relay/src/desktop-pairing.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
@@ -30,6 +29,8 @@ import {
   shell,
   systemPreferences
 } from 'electron'
+
+import { createDesktopPairing } from '../../../services/managed-relay/src/desktop-pairing.mjs'
 
 import { classifyActiveRuntime } from './active-runtime-state'
 import { destroyKeepaliveAgents, downloadAgentFor, jsonAgentFor, withRetry } from './api-transport'
@@ -15288,18 +15289,45 @@ async function teardownConnectionScopedProfileBackend(connectionId, profile) {
 
 const desktopPhonePairing = createDesktopPairing({
   identityPath: scope => path.join(app.getPath('userData'), 'mobile-relay', crypto.createHash('sha256').update(scope).digest('hex') + '.json'),
-  request: (connection, requestPath, options = {}) => fetchJsonForBackend(connection, requestPath, { ...options, timeoutMs: 15000 })
+  request: (connection, requestPath, options = {}) => fetchJsonForBackend(connection, requestPath, { ...options, timeoutMs: 15000 }),
+  onSyncError: (error, failures, fatal) => {
+    rememberLog(`[mobile-relay] ${fatal ? 'relay rejected this installation (stopped)' : `link down, retry #${failures}`}: ${error?.message || error}`)
+  }
 })
+
 app.on('will-quit', () => desktopPhonePairing.close())
+
+// The relay link must not depend on someone opening Settings: bring it up at
+// launch and keep it up forever (jittered backoff 1 s -> 30 s). A real relay
+// auth rejection ends the loop and is surfaced via the pairing status instead.
+function startDesktopPhoneRelayLink() {
+  const profile = primaryProfileKey()
+
+  void desktopPhonePairing
+    .keepAlive(JSON.stringify(['legacy', profile]), profile, () => ensureBackend(profile))
+    .catch(error => rememberLog(`[mobile-relay] launch link stopped: ${error?.message || error}`))
+}
+
+// Sleep/wake and unlock can leave the relay socket half-dead: reconnect now.
+function registerDesktopPhoneRelayPowerListeners() {
+  try {
+    powerMonitor.on('resume', () => desktopPhonePairing.reconnect())
+    powerMonitor.on('unlock-screen', () => desktopPhonePairing.reconnect())
+  } catch (error) {
+    rememberLog(`[mobile-relay] power listeners unavailable: ${error?.message || error}`)
+  }
+}
 
 async function handleDesktopPhonePairing(request) {
   const profile = String(request?.profile || primaryProfileKey())
   const connectionId = apiRequestRegistryConnectionId(request)
   const connection = connectionId ? await ensureRegistryBackend(connectionId, profile) : await ensureBackend(profile)
   const scope = JSON.stringify([connectionId || 'legacy', profile])
+
   if ((request?.method || 'GET').toUpperCase() === 'POST') {
     return desktopPhonePairing.pair(scope, profile, connection)
   }
+
   return desktopPhonePairing.status(scope, profile, connection)
 }
 
@@ -15307,6 +15335,7 @@ async function handleCloverApiRequest(request) {
   if (request?.path === '/api/mobile/pairing' && ['GET', 'POST'].includes((request?.method || 'GET').toUpperCase())) {
     return handleDesktopPhonePairing(request)
   }
+
   // Registry-pinned request (request.connectionId): the renderer is working
   // against a REGISTERED gateway connection, so the data — cron jobs and their
   // run sessions included — lives in THAT host's state.db, not any local
@@ -16777,6 +16806,8 @@ app.whenReady().then(() => {
   ensureWslWindowsFonts()
   configureSpellChecker()
   registerPowerResumeListeners()
+  registerDesktopPhoneRelayPowerListeners()
+  startDesktopPhoneRelayLink()
   keepAwake.set(readPersistedKeepAwake())
   f12Blocked = readPersistedDisableF12()
   // Seed this before the first window exists: a picker can open before

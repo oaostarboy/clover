@@ -4,7 +4,7 @@ import json
 import pytest
 
 
-def test_new_pairing_persists_audio_scopes_and_scope_mutation_revokes_principal(tmp_path):
+def test_new_pairing_persists_audio_scopes_and_scope_mutation_drops_the_right_not_the_device(tmp_path):
     from clover_cli.mobile_pairing import DeviceStore
 
     path = tmp_path / "devices.json"
@@ -17,7 +17,10 @@ def test_new_pairing_persists_audio_scopes_and_scope_mutation_revokes_principal(
 
     record["capabilities"].remove("audio_speak")
     path.write_text(json.dumps({"version": 1, "devices": [record]}))
-    assert not DeviceStore(path).principal_is_active(principal)
+    # A grant change refuses the call (4030); it never makes the device look revoked.
+    fresh = DeviceStore(path)
+    assert fresh.principal_is_active(principal)
+    assert "audio_speak" not in fresh.current_principal(principal).capabilities
 
 
 @pytest.mark.parametrize("public", [False, True])

@@ -6,15 +6,22 @@ import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/ui/copy-button'
 import { Check, QrCode, Scan, Smartphone } from '@/lib/icons'
 import {
+  auditLabel,
+  capsFromRights,
   formatCountdown,
   lastActiveLabel,
   newlyConnected,
   type PairedDevice,
   type PhonePairingCode,
-  type PhonePairingStatus
+  type PhonePairingStatus,
+  type PhoneRightId,
+  rightsFromCaps,
+  timedRightLabel
 } from '@/lib/phone-pairing'
 import { confirm } from '@/store/confirm'
 import { notifyError } from '@/store/notifications'
+
+import { RightsList } from './phone-approval'
 
 const POLL_MS = 2000
 const QUIET_ZONE = 3
@@ -82,19 +89,92 @@ function QrTile({ children }: { children: React.ReactNode }) {
   )
 }
 
-function DeviceRow({ device, onRemove }: { device: PairedDevice; onRemove: (d: PairedDevice) => void }) {
+function DeviceRow({
+  device,
+  onChanged,
+  onRemove
+}: {
+  device: PairedDevice
+  onChanged: (d: PairedDevice) => void
+  onRemove: (d: PairedDevice) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const pending = device.status === 'pending'
+  const [rights, setRights] = useState<Set<PhoneRightId>>(() => rightsFromCaps(device.effective_capabilities))
+  const timer = timedRightLabel(device.expires?.control_drive)
+
+  // The gateway is the authority: follow it whenever a poll brings a new set.
+  const caps = (device.effective_capabilities ?? []).join()
+
+  useEffect(() => {
+    setRights(rightsFromCaps(device.effective_capabilities))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caps])
+
+  async function change(next: Set<PhoneRightId>) {
+    const before = rights
+
+    setRights(next)
+
+    try {
+      const res = await cloverApi<{ device: PairedDevice }>({
+        body: { capabilities: capsFromRights(next) },
+        method: 'POST',
+        path: `/api/mobile/devices/${device.id}/capabilities`
+      })
+
+      onChanged({ ...device, ...res.device, audit: device.audit })
+    } catch (err) {
+      setRights(before)
+      notifyError(err, 'Could not change that phone\'s access')
+    }
+  }
+
   return (
-    <li className="flex items-center gap-3 py-2.5">
-      <Smartphone className="size-4 shrink-0 text-(--ui-text-tertiary)" />
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[length:var(--conversation-text-font-size)] text-foreground">{device.name}</div>
-        <div className="text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
-          {lastActiveLabel(device)}
+    <li className="py-2.5">
+      <div className="flex items-center gap-3">
+        <Smartphone className="size-4 shrink-0 text-(--ui-text-tertiary)" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[length:var(--conversation-text-font-size)] text-foreground">{device.name}</div>
+          <div className="text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
+            {pending ? 'Waiting for approval' : lastActiveLabel(device)}
+            {timer && rights.has('control_drive') ? ` · Control drive ${timer}` : ''}
+          </div>
         </div>
+        {pending ? null : (
+          <Button aria-expanded={open} onClick={() => setOpen(o => !o)} size="sm" variant="text">
+            Access
+          </Button>
+        )}
+        <Button onClick={() => onRemove(device)} size="sm" variant="text">
+          Remove
+        </Button>
       </div>
-      <Button onClick={() => onRemove(device)} size="sm" variant="text">
-        Remove
-      </Button>
+      {open && !pending ? (
+        <div className="mt-2 ml-7">
+          <RightsList onChange={next => void change(next)} rights={rights} />
+          <h5 className="mt-3 text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-secondary)">
+            Recent activity
+          </h5>
+          {device.audit?.length ? (
+            <ul className="mt-1 space-y-0.5" data-testid="device-audit">
+              {[...device.audit].reverse().map((e, i) => (
+                <li
+                  className="flex justify-between gap-3 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)"
+                  key={`${e.t}-${i}`}
+                >
+                  <span className="min-w-0 truncate">{auditLabel(e)}</span>
+                  <span className="shrink-0 tabular-nums">{new Date(e.t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
+              Nothing yet
+            </p>
+          )}
+        </div>
+      ) : null}
     </li>
   )
 }
@@ -299,7 +379,14 @@ export function PhonePairingSection() {
             Try again
           </Button>
         </div>
-      ) : !status ? null : !status.configured ? (
+      ) : !status ? null : status.reason === 'relay_auth_rejected' ? (
+        <div className="flex items-center gap-3 py-2 text-[length:var(--conversation-caption-font-size)] text-destructive" role="alert">
+          The phone relay rejected this computer, so the link is stopped. Check your Clover account or reinstall, then try again.
+          <Button onClick={load} size="sm" variant="secondary">
+            Try again
+          </Button>
+        </div>
+      ) : !status.configured ? (
         <GatewayAddressForm onSaved={load} />
       ) : (
         <>
@@ -370,7 +457,12 @@ export function PhonePairingSection() {
             {paired.length ? (
               <ul className="mt-1">
                 {paired.map(d => (
-                  <DeviceRow device={d} key={d.id} onRemove={device => void remove(device)} />
+                  <DeviceRow
+                    device={d}
+                    key={d.id}
+                    onChanged={next => setDevices(list => list.map(x => (x.id === next.id ? next : x)))}
+                    onRemove={device => void remove(device)}
+                  />
                 ))}
               </ul>
             ) : (
