@@ -89,7 +89,7 @@ const stableProtocol = 'clover-gateway-v1';
 const phoneFlowProtocol = 'clover-relay-flow-v1';
 const ticketPrefix = 'clover-gateway-ticket.';
 const wsLimit = 1024 * 1024; // phone -> gateway frames
-const wsDownLimit = 8 * 1024 * 1024; // gateway -> phone frames (session history / resume replies can be several MB)
+const wsDownLimit = 10 * 1024 * 1024; // gateway -> phone frames (session history / resume replies can be several MB)
 const FORWARD_QUEUE_BYTES = 8 * 1024 * 1024;
 const PUSH_DEDUPE_MS = 10 * 60 * 1000;
 const validTicket = ticket => typeof ticket === 'string' && /^[A-Za-z0-9_-]{16,256}$/.test(ticket);

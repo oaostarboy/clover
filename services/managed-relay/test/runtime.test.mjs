@@ -405,10 +405,10 @@ test('device.status and device.request_access JSON-RPC pass untouched, including
   assert.deepEqual(seen, ['device.status', 'device.request_access']); phone.close();
 });
 
-for (const mode of ['flow', 'plain']) test(`large gateway replies (3 MB history) reach the ${mode} phone without a 1009 close`, { timeout: 15000 }, async t => {
+for (const mode of ['flow', 'plain']) test(`large gateway replies (9 MB history) reach the ${mode} phone without a 1009 close`, { timeout: 15000 }, async t => {
   const mf = await start(mode === 'plain' ? { PHONE_FLOW: 'off' } : {}); t.after(() => mf.dispose());
   const identity = makeIdentity(), token = 'cdt_' + randomBytes(32).toString('hex'); await enroll(mf, identity);
-  const big = 'x'.repeat(3 * 1024 * 1024);
+  const big = 'x'.repeat(9 * 1024 * 1024);
   const connector = await connect(mf, identity, token, 'big', { data: () => big }); t.after(() => connector.ws.close());
   const minted = await (await mf.dispatchFetch(origin + '/api/auth/ws-ticket', { method: 'POST', headers: { Authorization: `Bearer ${token}` } })).json();
   const headers = { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': `${mode === 'flow' ? 'clover-relay-flow-v1, ' : ''}clover-gateway-v1, clover-gateway-ticket.${minted.ticket}` };
