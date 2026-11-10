@@ -13842,6 +13842,35 @@ def _respond(rid, params, key, *, allow_expired=False):
 # ── Methods: config ──────────────────────────────────────────────────
 
 
+def _device_pending_model(rid, principal, value, params: dict) -> dict:
+    """config.set model with no session, from a paired device: validate like the
+    owner path, but keep the pick per device (device_auth.PENDING_MODELS) and
+    never persist it globally."""
+    from tui_gateway import device_auth
+    if not isinstance(value, str) or not value.strip():
+        return _err(rid, 4002, "model value required")
+    scratch: dict = {"agent": None}
+    try:
+        result = _apply_model_switch(
+            "", scratch, value,
+            confirm_expensive_model=bool(params.get("confirm_expensive_model", False)),
+            persist_override=False,
+        )
+    except Exception as e:
+        return _err(rid, 5001, str(e))
+    override = scratch.get("model_override")
+    if not result.get("confirm_required") and override:
+        device_auth.set_pending_model(principal.device_id, override)
+    return _ok(rid, {
+        "key": "model",
+        "value": result["value"],
+        "warning": result["warning"],
+        "confirm_required": result.get("confirm_required", False),
+        "confirm_message": result.get("confirm_message", ""),
+        "scope": result.get("scope", "session"),
+    })
+
+
 # NOTE: config.set intentionally stays in server.py for now — the in-flight
 # opt/model-resolution-core PR touches its body; move it to methods_config.py
 # in a follow-up once that PR lands.
@@ -13853,7 +13882,12 @@ def _(rid, params: dict) -> dict:
     # its live session disappears between dispatch authorization and execution.
     from tui_gateway.device_auth import device_principal, ensure_session_owned, DeviceAccessDenied
     try:
-        if device_principal(current_transport()) is not None:
+        _dev = device_principal(current_transport())
+        if _dev is not None and key == "model" and not params.get("session_id"):
+            # Fresh chat (no session yet): park the pick as THIS device's pending
+            # model for its next session.create. Never writes global config.
+            return _device_pending_model(rid, _dev, value, params)
+        if _dev is not None:
             if key != "model" or session is None:
                 raise DeviceAccessDenied("live session required for model selection")
             ensure_session_owned(current_transport(), session, launch_home=_clover_home)
@@ -17764,6 +17798,7 @@ from . import (  # noqa: E402
     methods_bot_relay as _methods_bot_relay,
     methods_complete as _methods_complete,
     methods_crew as _methods_crew,
+    methods_desk as _methods_desk,
     methods_config as _methods_config,
     methods_images as _methods_images,
     methods_profiles as _methods_profiles,
@@ -17785,6 +17820,7 @@ for _m in (
     _methods_todos,
     _methods_bot_relay,
     _methods_crew,
+    _methods_desk,
 ):
     _m.register(sys.modules[__name__])
 del _m

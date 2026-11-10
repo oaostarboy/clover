@@ -222,6 +222,8 @@ def test_http_gate_codes(env, monkeypatch):
     assert gate(snap, p) is None
     assert gate(make_request("GET", "/desk/displays"), p) is None
     assert gate(make_request("GET", "/desk/snapshot", "display=0&q=60&w=800"), p) is None
+    assert gate(make_request("GET", "/desk/snapshot", "display=0&w=3440&q=95&x=10&y=20&cw=800&ch=600"), p) is None
+    assert gate(make_request("GET", "/desk/snapshot", "cw=abc"), p) == "unauthorized"
     assert gate(make_request("GET", "/desk/snapshot", "w=abc"), p) == "unauthorized"
     assert gate(make_request("GET", "/desk/snapshot", "display=x"), p) == "unauthorized"
     assert gate(make_request("GET", "/desk/snapshot", "token=1"), p) == "unauthorized"
@@ -353,6 +355,35 @@ def test_dispatch_crew_list_runs_through_the_rebound_handler(env, monkeypatch):
     dev = env.store.create("p")
     env.store.set_capabilities(dev["id"], BASE + ["crew_read"])
     assert _dispatch(_Tr(transport_for(env.store, dev["token"]).auth_identity), "crew.list")["result"]["agents"]
+
+
+def _announce(monkeypatch, mobile_cfg):
+    from clover_cli import mobile_device_notify as n
+    import clover_cli.config as cfg
+    sent = []
+    monkeypatch.setattr(cfg, "load_config_readonly", lambda: {"mobile": mobile_cfg} if mobile_cfg is not None else {})
+    monkeypatch.setattr(n, "_send_telegram", lambda text: sent.append(text))
+
+    class _NowThread:
+        def __init__(self, target, **kw):
+            self._t = target
+
+        def start(self):
+            self._t()
+    monkeypatch.setattr(n.threading, "Thread", _NowThread)
+    n.announce_request({"name": "iPhone"}, {"capabilities": ["crew_read"], "match_code": "4821"})
+    return sent
+
+
+def test_access_request_sends_no_telegram_by_default(monkeypatch):
+    # The PC popup is the approval surface; Telegram is opt-in.
+    assert _announce(monkeypatch, None) == []
+    assert _announce(monkeypatch, {}) == []
+
+
+def test_access_request_telegram_when_opted_in(monkeypatch):
+    sent = _announce(monkeypatch, {"request_alerts": {"telegram": True}})
+    assert len(sent) == 1 and "4821" in sent[0]
 
 
 def test_telegram_notice_uses_home_channel_and_env_token(monkeypatch):

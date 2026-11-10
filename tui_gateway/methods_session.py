@@ -53,6 +53,11 @@ def _(rid, params: dict) -> dict:
         if create_model
         else None
     )
+    if session_model_override is None:
+        from tui_gateway.device_auth import device_principal, take_pending_model
+        _dev = device_principal(current_transport())
+        if _dev is not None:
+            session_model_override = take_pending_model(_dev.device_id)
     create_reasoning_override = None
     if effort := str(params.get("reasoning_effort") or "").strip():
         try:

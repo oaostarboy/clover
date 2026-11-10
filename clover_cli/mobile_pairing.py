@@ -173,14 +173,14 @@ def device_http_gate(request, principal: "DevicePrincipal") -> Any:
     if path in DESK_GET_PATHS:
         if request.scope.get("raw_path", b"").split(b"?", 1)[0] != path.encode("ascii"):
             return "unauthorized"
-        # q and w are admitted by the relay for forward compatibility; the gateway ignores them (stills use desktop_control.width).
-        allowed_query = {"display", "q", "w"} if path.endswith("snapshot") else set()
+        # w (width), q (quality 1-100) and x,y,cw,ch (native-pixel crop) size a still; the gateway clamps them.
+        allowed_query = {"display", "q", "w", "x", "y", "cw", "ch"} if path.endswith("snapshot") else set()
         if set(request.query_params) - allowed_query:
             return "unauthorized"
         display = request.query_params.get("display")
         if display is not None and not re.fullmatch(r"[0-9]{1,3}", display):
             return "unauthorized"
-        if any(not re.fullmatch(r"[0-9]{1,4}", request.query_params.get(k, "0")) for k in ("q", "w")):
+        if any(not re.fullmatch(r"[0-9]{1,4}", request.query_params.get(k, "0")) for k in ("q", "w", "x", "y", "cw", "ch")):
             return "unauthorized"
         if "control_view" not in principal.capabilities:
             return {"error": "forbidden", **denial_reason(principal, "control_view")}
@@ -191,6 +191,20 @@ def device_http_gate(request, principal: "DevicePrincipal") -> Any:
             enabled = False
         if not enabled:
             return {"error": "forbidden", "capability": "control_view", "reason": "disabled"}
+        return None
+    if path in ("/api/files/download", "/api/artifacts/thumb"):
+        if request.scope.get("raw_path", b"").split(b"?", 1)[0] != path.encode("ascii"):
+            return "unauthorized"
+        keys = set(request.query_params)
+        if path.endswith("download"):
+            if keys != {"path"}:
+                return "unauthorized"
+        elif not ({"id"} <= keys <= {"id", "size"}):
+            return "unauthorized"
+        if "media" not in principal.capabilities:
+            return {"error": "forbidden", **denial_reason(principal, "media")}
+        if not _creation_listed(path, request):
+            return {"error": "forbidden", "capability": "media", "reason": "not_listed"}
         return None
     if path == "/api/sessions":
         ok_query = not (set(request.query_params) - {"limit", "offset", "min_messages", "archived", "order"})
@@ -203,6 +217,20 @@ def device_http_gate(request, principal: "DevicePrincipal") -> Any:
     if "history" not in principal.capabilities:
         return {"error": "forbidden", **denial_reason(principal, "history")}
     return None
+
+
+def _creation_listed(path: str, request) -> bool:
+    """Only files the Creations index listed (artifacts.list wrote them to its id registry)."""
+    try:
+        from clover_constants import get_clover_home
+        from tui_gateway import artifact_index
+
+        home = get_clover_home()
+        if path.endswith("thumb"):
+            return artifact_index.lookup(home, request.query_params.get("id", "")) is not None
+        return artifact_index.lookup(home, artifact_index.artifact_id(request.query_params.get("path", ""))) is not None
+    except Exception:
+        return False
 
 
 def device_request_allowed(request, principal: "DevicePrincipal") -> bool:
@@ -457,13 +485,19 @@ class DeviceStore:
         d["grant_expires_at"] = expiries
 
     def approve(self, device_id: str, capabilities: Any, *, request_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Owner approval: set the exact rights, clear the request. ``None`` if unknown."""
-        caps = normalize_capabilities(capabilities)
+        """Owner approval: ADD the approved rights to what an approved device already has
+        (lapsed grants are not carried over), clear the request. Rights only leave through
+        ``set_capabilities`` / revoke. ``None`` if unknown."""
+        wanted = normalize_capabilities(capabilities)
 
         def apply(d, now):
             req = d.get("pending_request")
             if request_id is not None and not (isinstance(req, dict) and req.get("request_id") == request_id):
                 raise ValueError("request not found")
+            caps = wanted
+            if _record_status(d) == "approved":
+                have = _record_capabilities(d, now) or frozenset()
+                caps = normalize_capabilities(set(wanted) | set(have))
             self._apply_caps(d, caps, now)
             d["status"] = "approved"
             d["approved_at"] = now
@@ -473,7 +507,7 @@ class DeviceStore:
 
         out = self._mutate(device_id, apply)
         if out is not None:
-            self.audit(device_id, "*", "owner.approve", "allow", detail=",".join(caps))
+            self.audit(device_id, "*", "owner.approve", "allow", detail=",".join(wanted))
         return out
 
     def set_capabilities(self, device_id: str, capabilities: Any) -> Optional[Dict[str, Any]]:

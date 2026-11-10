@@ -244,3 +244,101 @@ def test_capture_stops_after_idle(monkeypatch):
         assert cap.proc is None and proc.returncode is not None
 
     asyncio.run(run())
+
+
+# ---- snapshot sizing / quality / crop ------------------------------------------------
+
+ULTRA = {"id": 1, "name": "U", "x": 0, "y": 0, "width": 3440, "height": 1440,
+         "stream_width": 1920, "stream_height": 804}
+
+
+def test_snapshot_default_is_native_width_capped_at_2560():
+    assert dc.snapshot_plan(ULTRA)["stream_width"] == 2560
+    p = dc.snapshot_plan({**ULTRA, "width": 1920, "height": 1080})
+    assert (p["stream_width"], p["stream_height"]) == (1920, 1080)
+
+
+def test_snapshot_w_is_clamped_and_keeps_aspect():
+    assert dc.snapshot_plan(ULTRA, w=100)["stream_width"] == 320
+    assert dc.snapshot_plan(ULTRA, w=9999)["stream_width"] == 3440
+    p = dc.snapshot_plan({**ULTRA, "width": 5120, "height": 2160}, w=9999)
+    assert p["stream_width"] == 3840
+    p = dc.snapshot_plan(ULTRA, w=1720)
+    assert (p["stream_width"], p["stream_height"]) == (1720, 720)
+
+
+def test_quality_maps_to_qscale_high_default():
+    assert dc.quality_to_qscale(None) in (2, 3)
+    assert dc.quality_to_qscale(100) == 2
+    assert dc.quality_to_qscale(1) == 31
+    assert dc.quality_to_qscale(0) == 31 and dc.quality_to_qscale(500) == 2
+    assert dc.quality_to_qscale(80) < dc.quality_to_qscale(40)
+
+
+def test_crop_validated_and_sets_filter():
+    p = dc.snapshot_plan(ULTRA, crop=(100, 200, 800, 600))
+    assert p["crop"] == (100, 200, 800, 600) and p["stream_width"] == 800
+    for bad in ((-1, 0, 100, 100), (0, 0, 0, 100), (3000, 0, 500, 100), (0, 1400, 100, 100)):
+        with pytest.raises(ValueError):
+            dc.snapshot_plan(ULTRA, crop=bad)
+    vf = dc.Backend()._vf(p, 0)
+    assert vf.startswith("crop=800:600:100:200,scale=800:600")
+
+
+def test_capture_cmds_use_planned_quality_and_stream_keeps_default():
+    for be in (dc.LinuxX11Backend(), dc.MacBackend(), dc.WindowsBackend()):
+        cmd = be.capture_cmd(dc.snapshot_plan(ULTRA, q=100), 0, 1)
+        assert cmd[cmd.index("-q:v") + 1] == "2"
+        cmd = be.capture_cmd(ULTRA, 8, None)
+        assert cmd[cmd.index("-q:v") + 1] == "6"
+
+
+def test_default_stream_width_is_1920():
+    assert dc.read_settings({})["width"] == 1920
+    from clover_cli.config_defaults import DEFAULT_CONFIG
+    assert DEFAULT_CONFIG["desktop_control"]["width"] == 1920
+
+
+class SnapBackend(FakeBackend):
+    def displays(self):
+        return [ULTRA]
+
+
+def test_snapshot_endpoint_honors_params_and_validates_crop(monkeypatch):
+    seen = []
+
+    async def fake_grab(self, d):
+        seen.append(d)
+        return b"\xff\xd8x\xff\xd9"
+
+    monkeypatch.setattr(dc.DesktopController, "_grab", fake_grab)
+    client, _ = make_app(backend=SnapBackend())
+    assert client.get("/desk/snapshot?display=1", headers=H).status_code == 200
+    assert seen[-1]["stream_width"] == 2560 and seen[-1]["qscale"] == dc.SNAPSHOT_DEFAULT_QSCALE
+    assert client.get("/desk/snapshot?display=1&w=1000&q=100", headers=H).status_code == 200
+    assert seen[-1]["stream_width"] == 1000 and seen[-1]["qscale"] == 2
+    assert client.get("/desk/snapshot?display=1&x=10&y=10&cw=400&ch=300", headers=H).status_code == 200
+    assert seen[-1]["crop"] == (10, 10, 400, 300)
+    n = len(seen)
+    assert client.get("/desk/snapshot?display=1&x=10&y=10", headers=H).status_code == 400
+    assert client.get("/desk/snapshot?display=1&x=3400&y=0&cw=400&ch=300", headers=H).status_code == 400
+    assert client.get("/desk/snapshot?display=1&w=abc", headers=H).status_code == 422
+    assert len(seen) == n
+
+
+def test_oversize_snapshot_retries_once_at_lower_quality(monkeypatch):
+    import asyncio
+    sizes = iter([2_000_000, 900_000])
+    qs = []
+
+    async def fake_grab(self, d):
+        qs.append(d["qscale"])
+        return b"x" * next(sizes)
+
+    monkeypatch.setattr(dc.DesktopController, "_grab", fake_grab)
+    ctl = dc.DesktopController(FakeBackend(), dc.read_settings({}))
+    out = asyncio.run(ctl.snapshot(dc.snapshot_plan(ULTRA)))
+    assert len(out) == 900_000 and qs == [3, 9]
+    sizes = iter([100])
+    qs.clear()
+    assert len(asyncio.run(ctl.snapshot(dc.snapshot_plan(ULTRA)))) == 100 and qs == [3]
