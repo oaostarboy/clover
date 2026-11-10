@@ -87,13 +87,15 @@ function ApprovalSheet({ device, onDone }: { device: PairedDevice; onDone: () =>
   const request = device.pending_request!
   const [rights, setRights] = useState<Set<PhoneRightId>>(() => initialRights(request))
   const [busy, setBusy] = useState(false)
+  // Off by default: trusting a phone is a deliberate choice, never a side effect of approving.
+  const [trust, setTrust] = useState(false)
 
   async function decide(approve: boolean) {
     setBusy(true)
 
     try {
       await cloverApi({
-        body: approve ? { capabilities: capsFromRights(rights), request_id: request.request_id } : { request_id: request.request_id },
+        body: approve ? { capabilities: capsFromRights(rights), request_id: request.request_id, trust } : { request_id: request.request_id },
         method: 'POST',
         path: `/api/mobile/devices/${device.id}/${approve ? 'approve' : 'deny'}`
       })
@@ -121,6 +123,15 @@ function ApprovalSheet({ device, onDone }: { device: PairedDevice; onDone: () =>
           </span>
         </div>
         <RightsList disabled={busy} onChange={setRights} rights={rights} />
+        <div className="flex items-center gap-3 border-t border-(--stroke-clover) pt-2.5">
+          <div className="min-w-0 flex-1">
+            <div className="text-[length:var(--conversation-text-font-size)] text-foreground">Trust this phone</div>
+            <div className="text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
+              Trusted: no repeat approvals. Revoke anytime.
+            </div>
+          </div>
+          <Switch aria-label="Trust this phone" checked={trust} disabled={busy} onCheckedChange={setTrust} size="xs" />
+        </div>
         <DialogFooter>
           <Button disabled={busy} onClick={() => void decide(false)} variant="secondary">
             Deny

@@ -15,6 +15,9 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.7 | Clover C2.0.7 | 2026-11-10
+- Trust a phone once and it keeps its access until you revoke it — no more approving every hour.
+
 ## 2.0.6 | Clover C2.0.6 | 2026-11-10
 - Creations on your phone opens instantly instead of timing out.
 - Phone Control skips frames when your screen hasn't changed.

@@ -118,7 +118,14 @@ def _record_status(record: Dict[str, Any]) -> str:
     return "pending" if record.get("status") == "pending" else "approved"
 
 
+def _is_trusted(record: Dict[str, Any]) -> bool:
+    # Absent / non-bool means untrusted: old records behave exactly as before.
+    return record.get("trusted") is True and _record_status(record) == "approved"
+
+
 def _record_lapsed(record: Dict[str, Any], now: float) -> frozenset[str]:
+    if _is_trusted(record):
+        return frozenset()
     stored = _stored_capabilities(record) or frozenset()
     return frozenset(c for c, t in _grant_expiries(record).items() if c in stored and t <= now)
 
@@ -305,8 +312,16 @@ class DeviceStore:
         self._cache = devices
         self._mtime = self.path.stat().st_mtime_ns
 
+    @staticmethod
+    def _token_expiry(d: Dict[str, Any]) -> float:
+        """When the token lapses. Trusted phones roll: 90 days after last use."""
+        base = float(d.get("created_at", 0))
+        if _is_trusted(d) and d.get("last_seen_at") is not None:
+            base = max(base, float(d["last_seen_at"]))
+        return base + ACTIVE_TOKEN_TTL_SECONDS
+
     def _expired(self, d: Dict[str, Any], now: float) -> bool:
-        return (now - float(d.get("created_at", 0)) >= ACTIVE_TOKEN_TTL_SECONDS
+        return (now >= self._token_expiry(d)
                 or (d.get("last_seen_at") is None and now - float(d.get("created_at", 0)) > UNUSED_CODE_TTL_SECONDS))
 
     def _active(self, d: Dict[str, Any], now: float) -> bool:
@@ -356,7 +371,9 @@ class DeviceStore:
         stored = _stored_capabilities(d) or frozenset()
         out["capabilities"] = sorted(stored)
         out["effective_capabilities"] = sorted(_record_capabilities(d, now) or frozenset())
-        out["expires"] = {c: _iso(t) for c, t in sorted(_grant_expiries(d).items()) if c in stored}
+        out["trusted"] = _is_trusted(d)
+        out["expires"] = ({} if out["trusted"] else
+                          {c: _iso(t) for c, t in sorted(_grant_expiries(d).items()) if c in stored})
         req = self._live_request(d, now)
         if req:
             out["pending_request"] = {k: req[k] for k in ("request_id", "match_code", "capabilities", "created_at")}
@@ -385,7 +402,7 @@ class DeviceStore:
                 digest = device.get("token_hash", "")
                 if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
                     continue
-                expires = float(device["created_at"]) + ACTIVE_TOKEN_TTL_SECONDS
+                expires = self._token_expiry(device)
                 if device.get("last_seen_at") is None:
                     expires = min(expires, float(device["created_at"]) + UNUSED_CODE_TTL_SECONDS)
                 result.append({"hash": digest, "expiresAt": int(expires * 1000)})
@@ -476,7 +493,7 @@ class DeviceStore:
         d["capabilities"] = caps
         old = _grant_expiries(d)
         expiries = {}
-        for cap in caps:
+        for cap in ([] if _is_trusted(d) else caps):
             ttl = GRANT_TTL_SECONDS.get(cap)
             if ttl is None:
                 continue
@@ -484,7 +501,31 @@ class DeviceStore:
             expiries[cap] = old[cap] if cap in old and old[cap] > now else now + ttl
         d["grant_expires_at"] = expiries
 
-    def approve(self, device_id: str, capabilities: Any, *, request_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def set_trusted(self, device_id: str, trusted: bool) -> Optional[Dict[str, Any]]:
+        """Owner-only: a trusted phone keeps its granted rights (no timed lapse) and a
+        rolling token expiry until revoked. Trust never grants a right by itself."""
+        def apply(d, now):
+            if _record_status(d) == "pending":
+                raise ValueError("device is pending; approve it first")
+            self._set_trust(d, bool(trusted), now)
+            return self.public(d, now)
+
+        out = self._mutate(device_id, apply)
+        if out is not None:
+            self.audit(device_id, "*", "owner.trust" if trusted else "owner.untrust", "allow")
+        return out
+
+    def _set_trust(self, d: Dict[str, Any], trusted: bool, now: float) -> None:
+        if trusted:
+            d["trusted"] = True
+            d["grant_expires_at"] = {}  # drop stopgap / far-future expiries
+        else:
+            d.pop("trusted", None)
+            # Back to the normal clock: timed rights restart from now.
+            self._apply_caps(d, list(_stored_capabilities(d) or []), now)
+
+    def approve(self, device_id: str, capabilities: Any, *, request_id: Optional[str] = None,
+                trust: Optional[bool] = None) -> Optional[Dict[str, Any]]:
         """Owner approval: ADD the approved rights to what an approved device already has
         (lapsed grants are not carried over), clear the request. Rights only leave through
         ``set_capabilities`` / revoke. ``None`` if unknown."""
@@ -503,11 +544,15 @@ class DeviceStore:
             d["approved_at"] = now
             d["approved_by"] = "desktop"
             d.pop("pending_request", None)
+            if trust is not None:
+                self._set_trust(d, bool(trust), now)
             return self.public(d, now)
 
         out = self._mutate(device_id, apply)
         if out is not None:
             self.audit(device_id, "*", "owner.approve", "allow", detail=",".join(wanted))
+            if trust:
+                self.audit(device_id, "*", "owner.trust", "allow")
         return out
 
     def set_capabilities(self, device_id: str, capabilities: Any) -> Optional[Dict[str, Any]]:

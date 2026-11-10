@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cloverApi } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/ui/copy-button'
+import { Switch } from '@/components/ui/switch'
 import { Check, QrCode, Scan, Smartphone } from '@/lib/icons'
 import {
   auditLabel,
@@ -130,6 +131,20 @@ function DeviceRow({
     }
   }
 
+  async function setTrusted(trust: boolean) {
+    try {
+      const res = await cloverApi<{ device: PairedDevice }>({
+        body: { trust },
+        method: 'POST',
+        path: `/api/mobile/devices/${device.id}/trust`
+      })
+
+      onChanged({ ...device, ...res.device, audit: device.audit })
+    } catch (err) {
+      notifyError(err, 'Could not change trust for that phone')
+    }
+  }
+
   return (
     <li className="py-2.5">
       <div className="flex items-center gap-3">
@@ -152,6 +167,20 @@ function DeviceRow({
       </div>
       {open && !pending ? (
         <div className="mt-2 ml-7">
+          <div className="flex items-center gap-3 pb-2">
+            <div className="min-w-0 flex-1">
+              <div className="text-[length:var(--conversation-text-font-size)] text-foreground">Trusted</div>
+              <div className="text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
+                Trusted: no repeat approvals. Revoke anytime.
+              </div>
+            </div>
+            <Switch
+              aria-label="Trusted"
+              checked={device.trusted === true}
+              onCheckedChange={checked => void setTrusted(checked)}
+              size="xs"
+            />
+          </div>
           <RightsList onChange={next => void change(next)} rights={rights} />
           <h5 className="mt-3 text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-secondary)">
             Recent activity
