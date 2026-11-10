@@ -59,19 +59,6 @@ const logPhoneDiag = (id, channel, req) => {
   } catch {}
 };
 const cid = id => String(id || '').slice(0, 8);
-// TEMPORARY: metadata-only RPC logging (method names / error codes, never params values or text).
-const rpcEvents = new Set(['message.start', 'message.complete', 'error', 'session.info']);
-function rpcLog(kind, id, text, bytes) {
-  try {
-    const ch = cid(id); let msg = null;
-    if (typeof text === 'string') { try { msg = JSON.parse(text); } catch {} }
-    if (!msg || typeof msg !== 'object') { slog(kind === 'rpc_up' ? 'rpc_up_raw' : 'rpc_down_raw', { ch, bytes }); return; }
-    if (kind === 'rpc_up') { slog('rpc_up', { ch, id: String(msg.id).slice(0, 40), method: String(msg.method).slice(0, 60), paramKeys: Object.keys(msg.params || {}).slice(0, 12) }); return; }
-    if (msg.id !== undefined && msg.method === undefined && ('result' in msg || 'error' in msg)) { slog('rpc_down', { ch, id: String(msg.id).slice(0, 40), ok: !msg.error, errCode: msg.error?.code, errMsg: String(msg.error?.message || '').slice(0, 120) }); return; }
-    const t = String(msg.params?.type ?? msg.type ?? '').slice(0, 60);
-    if (t && (rpcEvents.has(t) || t.includes('error'))) slog('rpc_event', { ch, type: t, method: msg.method === undefined ? undefined : String(msg.method).slice(0, 60) });
-  } catch {}
-}
 const redactProtocols = header => String(header || '').split(',').map(x => x.trim()).map(x => x.startsWith('clover-gateway-ticket.') ? 'clover-gateway-ticket.<redacted>' : x.slice(0, 64)).slice(0, 8);
 const reqFacts = request => ({ ua: (request.headers.get('user-agent') || '').slice(0, 120), protoCount: (request.headers.get('sec-websocket-protocol') || '').split(',').filter(Boolean).length, protocols: redactProtocols(request.headers.get('sec-websocket-protocol')), hasCookie: request.headers.has('cookie'), hasOrigin: request.headers.has('origin'), hasAuthorization: request.headers.has('authorization'), origin: (request.headers.get('origin') || '').slice(0, 200), cfRay: request.headers.get('cf-ray') || '' });
 const reply = (value, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -153,7 +140,6 @@ export class Installation {
               const binary = typeof e.data !== 'string'; const bytes = binary ? new Uint8Array(e.data instanceof Blob ? await e.data.arrayBuffer() : e.data) : new TextEncoder().encode(e.data);
               if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
               if (bytes.length > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
-              rpcLog('rpc_up', m.id, binary ? null : e.data, bytes.length);
               // Relay-local phone methods: relay.ping is answered here (phone<->relay leg only); relay.diag is logged here. Neither is forwarded.
               if (!binary && e.data.includes('relay.')) {
                 let req = null; try { req = JSON.parse(e.data); } catch {}
@@ -227,6 +213,9 @@ export class Installation {
     const identity = await this.state.storage.get('identity');
     const devices = message.devices;
     if (!Array.isArray(devices) || devices.length > 64 || devices.some(d => !d || typeof d.hash !== 'string' || !/^[a-f0-9]{64}$/.test(d.hash) || !Number.isSafeInteger(d.expiresAt) || d.expiresAt <= Date.now() || d.expiresAt > Date.now() + 90 * 86400000) || new Set(devices.map(d => d.hash)).size !== devices.length) throw Error('invalid devices');
+    // The desktop re-sends the list every ~2 s; an unchanged list must cost zero storage writes.
+    const sameList = identity.devices.length === devices.length && devices.every((d, i) => identity.devices[i].hash === d.hash && identity.devices[i].expiresAt === d.expiresAt);
+    if (sameList) return;
     const old = new Map(identity.devices.map(d => [d.hash, d]));
     const claimed = []; const revision = crypto.randomUUID();
     try {
@@ -315,7 +304,6 @@ export class Installation {
               const data = m.binary ? Uint8Array.from(atob(m.data), c => c.charCodeAt(0)) : m.data;
               if ((m.binary ? data.byteLength : new TextEncoder().encode(data).length) > wsLimit) throw Error('oversize');
               const phone = channel.phone;
-              if (!m.binary) rpcLog('rpc_down', m.id, data, data.length);
               if (!m.binary && channel.pushPend && channel.pushPend.size && (data.includes('"result"') || data.includes('"error"'))) {
                 try {
                   const r = JSON.parse(data); const pend = r && channel.pushPend.get(r.id);
@@ -504,6 +492,7 @@ export class Directory {
       }
       if (path === '/claim') {
         if (current && current.expiresAt > Date.now() && current.id !== data.id) return reply({ error: 'conflict' }, 409);
+        if (current && current.id === data.id && current.expiresAt === data.expiresAt && !current.deviceHash) return reply({ ok: true });
         await this.state.storage.put('owner', { id: data.id, expiresAt: data.expiresAt, revision: data.revision }); return reply({ ok: true });
       }
       if (path === '/remove') { if (current?.id === data.id) await this.state.storage.delete('owner'); return reply({ ok: true }); }
