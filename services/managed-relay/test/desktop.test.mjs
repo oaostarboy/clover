@@ -117,7 +117,7 @@ test('standalone connector relays local WebSocket text and binary', { timeout: 1
     wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws));
   });
   t.after(() => { for (const socket of pendingSockets) socket.destroy(); });
-  wss.on('connection', ws => ws.on('message', (data, binary) => ws.send(data, { binary })));
+  wss.on('connection', ws => ws.on('message', (data, binary) => { if (!binary && String(data) === 'BIG') ws.send('x'.repeat(9 * 1024 * 1024)); else ws.send(data, { binary }); }));
   await new Promise(resolve => backend.listen(0, '127.0.0.1', resolve)); t.after(() => new Promise(resolve => { for (const ws of wss.clients) ws.terminate(); backend.close(resolve); }));
   const connector = await openConnector({ relayOrigin: origin, identity, backendOrigin: `http://127.0.0.1:${backend.address().port}`, allowInsecureLocalhost: true }); t.after(() => connector.close());
   await connector.replaceDevices([{ hash: createHash('sha256').update(token).digest('hex'), expiresAt: Date.now() + 60000 }]);
@@ -125,7 +125,8 @@ test('standalone connector relays local WebSocket text and binary', { timeout: 1
   const dial = new URL('/api/ws', origin); dial.protocol = 'ws:';
   const rawPhone = new WebSocket(dial, ['clover-relay-flow-v1', 'clover-gateway-v1', `clover-gateway-ticket.${(await minted.json()).ticket}`], { handshakeTimeout: 3000, maxPayload: 23000 }); t.after(() => rawPhone.terminate());
   await new Promise((resolve, reject) => { rawPhone.once('open', resolve); rawPhone.once('error', reject); }); assert.equal(rawPhone.protocol, 'clover-relay-flow-v1');
-  const phone = new FlowSocket(rawPhone); t.after(() => phone.close());
+  const phone = new FlowSocket(rawPhone, { maxMessageBytes: 12582912 }); t.after(() => phone.close());
+  { const big = new Promise(resolve => phone.addEventListener('message', ({ data: payload }) => resolve(payload), { once: true })); const closed = new Promise(resolve => phone.addEventListener('close', ev => resolve(ev), { once: true })); phone.send('BIG'); const got = await Promise.race([big, closed]); assert.equal(typeof got, 'string', 'large reply closed: ' + (got && got.code) + ' ' + (got && got.reason)); assert.equal(got.length, 9 * 1024 * 1024); }
   for (const [data, binary] of [['hello', false], [Buffer.from([0, 1, 255]), true]]) {
     const received = new Promise(resolve => phone.addEventListener('message', ({ data: payload }) => resolve(payload), { once: true }));
     phone.send(data); const result = await received; assert.equal(typeof result !== 'string', binary); assert.deepEqual(Buffer.from(result), Buffer.from(data));
