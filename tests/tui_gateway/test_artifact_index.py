@@ -244,3 +244,158 @@ def test_scan_rows_from_real_sessiondb(tmp_path, monkeypatch, files):
         assert [i["path"] for i in pg["items"]] == [files["a.png"]]
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------- incremental persistent index
+
+def _wait_idle(home, timeout=60):
+    import time
+
+    t0 = time.time()
+    while ai.is_indexing(home) and time.time() - t0 < timeout:
+        time.sleep(0.05)
+    assert not ai.is_indexing(home)
+
+
+@pytest.fixture(scope="module")
+def _big_template(tmp_path_factory):
+    """Built once: ~200k messages (every 1000th is an assistant message naming a file)."""
+    import sqlite3
+
+    root = tmp_path_factory.mktemp("bigtpl")
+    work = root / "work"
+    work.mkdir()
+    paths = []
+    for name in ("a.png", "b.jpg"):
+        _png(work / name)
+        paths.append(str(work / name))
+    for name, data in (("doc.pdf", b"%PDF"), ("n.md", b"# hi")):
+        (work / name).write_bytes(data)
+        paths.append(str(work / name))
+    from clover_state import SessionDB
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("CLOVER_HOME", str(root / "home"))
+        db = SessionDB(db_path=root / "state.db")
+        db.create_session("s1", source="ios")
+        db.close()
+    conn = sqlite3.connect(root / "state.db")
+    rows = []
+    for i in range(200_000):
+        if i % 1000 == 1:
+            content = f"made it\nMEDIA:{paths[(i // 1000) % 4]}"
+        else:
+            content = "plain reply " + "x" * 40
+        rows.append(("s1", "assistant" if i % 2 else "user", content, 1000.0 + i))
+    conn.executemany("INSERT INTO messages (session_id, role, content, timestamp) VALUES (?,?,?,?)", rows)
+    conn.commit()
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    conn.close()
+    return root / "state.db", paths
+
+
+@pytest.fixture()
+def big_db(tmp_path, monkeypatch, _big_template):
+    tpl, paths = _big_template
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("CLOVER_HOME", str(home))
+    monkeypatch.setattr(ai, "_states", {})
+    monkeypatch.setattr(ai, "_cache", {"at": 0.0, "key": None, "items": []})
+    monkeypatch.setattr(ai, "_PAUSE", 0.0)
+    shutil.copy(tpl, tmp_path / "state.db")
+    from clover_state import SessionDB
+
+    db = SessionDB(db_path=tmp_path / "state.db")
+    db.template_paths = paths
+    yield db, home
+    db.close()
+
+
+def test_first_call_does_not_block_and_backfill_completes(big_db):
+    import time
+
+    db, home = big_db
+    t0 = time.perf_counter()
+    items = ai.index_for(db, home, force=True)
+    assert time.perf_counter() - t0 < 1.0          # nothing scanned inline for the history
+    assert ai.is_indexing(home) or items            # backfill is (or just was) running in the background
+    _wait_idle(home)
+    items = ai.index_for(db, home, force=True)
+    assert {i["path"] for i in items} == set(db.template_paths)
+    assert (home / "cache" / "artifacts" / "index.json").is_file()
+
+
+def test_incremental_call_is_fast_and_sees_new_messages(big_db, files):
+    import time
+
+    db, home = big_db
+    ai.index_for(db, home, force=True)
+    _wait_idle(home)
+    ai.index_for(db, home, force=True)
+    t0 = time.perf_counter()
+    ai.index_for(db, home, force=True)
+    assert time.perf_counter() - t0 < 0.2           # warm, nothing new
+    db.append_message("s1", "assistant", f"fresh\nMEDIA:{files['s.py']}")
+    t0 = time.perf_counter()
+    items = ai.index_for(db, home, force=True)
+    assert time.perf_counter() - t0 < 0.2           # only id > high is scanned
+    assert files["s.py"] in {i["path"] for i in items}
+    assert items[0]["path"] == files["s.py"]        # newest first
+
+
+def test_index_survives_restart_without_rescan(big_db, monkeypatch):
+    db, home = big_db
+    ai.index_for(db, home, force=True)
+    _wait_idle(home)
+    before = [i["id"] for i in ai.index_for(db, home, force=True)]
+    monkeypatch.setattr(ai, "_states", {})           # new process: state comes from index.json
+    scans = []
+    real = ai.scan_rows
+    monkeypatch.setattr(ai, "scan_rows", lambda *a, **k: scans.append(k) or real(*a, **k))
+    after = [i["id"] for i in ai.index_for(db, home, force=True)]
+    assert after == before and not ai.is_indexing(home)
+    assert scans == []                               # nothing new -> no scan at all
+
+
+def test_pagination_during_and_after_backfill(big_db):
+    db, home = big_db
+    ai.index_for(db, home, force=True)
+    _wait_idle(home)
+    items = ai.index_for(db, home, force=True)
+    seen, cur = [], None
+    while True:
+        pg = ai.page(items, cursor=cur, limit=1, include_uploads=True)
+        seen += [i["id"] for i in pg["items"]]
+        cur = pg["next_cursor"]
+        if not cur:
+            break
+    assert seen == [i["id"] for i in items] and len(set(seen)) == len(seen) == 4
+
+
+def test_deleted_file_drops_out_without_rescan(big_db, files):
+    db, home = big_db
+    ai.index_for(db, home, force=True)
+    _wait_idle(home)
+    db.append_message("s1", "assistant", f"MEDIA:{files['n.md']}")
+    assert files["n.md"] in {i["path"] for i in ai.index_for(db, home, force=True)}
+    os.remove(files["n.md"])
+    assert files["n.md"] not in {i["path"] for i in ai.index_for(db, home, force=True)}
+
+
+def test_long_gap_catches_up_in_background(big_db, files, monkeypatch):
+    db, home = big_db
+    ai.index_for(db, home, force=True)
+    _wait_idle(home)
+    monkeypatch.setattr(ai, "_CHUNK", 50)
+    import sqlite3
+
+    conn = sqlite3.connect(db.db_path)
+    conn.executemany("INSERT INTO messages (session_id, role, content, timestamp) VALUES (?,?,?,?)",
+                     [("s1", "assistant", "pad", 5e6 + i) for i in range(200)]
+                     + [("s1", "assistant", f"MEDIA:{files['page.html']}", 6e6)])
+    conn.commit()
+    conn.close()
+    ai.index_for(db, home, force=True)
+    _wait_idle(home)
+    assert files["page.html"] in {i["path"] for i in ai.index_for(db, home, force=True)}

@@ -132,7 +132,7 @@ def _(rid, params: dict) -> dict:
 
     Params: ``cursor`` (opaque, from ``next_cursor``), ``limit`` (1-200, default 60),
     ``kind`` (all|images|video|audio|docs|code, or image|doc|html|file), ``refresh``.
-    Result: ``{items: [{id, kind, title, path, mime, size, created_at, session_id,
+    Result: ``{indexing, items: [{id, kind, title, path, mime, size, created_at, session_id,
     message_id, session_title, thumb_url}], next_cursor, total, counts}``.
     Bytes: ``GET /api/files/download?path=<path>`` (existing authenticated route);
     thumbnails: ``GET /api/artifacts/thumb?id=<id>`` (only ids returned here).
@@ -145,16 +145,16 @@ def _(rid, params: dict) -> dict:
                 return _err(rid, 5006, "state database unavailable")
             home = get_clover_home()
             items = artifact_index.index_for(db, home, force=bool(params.get("refresh")))
-        return _ok(
-            rid,
-            artifact_index.page(
-                items,
-                cursor=params.get("cursor"),
-                limit=params.get("limit") or 60,
-                kind=params.get("kind"),
-                include_uploads=bool(params.get("include_uploads")),
-            ),
+        result = artifact_index.page(
+            items,
+            cursor=params.get("cursor"),
+            limit=params.get("limit") or 60,
+            kind=params.get("kind"),
+            include_uploads=bool(params.get("include_uploads")),
         )
+        # True while the one-time history backfill runs: the list is complete for recent work only.
+        result["indexing"] = artifact_index.is_indexing(home)
+        return _ok(rid, result)
     except Exception as e:
         return _err(rid, 5040, f"artifacts.list failed: {e}")
 
