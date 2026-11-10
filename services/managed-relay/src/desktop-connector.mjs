@@ -105,7 +105,7 @@ export async function openConnector({ relayOrigin, identity, backendOrigin, allo
       const authorization = m.headers?.authorization;
       if (typeof authorization !== 'string' || !/^Bearer cdt_[A-Za-z0-9_-]{16,256}$/.test(authorization)) throw Error('invalid authorization');
       const headers = { authorization };
-      for (const h of ['content-type', 'accept']) if (typeof m.headers[h] === 'string' && m.headers[h].length <= 1024) headers[h] = m.headers[h];
+      for (const h of ['content-type', 'accept', 'if-none-match']) if (typeof m.headers[h] === 'string' && m.headers[h].length <= 1024) headers[h] = m.headers[h];
       const init = { method: m.method, headers, redirect: 'manual', signal: AbortSignal.any([job.signal, AbortSignal.timeout(30000)]) };
       if (!['GET', 'HEAD'].includes(m.method)) init.body = body;
       const response = await fetch(new URL(m.target, backend), init);
@@ -113,7 +113,9 @@ export async function openConnector({ relayOrigin, identity, backendOrigin, allo
       const reader = response.body?.getReader(); const chunks = []; let length = 0;
       if (reader) while (true) { const { value, done } = await reader.read(); if (done) break; length += value.length; if (length > MAX) { await reader.cancel(); throw Error('response too large'); } chunks.push(value); }
       const contentType = response.headers.get('content-type');
-      if (ws.readyState === WebSocket.OPEN) send({ type: 'http.response', id: m.id, status: response.status, headers: contentType ? { 'content-type': contentType } : {}, body: Buffer.concat(chunks).toString('base64') });
+      const outHeaders = contentType ? { 'content-type': contentType } : {};
+      for (const h of ['etag', 'cache-control']) { const v = response.headers.get(h); if (v) outHeaders[h] = v; }
+      if (ws.readyState === WebSocket.OPEN) send({ type: 'http.response', id: m.id, status: response.status, headers: outHeaders, body: Buffer.concat(chunks).toString('base64') });
     } catch { if (ws.readyState === WebSocket.OPEN) { try { send({ type: 'http.response', id: m.id, status: 502, headers: { 'content-type': 'application/json' }, body: Buffer.from('{"error":"backend unavailable"}').toString('base64') }); } catch {} } }
     finally { httpJobs.delete(job); active--; }
     })();
