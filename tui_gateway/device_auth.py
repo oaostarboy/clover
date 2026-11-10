@@ -53,6 +53,9 @@ _CREW_SESSION_PARAMS = {
     'session.interrupt': {'session_id'},
 }
 
+# Phone desk control (relay-safe). control_drive is the only right that reaches these.
+_DESK = {'desk.take_control': {'display'}, 'desk.input': {'events'}, 'desk.release': set()}
+
 _AUDIT_SEEN = {}
 
 
@@ -158,6 +161,16 @@ def authorize_request(transport, method, params, sessions, *, launch_home=None):
     if method in _OPEN:
         if set(params) - _OPEN[method]:
             raise DeviceAccessDenied('unsupported device parameters')
+        return params
+    if method in _DESK:
+        if 'control_drive' not in principal.capabilities:
+            from tui_gateway import desk_drive
+            desk_drive.release_device(f'dev:{principal.device_id}', 'not granted')
+            _refuse(principal, 'control_drive', method)
+        if set(params) - _DESK[method]:
+            raise DeviceAccessDenied('unsupported device parameters')
+        if method != 'desk.input':
+            _audit(principal, 'control_drive', method, 'allow')
         return params
     rule = _RULES.get(method)
     crew_cap = None

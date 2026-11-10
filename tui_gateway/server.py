@@ -17764,6 +17764,7 @@ from . import (  # noqa: E402
     methods_bot_relay as _methods_bot_relay,
     methods_complete as _methods_complete,
     methods_crew as _methods_crew,
+    methods_desk as _methods_desk,
     methods_config as _methods_config,
     methods_images as _methods_images,
     methods_profiles as _methods_profiles,
@@ -17785,6 +17786,7 @@ for _m in (
     _methods_todos,
     _methods_bot_relay,
     _methods_crew,
+    _methods_desk,
 ):
     _m.register(sys.modules[__name__])
 del _m
