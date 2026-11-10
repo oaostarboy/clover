@@ -16,13 +16,12 @@ HOW TO EDIT (by hand, at release time)
 -->
 
 ## 2.0.4 | Clover C2.0.4 | 2026-11-09
-- Each paired iPhone now needs your approval on this computer before it can do more than chat.
+- Each paired iPhone needs your approval on this computer before it can do more than chat, and you can revoke it any time.
 - You choose per phone: see your crew, chat as your crew, view the screen, or control it for one hour.
-- Approvals show a 4-digit code that matches the one on the phone, and you can revoke any time.
-- A phone you approve for control can now tap, type and press keys on your computer through the relay, for one hour. Phones without that approval stay view-only.
-- Phone access requests show as a popup on this computer only. Turn on Telegram copies with `mobile.request_alerts.telegram: true`.
-- The phone's Control screen is now sharp: screen pictures use your screen's full width and high quality, and zoom fetches the zoomed part in full detail.
-- Picking a model on a brand-new phone chat no longer fails; it applies to that phone's next chat and never changes your default.
+- Approvals show a 4-digit code that matches the one on the phone.
+- A phone you approve for control can tap, type and press keys on your computer through the relay. Others stay view-only.
+- The phone's Control screen is now sharp, and zooming fetches the zoomed part in full detail.
+- Picking a model in a new phone chat no longer fails. Access requests pop up on this computer; Telegram copies are opt-in.
 
 ## 2.0.3 | Clover C2.0.3 | 2026-11-08
 - The desktop app now sets up phone access for you automatically, with no gateway setup needed.
