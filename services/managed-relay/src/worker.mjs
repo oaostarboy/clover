@@ -5,7 +5,7 @@ import { MemoryLedger } from './memory-ledger.mjs';
 // Provisional weighted transport ceiling, not an isolate heap guarantee.
 const sharedMemoryLedger = new MemoryLedger(96 * 1024 * 1024);
 const reserveTransport = weight => sharedMemoryLedger.reserve(weight);
-const HTTP_EXCHANGE_WEIGHT = 60 * 1024 * 1024;
+const HTTP_QUEUE_LIMIT = 64, HTTP_QUEUE_WAIT_MS = 10000;
 
 // Keep the HTTP allocation lease until the consumer drains/cancels the body.
 // A deadline cancels a stalled body rather than releasing a still-retained copy.
@@ -45,6 +45,19 @@ const hash = async value => hex(await crypto.subtle.digest('SHA-256', new TextEn
 const obj = (ns, name) => ns.get(ns.idFromName(name));
 const reasons = new WeakMap();
 const slog = (event, data = {}) => { try { console.log(JSON.stringify({ event, ...data })); } catch {} };
+const logPhoneDiag = (id, channel, req) => {
+  try {
+    if (req.id !== undefined) return;
+    const list = Array.isArray(req.params?.closes) ? req.params.closes.slice(0, 20) : [];
+    const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+    const str = (v, n) => (typeof v === 'string' ? v.slice(0, n) : undefined);
+    const build = str(req.params?.build, 16);
+    for (const c of list) {
+      if (!c || typeof c !== 'object' || Array.isArray(c)) continue;
+      slog('phone_diag', { ch: cid(id), dev: cid(channel.deviceHash), build, at: num(c.at), code: num(c.code), reason: str(c.reason, 120), clean: typeof c.clean === 'boolean' ? c.clean : undefined, by: c.by === 'app' || c.by === 'native' ? c.by : undefined, appState: str(c.appState, 24), openMs: num(c.openMs), net: c.net === null ? null : str(c.net, 24) });
+    }
+  } catch {}
+};
 const cid = id => String(id || '').slice(0, 8);
 const redactProtocols = header => String(header || '').split(',').map(x => x.trim()).map(x => x.startsWith('clover-gateway-ticket.') ? 'clover-gateway-ticket.<redacted>' : x.slice(0, 64)).slice(0, 8);
 const reqFacts = request => ({ ua: (request.headers.get('user-agent') || '').slice(0, 120), protoCount: (request.headers.get('sec-websocket-protocol') || '').split(',').filter(Boolean).length, protocols: redactProtocols(request.headers.get('sec-websocket-protocol')), hasCookie: request.headers.has('cookie'), hasOrigin: request.headers.has('origin'), hasAuthorization: request.headers.has('authorization'), origin: (request.headers.get('origin') || '').slice(0, 200), cfRay: request.headers.get('cf-ray') || '' });
@@ -75,7 +88,10 @@ async function readSmallBody(request, limit, timeout) {
 const stableProtocol = 'clover-gateway-v1';
 const phoneFlowProtocol = 'clover-relay-flow-v1';
 const ticketPrefix = 'clover-gateway-ticket.';
-const wsLimit = 1024 * 1024;
+const wsLimit = 1024 * 1024; // phone -> gateway frames
+const wsDownLimit = 8 * 1024 * 1024; // gateway -> phone frames (session history / resume replies can be several MB)
+const FORWARD_QUEUE_BYTES = 8 * 1024 * 1024;
+const PUSH_DEDUPE_MS = 10 * 60 * 1000;
 const validTicket = ticket => typeof ticket === 'string' && /^[A-Za-z0-9_-]{16,256}$/.test(ticket);
 const validId = id => typeof id === 'string' && /^[a-zA-Z0-9-]{1,128}$/.test(id);
 const validBase64 = s => typeof s === 'string' && s.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(s);
@@ -86,11 +102,28 @@ const boundedNumber = (value, fallback, max) => {
 
 // Every durable object endpoint is internal: the public router constructs requests.
 export class Installation {
-  constructor(state, env) { this.state = state; this.env = env; this.socket = null; this.epoch = 0; this.pending = new Map(); this.channels = new Map(); this.controls = Promise.resolve(); this.controlCount = 0; }
-  endPending() { for (const resolve of this.pending.values()) resolve(reply({ error: 'offline' }, 503)); this.pending.clear(); for (const id of [...this.channels.keys()]) this.endChannel(id, 1012, 'connector offline'); }
+  constructor(state, env) { this.state = state; this.env = env; this.socket = null; this.epoch = 0; this.pending = new Map(); this.channels = new Map(); this.controls = Promise.resolve(); this.controlCount = 0; this.httpInFlight = 0; this.httpWaiters = []; }
+  get httpBusy() { return this.httpInFlight > 0; }
+  acquireHttpSlot() {
+    const limit = boundedNumber(this.env.MAX_HTTP_INFLIGHT, 8, 16);
+    if (this.httpInFlight < limit) { this.httpInFlight++; return Promise.resolve('ok'); }
+    if (this.httpWaiters.length >= HTTP_QUEUE_LIMIT) return Promise.resolve('busy');
+    const waitMs = this.env.ALLOW_TEST_TIMEOUT === 'true' ? boundedNumber(this.env.HTTP_QUEUE_WAIT_MS, HTTP_QUEUE_WAIT_MS, HTTP_QUEUE_WAIT_MS) : HTTP_QUEUE_WAIT_MS;
+    return new Promise(resolve => {
+      const w = { resolve: r => { clearTimeout(w.timer); resolve(r); } };
+      w.timer = setTimeout(() => { const i = this.httpWaiters.indexOf(w); if (i >= 0) this.httpWaiters.splice(i, 1); resolve('busy'); }, waitMs);
+      this.httpWaiters.push(w);
+    });
+  }
+  releaseHttpSlot() {
+    const next = this.httpWaiters.shift();
+    if (next) next.resolve('ok'); else this.httpInFlight = Math.max(0, this.httpInFlight - 1);
+  }
+  endPending() { for (const w of this.httpWaiters.splice(0)) { this.httpInFlight++; w.resolve('offline'); } for (const resolve of this.pending.values()) resolve(reply({ error: 'offline' }, 503)); this.pending.clear(); for (const id of [...this.channels.keys()]) this.endChannel(id, 1012, 'connector offline'); }
   endChannel(id, code = 1000, reason = '') {
-    slog('channel_end', { ch: cid(id), code, reason });
-    const channel = this.channels.get(id); if (!channel) return;
+    const channel = this.channels.get(id);
+    slog('channel_end', { ch: cid(id), code, reason, ...(channel?.pings ? { pings: channel.pings } : {}) });
+    if (!channel) return;
     this.channels.delete(id); clearTimeout(channel.timer); clearTimeout(channel.expiryTimer);
     for (const done of channel.waiters || []) done();
     if (channel.socket === this.socket && channel.epoch === this.epoch) { try { channel.socket.send(JSON.stringify({ type: 'ws.close', id, code: 1000, reason: '' })); } catch {} }
@@ -101,14 +134,69 @@ export class Installation {
             const identity = await this.state.storage.get('identity');
             if (epoch !== this.epoch || this.channels.get(m.id) !== channel || !identity?.devices.some(d => d.hash === channel.deviceHash && d.expiresAt > Date.now())) { this.endChannel(m.id, 1008, 'device revoked'); return; }
             const [client, rawPhone] = Object.values(new WebSocketPair()); rawPhone.accept(); rawPhone.binaryType = 'arraybuffer';
-            const phone = channel.flow ? new FlowSocket(rawPhone, { reserve: reserveTransport }) : rawPhone; channel.phone = phone;
+            const phone = channel.flow ? new FlowSocket(rawPhone, { reserve: reserveTransport, maxMessageBytes: wsDownLimit, queueBytes: wsDownLimit }) : rawPhone; channel.phone = phone;
             phone.addEventListener('message', async e => {
               if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
               if (e.data instanceof Blob && e.data.size > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
               const binary = typeof e.data !== 'string'; const bytes = binary ? new Uint8Array(e.data instanceof Blob ? await e.data.arrayBuffer() : e.data) : new TextEncoder().encode(e.data);
               if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
               if (bytes.length > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
-              try { server.send(JSON.stringify({ type: 'ws.data', id: m.id, binary, data: binary ? base64(bytes) : e.data })); } catch { this.endChannel(m.id, 1011, 'transport error'); }
+              // Relay-local phone methods: relay.ping is answered here (phone<->relay leg only); relay.diag is logged here. Neither is forwarded.
+              if (!binary && e.data.includes('relay.')) {
+                let req = null; try { req = JSON.parse(e.data); } catch {}
+                if (req && req.method === 'relay.ping' && req.id !== undefined && req.id !== null) {
+                  channel.pings = (channel.pings || 0) + 1;
+                  try { phone.send(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: { ok: true, t: Date.now() } })); } catch {}
+                  return;
+                }
+                if (req && req.method === 'relay.diag') { if (bytes.length <= 8192) logPhoneDiag(m.id, channel, req); return; }
+              }
+              // Build 54 re-sends an identical push.register ~20/s (its token listener re-fires on every registration). Answer repeats of an
+              // already-successful identical registration locally from the gateway's own earlier result; anything different still goes upstream.
+              if (!binary && bytes.length < 4096 && e.data.includes('push.register')) {
+                let req = null; try { req = JSON.parse(e.data); } catch {}
+                if (req && req.method === 'push.register' && req.id !== undefined && req.id !== null) {
+                  const key = JSON.stringify(req.params ?? null); const now = Date.now(); const last = channel.pushReg;
+                  if (last && last.key === key && (last.result !== undefined || last.error !== undefined) && now - last.at < PUSH_DEDUPE_MS) {
+                    try { phone.send(JSON.stringify(last.error !== undefined ? { jsonrpc: '2.0', id: req.id, error: last.error } : { jsonrpc: '2.0', id: req.id, result: last.result })); } catch {}
+                    slog('push_register_deduped', { ch: cid(m.id) });
+                    return;
+                  }
+                  // Identical push.register already in flight on this channel: park this id and answer it when the upstream reply lands.
+                  const pend = channel.pushPend && [...channel.pushPend.values()].find(p => p.key === key);
+                  if (pend) {
+                    if (pend.waiters.length >= 512) { try { phone.send(JSON.stringify({ jsonrpc: '2.0', id: req.id, error: { code: 4290, message: 'push.register in progress' } })); } catch {} }
+                    else pend.waiters.push(req.id);
+                    slog('push_register_coalesced', { ch: cid(m.id) });
+                    return;
+                  }
+                  (channel.pushPend ||= new Map()).set(req.id, { key, waiters: [] });
+                  channel.pushReg = { key, id: req.id, at: now, result: undefined };
+                }
+              }
+              const forward = async () => {
+                const full = () => server.queue && server.queue.length >= server.queueCount;
+                while (full()) {
+                  // One shared drain/close listener per link; channels park a wake fn that endChannel also calls.
+                  await new Promise(resolve => {
+                    if (!server.linkWaiters) {
+                      const set = server.linkWaiters = new Set();
+                      const wakeAll = () => { for (const w of [...set]) w(); };
+                      server.addEventListener('drain', wakeAll); server.addEventListener('close', wakeAll);
+                    }
+                    channel.waiters ||= new Set();
+                    const done = () => { channel.waiters.delete(done); server.linkWaiters.delete(done); resolve(); };
+                    channel.waiters.add(done); server.linkWaiters.add(done);
+                    if (!full()) done();
+                  });
+                  if (this.channels.get(m.id) !== channel || epoch !== this.epoch || server.closed || server.readyState > 1) return;
+                }
+                server.send(JSON.stringify({ type: 'ws.data', id: m.id, binary, data: binary ? base64(bytes) : e.data }));
+              };
+              const cost = bytes.length + 256;
+              channel.pendingFwdBytes = (channel.pendingFwdBytes || 0) + cost;
+              if (channel.pendingFwdBytes > FORWARD_QUEUE_BYTES) { this.endChannel(m.id, 1008, 'too many pending'); return; }
+              channel.fwd = (channel.fwd || Promise.resolve()).then(forward).catch(() => this.endChannel(m.id, 1011, 'transport error')).finally(() => { channel.pendingFwdBytes -= cost; });
             });
             const closePhone = e => { slog('phone_socket_close', { ch: cid(m.id), type: e?.type, code: e?.code, reason: String(e?.reason || '').slice(0, 80) }); if (this.channels.get(m.id) !== channel) return; try { server.send(JSON.stringify({ type: 'ws.close', id: m.id, code: 1000, reason: '' })); } catch {} this.endChannel(m.id); };
             phone.addEventListener('close', closePhone); phone.addEventListener('error', closePhone);
@@ -126,6 +214,9 @@ export class Installation {
     const identity = await this.state.storage.get('identity');
     const devices = message.devices;
     if (!Array.isArray(devices) || devices.length > 64 || devices.some(d => !d || typeof d.hash !== 'string' || !/^[a-f0-9]{64}$/.test(d.hash) || !Number.isSafeInteger(d.expiresAt) || d.expiresAt <= Date.now() || d.expiresAt > Date.now() + 90 * 86400000) || new Set(devices.map(d => d.hash)).size !== devices.length) throw Error('invalid devices');
+    // The desktop re-sends the list every ~2 s; an unchanged list must cost zero storage writes.
+    const sameList = identity.devices.length === devices.length && devices.every((d, i) => identity.devices[i].hash === d.hash && identity.devices[i].expiresAt === d.expiresAt);
+    if (sameList) return;
     const old = new Map(identity.devices.map(d => [d.hash, d]));
     const claimed = []; const revision = crypto.randomUUID();
     try {
@@ -177,7 +268,7 @@ export class Installation {
       if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket' || (!flow && !offered.includes('clover-relay-connector-v1'))) return reply({ error: 'invalid upgrade' }, 400);
       if (!flow && this.env.ALLOW_LEGACY_TEST_TRANSPORT !== 'true') return reply({ error: 'desktop update required' }, 426);
       const [client, rawServer] = Object.values(new WebSocketPair()); rawServer.accept();
-      const server = flow ? new FlowSocket(rawServer, { maxMessageBytes: 12582912, reserve: reserveTransport }) : rawServer;
+      const server = flow ? new FlowSocket(rawServer, { maxMessageBytes: 12582912, reserve: reserveTransport, closeOnCapacity: false }) : rawServer;
       const epoch = ++this.epoch;
       const previous = this.socket; this.socket = server; this.endPending();
       if (previous) { try { previous.close(1012, 'replaced'); } catch {} }
@@ -209,11 +300,43 @@ export class Installation {
           if (m.type === 'ws.error') { slog('connector_ws_error', { ch: cid(m.id) }); this.endChannel(m.id, 1011, 'backend unavailable'); }
           else if (m.type === 'ws.close') this.endChannel(m.id, 1000, '');
           else {
-            if (!channel.phone || typeof m.binary !== 'boolean' || typeof m.data !== 'string' || m.data.length > (m.binary ? 1398104 : wsLimit) || (m.binary && !validBase64(m.data))) { this.endChannel(m.id, 1008, 'invalid frame'); return; }
+            if (!channel.phone || typeof m.binary !== 'boolean' || typeof m.data !== 'string' || m.data.length > wsDownLimit || (m.binary && !validBase64(m.data))) { this.endChannel(m.id, 1008, 'invalid frame'); return; }
             try {
               const data = m.binary ? Uint8Array.from(atob(m.data), c => c.charCodeAt(0)) : m.data;
-              if ((m.binary ? data.byteLength : new TextEncoder().encode(data).length) > wsLimit) throw Error('oversize');
+              if ((m.binary ? data.byteLength : new TextEncoder().encode(data).length) > wsDownLimit) throw Error('oversize');
               const phone = channel.phone;
+              if (!m.binary && channel.pushPend && channel.pushPend.size && (data.includes('"result"') || data.includes('"error"'))) {
+                try {
+                  const r = JSON.parse(data); const pend = r && channel.pushPend.get(r.id);
+                  if (pend) {
+                    channel.pushPend.delete(r.id);
+                    const ids = pend.waiters.splice(0); const ph = channel.phone;
+                    // The phone link has a small flow-controlled queue: pace the parked replies on its drain events instead of overflowing it.
+                    queueMicrotask(async () => {
+                      for (const wid of ids) {
+                        const frame = JSON.stringify(r.error !== undefined ? { jsonrpc: '2.0', id: wid, error: r.error } : { jsonrpc: '2.0', id: wid, result: r.result });
+                        for (let tries = 0; ; tries++) {
+                          if (this.channels.get(m.id) !== channel || epoch !== this.epoch || ph.readyState !== 1) return;
+                          try { ph.send(frame); break; } catch (err) {
+                            if (tries > 200 || !/capacity/.test(String(err?.message))) return;
+                            await new Promise(resolve => { const done = () => { clearTimeout(tm); ph.removeEventListener('drain', done); resolve(); }; const tm = setTimeout(done, 50); ph.addEventListener('drain', done); });
+                          }
+                        }
+                      }
+                    });
+                  }
+                } catch {}
+              }
+              if (!m.binary && channel.pushReg && channel.pushReg.result === undefined && channel.pushReg.error === undefined && (data.includes('"result"') || data.includes('"error"'))) {
+                try {
+                  const r = JSON.parse(data);
+                  if (r.id === channel.pushReg.id) {
+                    if (r.result && r.result.registered === true && !r.error) channel.pushReg.result = r.result;
+                    // Cache device-permission/validation failures too (4030 not permitted, other 40xx, -32602 invalid params); never transport errors.
+                    else if (r.error && typeof r.error.code === 'number' && (r.error.code === -32602 || (r.error.code >= 4000 && r.error.code < 4100))) channel.pushReg.error = { code: r.error.code, message: String(r.error.message ?? '') };
+                  }
+                } catch {}
+              }
               phone.send(m.binary ? data.buffer : data);
               // Hold the connector grant until the phone has consumed this message.
               // This propagates backpressure instead of filling the phone queue.
@@ -236,6 +359,7 @@ export class Installation {
           try {
             if (!Number.isInteger(m.status) || m.status < 200 || m.status > 599 || typeof m.body !== 'string' || m.body.length > 11184812 || !validBase64(m.body)) throw Error('bad response');
             const binary = atob(m.body); if (binary.length > 8 * 1024 * 1024) throw Error('oversize');
+            if (resolve.snapshot && binary.length > 3 * 1024 * 1024) { response = reply({ error: 'frame too large' }, 502); this.pending.delete(m.id); try { await resolve(response, true); } finally { resolve.processingDone(); } return; }
             const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
             const headers = new Headers();
             const contentType = m.headers?.['content-type'];
@@ -288,13 +412,28 @@ export class Installation {
       const identity = await this.state.storage.get('identity');
       if (!identity?.devices.some(d => d.hash === deviceHash && d.expiresAt > Date.now())) return reply({ error: 'unauthorized' }, 401);
       if (!allowMobileRequest(method, target)) return reply({ error: 'forbidden' }, 403);
+      const snapshot = target.startsWith('/desk/snapshot');
+      if (snapshot) {
+        // Per-device cap so a misbehaving phone cannot flood the PC with screen captures.
+        const now = Date.now(); this.snapshotTimes ??= new Map();
+        const recent = (this.snapshotTimes.get(deviceHash) || []).filter(t => now - t < 1000);
+        if (recent.length >= 4) { this.snapshotTimes.set(deviceHash, recent); return reply({ error: 'rate limited' }, 429); }
+        recent.push(now); this.snapshotTimes.set(deviceHash, recent);
+        if (this.snapshotTimes.size > 64) for (const [k, v] of this.snapshotTimes) if (!v.some(t => now - t < 1000)) this.snapshotTimes.delete(k);
+      }
       if (!this.socket) return reply({ error: 'offline' }, 503);
-      if (this.httpBusy) return reply({ error: 'busy' }, 503);
-      const lease = sharedMemoryLedger.reserve(HTTP_EXCHANGE_WEIGHT);
-      if (!lease) return reply({ error: 'busy' }, 503);
-      this.httpBusy = true;
+      const slot = await this.acquireHttpSlot();
+      if (slot !== 'ok') { if (slot === 'offline') this.releaseHttpSlot(); return reply({ error: slot }, 503); }
+      if (!this.socket) { this.releaseHttpSlot(); return reply({ error: 'offline' }, 503); }
+      const leaseBytes = boundedNumber(this.env.HTTP_EXCHANGE_MB, 8, 60) * 1024 * 1024;
+      const leaseWaitMs = this.env.ALLOW_TEST_TIMEOUT === 'true' ? boundedNumber(this.env.HTTP_QUEUE_WAIT_MS, HTTP_QUEUE_WAIT_MS, HTTP_QUEUE_WAIT_MS) : HTTP_QUEUE_WAIT_MS;
+      // Memory pressure queues like a full slot table: retry until a lease frees up, within the same wait cap.
+      let lease = sharedMemoryLedger.reserve(leaseBytes);
+      for (const until = Date.now() + leaseWaitMs; !lease && Date.now() < until && this.socket;) { await new Promise(r => setTimeout(r, 25)); lease = sharedMemoryLedger.reserve(leaseBytes); }
+      if (!lease) { this.releaseHttpSlot(); return reply({ error: this.socket ? 'busy' : 'offline' }, 503); }
+      if (!this.socket) { lease(); this.releaseHttpSlot(); return reply({ error: 'offline' }, 503); }
       let released = false;
-      const release = () => { if (released) return; released = true; this.httpBusy = false; lease(); };
+      const release = () => { if (released) return; released = true; this.releaseHttpSlot(); lease(); };
       try {
       const id = crypto.randomUUID(), socket = this.socket, epoch = this.epoch;
       let body, cancelling = false;
@@ -316,7 +455,7 @@ export class Installation {
           else { if (finish.processing) deferredRelease = true; else release(); resolve(response); }
         };
         finish.processingDone = () => { finish.processing = false; if (deferredRelease) release(); };
-        Object.assign(finish, { ticketRequest: method === 'POST' && target === '/api/auth/ws-ticket', started: Number(request.headers.get('x-relay-started')), deviceHash, installationId: identity.id });
+        Object.assign(finish, { ticketRequest: method === 'POST' && target === '/api/auth/ws-ticket', snapshot, started: Number(request.headers.get('x-relay-started')), deviceHash, installationId: identity.id });
         this.pending.set(id, finish); timer = setTimeout(() => finish(reply({ error: 'deadline exceeded' }, 504)), timeout);
         try { socket.send(JSON.stringify({ type: 'http.request', id, method, target, headers, body: base64(body) })); }
         catch { finish(reply({ error: 'offline' }, 503)); }
@@ -354,6 +493,7 @@ export class Directory {
       }
       if (path === '/claim') {
         if (current && current.expiresAt > Date.now() && current.id !== data.id) return reply({ error: 'conflict' }, 409);
+        if (current && current.id === data.id && current.expiresAt === data.expiresAt && !current.deviceHash) return reply({ ok: true });
         await this.state.storage.put('owner', { id: data.id, expiresAt: data.expiresAt, revision: data.revision }); return reply({ ok: true });
       }
       if (path === '/remove') { if (current?.id === data.id) await this.state.storage.delete('owner'); return reply({ ok: true }); }
@@ -366,40 +506,47 @@ export class Directory {
 export class Guard {
   constructor(state, env) { this.state = state; this.env = env; }
   async fetch(request) {
+    try { return await this.guardFetch(request); }
+    catch (e) { slog('guard_error', { name: String(e?.name || ''), msg: String(e?.message || e).slice(0, 160) }); return reply({ error: 'unavailable' }, 503); }
+  }
+  async guardFetch(request) {
     const input = await request.json();
-    return this.state.blockConcurrencyWhile(async () => {
-      const { id, secretHash, ip } = input;
-      if (new URL(request.url).pathname === '/rate') {
-        const bucket = Math.floor(Date.now() / 60000);
-        const old = await this.state.storage.get('rate-bucket');
-        const counts = old?.bucket === bucket ? old.counts : {};
-        const count = counts[ip] || 0;
-        if (!count && Object.keys(counts).length >= boundedNumber(this.env.MAX_TRACKED_IPS, 1024, 1024)) return reply({ error: 'rate limited' }, 429);
-        if (count >= boundedNumber(this.env.MAX_REQUESTS_PER_IP_MINUTE, 120, 100000)) return reply({ error: 'rate limited' }, 429);
-        counts[ip] = count + 1;
-        await this.state.storage.put('rate-bucket', { bucket, counts });
-        return reply({ ok: true });
-      }
+    const { id, secretHash, ip } = input;
+    if (new URL(request.url).pathname === '/rate') {
+      // In-memory only: no storage, no blockConcurrencyWhile. DO JS is single-threaded, so this is atomic.
+      const bucket = Math.floor(Date.now() / 60000);
+      if (!this.rate || this.rate.bucket !== bucket) this.rate = { bucket, counts: new Map() };
+      const counts = this.rate.counts;
+      const count = counts.get(ip) || 0;
+      if (!count && counts.size >= boundedNumber(this.env.MAX_TRACKED_IPS, 1024, 1024)) return reply({ error: 'rate limited' }, 429);
+      if (count >= boundedNumber(this.env.MAX_REQUESTS_PER_IP_MINUTE, 120, 100000)) return reply({ error: 'rate limited' }, 429);
+      counts.set(ip, count + 1);
+      return reply({ ok: true });
+    }
+    const early = await this.state.blockConcurrencyWhile(async () => {
       const allocation = await this.state.storage.get(`installation:${id}`);
-      if (allocation && allocation !== secretHash) return reply({ error: 'conflict' }, 409);
+      if (allocation && allocation !== secretHash) return { response: reply({ error: 'conflict' }, 409) };
       if (!allocation) {
         const max = boundedNumber(this.env.MAX_INSTALLATIONS, 1000, 1000000);
         const count = (await this.state.storage.get('count')) || 0;
-        if (count >= max) return reply({ error: 'enrollment unavailable' }, 429);
+        if (count >= max) return { response: reply({ error: 'enrollment unavailable' }, 429) };
         const day = Math.floor(Date.now() / 86400000);
         const key = `daily:${ip}`;
         const previous = await this.state.storage.get(key);
         const daily = previous?.day === day ? previous.count : 0;
-        if (daily >= boundedNumber(this.env.MAX_ENROLLMENTS_PER_IP_DAY, 10, 10000)) return reply({ error: 'enrollment unavailable' }, 429);
+        if (daily >= boundedNumber(this.env.MAX_ENROLLMENTS_PER_IP_DAY, 10, 10000)) return { response: reply({ error: 'enrollment unavailable' }, 429) };
         // Reserve verifier and both quotas atomically before any cross-object call.
         await this.state.storage.put({ [`installation:${id}`]: secretHash, count: count + 1, [key]: { day, count: daily + 1 } });
       }
-      const result = await obj(this.env.INSTALLATIONS, id).fetch('https://internal/initialize', {
-        method: 'POST', body: JSON.stringify({ id, secretHash })
-      });
-      if (result.status !== 201 && result.status !== 200) return reply({ error: 'unavailable' }, 503);
-      return reply({ id }, allocation ? 200 : 201);
+      return { existing: !!allocation };
     });
+    if (early.response) return early.response;
+    // Cross-object call happens OUTSIDE the input gate.
+    const result = await obj(this.env.INSTALLATIONS, id).fetch('https://internal/initialize', {
+      method: 'POST', body: JSON.stringify({ id, secretHash })
+    });
+    if (result.status !== 201 && result.status !== 200) return reply({ error: 'unavailable' }, 503);
+    return reply({ id }, early.existing ? 200 : 201);
   }
 }
 
@@ -418,8 +565,17 @@ export default {
       const started = Date.now();
       const url = new URL(request.url);
       const ip = await hash(request.headers.get('CF-Connecting-IP') || 'unknown');
-      const allowed = await obj(env.GUARD, 'global').fetch('https://internal/rate', { method: 'POST', body: JSON.stringify({ ip }) });
-      if (!allowed.ok) return reply({ error: 'rate limited' }, 429);
+      let limited = false;
+      try {
+        let timer;
+        const allowed = await Promise.race([
+          obj(env.GUARD, 'global').fetch('https://internal/rate', { method: 'POST', body: JSON.stringify({ ip }) }),
+          new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('guard rate timeout')), 1500); })
+        ]).finally(() => clearTimeout(timer));
+        if (allowed.status === 429) limited = true;
+        else if (!allowed.ok) slog('guard_rate_error', { msg: 'status ' + allowed.status });
+      } catch (e) { slog('guard_rate_error', { msg: String(e?.message || e).slice(0, 200) }); }
+      if (limited) return reply({ error: 'rate limited' }, 429);
       const declaredLength = request.headers.get('content-length');
       if (declaredLength !== null && !/^(?:0|[1-9][0-9]{0,15})$/.test(declaredLength)) return reply({ error: 'invalid request' }, 400);
       if (url.pathname === '/v1/installations' && request.method === 'POST') {
@@ -431,7 +587,7 @@ export default {
         let value;
         try { value = JSON.parse(body); } catch { return reply({ error: 'invalid request' }, 400); }
         if (!value || typeof value !== 'object' || Object.keys(value).sort().join(',') !== 'id,secret' || typeof value.id !== 'string' || typeof value.secret !== 'string' || !/^[a-f0-9]{32}$/.test(value.id) || !/^[a-f0-9]{64}$/.test(value.secret)) return reply({ error: 'invalid request' }, 400);
-        return obj(env.GUARD, 'global').fetch('https://internal/enroll', { method: 'POST', body: JSON.stringify({ id: value.id, secretHash: await hash(value.secret), ip }) });
+        return await obj(env.GUARD, 'global').fetch('https://internal/enroll', { method: 'POST', body: JSON.stringify({ id: value.id, secretHash: await hash(value.secret), ip }) });
       }
       const status = /^\/v1\/installations\/([a-f0-9]{32})\/status$/.exec(url.pathname);
       if (status && request.method === 'GET' && !url.search) return obj(env.INSTALLATIONS, status[1]).fetch(new Request('https://internal/status', request));
@@ -455,11 +611,15 @@ export default {
         const result = await obj(env.DIRECTORY, `ticket:${await hash(ticket)}`).fetch('https://internal/ticket-consume', { method: 'POST' });
         if (!result.ok) return R({ error: 'unauthorized' }, 401, 'ticket_consume_failed');
         const { id, deviceHash } = await result.json();
-        const forwarded = await obj(env.INSTALLATIONS, id).fetch('https://internal/open-ws', { method: 'GET', headers: { Upgrade: 'websocket', 'x-relay-ticket': ticket, 'x-relay-device-hash': deviceHash, 'x-relay-phone-flow': flow ? 'v1' : 'legacy' } });
+        // PHONE_FLOW=off: select the plain gateway protocol even when the phone also offers flow.
+        // iOS Build 54's flow client caps its send queue at 16 and tears the socket down on its
+        // opening request burst; the plain protocol (same one direct gateways use) has no such cap.
+        const useFlow = flow && env.PHONE_FLOW !== 'off';
+        const forwarded = await obj(env.INSTALLATIONS, id).fetch('https://internal/open-ws', { method: 'GET', headers: { Upgrade: 'websocket', 'x-relay-ticket': ticket, 'x-relay-device-hash': deviceHash, 'x-relay-phone-flow': useFlow ? 'v1' : 'legacy' } });
         reasons.set(request, forwarded.status === 101 ? 'forward_ok' : 'forward_status_' + forwarded.status);
         return forwarded;
       }
-      if (url.pathname.startsWith('/api/')) {
+      if (url.pathname.startsWith('/api/') || url.pathname === '/desk/displays' || url.pathname === '/desk/snapshot') {
         if (!allowMobileRequest(request.method, url.pathname + url.search)) return reply({ error: 'forbidden' }, 403);
         const authorization = request.headers.get('authorization') || '';
         const token = /^Bearer (cdt_[A-Za-z0-9_-]{16,256})$/.exec(authorization);
@@ -474,7 +634,8 @@ export default {
         return obj(env.INSTALLATIONS, id).fetch('https://internal/forward', { method: 'POST', headers, body: request.body });
       }
       return reply({ error: 'not found' }, 404);
-    } catch {
+    } catch (e) {
+      slog('handle_error', { path: (() => { try { return new URL(request.url).pathname; } catch { return ''; } })(), msg: String(e?.message || e).slice(0, 200) });
       return reply({ error: 'unavailable' }, 503);
     }
   }

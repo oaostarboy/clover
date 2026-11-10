@@ -11,7 +11,7 @@ const origin = 'https://relay.test';
 test('concurrent GET admission rejects before a second backend action', { timeout: 30000 }, async t => {
   buildSync({ entryPoints: ['src/worker.mjs'], outfile: 'dist/http-memory-worker.mjs', bundle: true, format: 'esm', platform: 'neutral' });
   t.after(() => rm('dist/http-memory-worker.mjs', { force: true }));
-  const mf = new Miniflare({ workers: [{ name: 'relay', modules: true, scriptPath: 'dist/http-memory-worker.mjs', compatibilityDate: '2026-07-30', bindings: { ENROLLMENT_ENABLED: 'true', ALLOW_TEST_TIMEOUT: 'true', REQUEST_TIMEOUT_MS: '2000' }, durableObjects: { INSTALLATIONS: { className: 'Installation', useSQLite: true }, DIRECTORY: { className: 'Directory', useSQLite: true }, GUARD: { className: 'Guard', useSQLite: true } } }] });
+  const mf = new Miniflare({ workers: [{ name: 'relay', modules: true, scriptPath: 'dist/http-memory-worker.mjs', compatibilityDate: '2026-07-30', bindings: { ENROLLMENT_ENABLED: 'true', ALLOW_TEST_TIMEOUT: 'true', REQUEST_TIMEOUT_MS: '2000', MAX_HTTP_INFLIGHT: '1', HTTP_EXCHANGE_MB: '60', HTTP_QUEUE_WAIT_MS: '100' }, durableObjects: { INSTALLATIONS: { className: 'Installation', useSQLite: true }, DIRECTORY: { className: 'Directory', useSQLite: true }, GUARD: { className: 'Guard', useSQLite: true } } }] });
   t.after(() => mf.dispose());
   const id = randomBytes(16).toString('hex'), secret = randomBytes(32).toString('hex'), token = 'cdt_' + randomBytes(32).toString('hex');
   assert.equal((await mf.dispatchFetch(origin + '/v1/installations', { method: 'POST', body: JSON.stringify({ id, secret }) })).status, 201);
@@ -56,7 +56,7 @@ test('concurrent GET admission rejects before a second backend action', { timeou
     });
     req.on('timeout', () => req.destroy(Error('overload deadline')));
     req.on('error', error => { if (!settled) reject(error); });
-    req.write(Buffer.from([i]));
+    req.end(Buffer.alloc(i % 4 < 2 ? 1 : 4, i));
   })));
   assert.deepEqual(networkStatuses, Array(32).fill(503));
   assert.equal(actions, 0, 'network overload does not reach the backend');

@@ -12,7 +12,15 @@ export function allowMobileRequest(method, target) {
   }
   if (method !== 'GET') return false;
   if (path === '/desk/displays') return !rest.length;
-  if (path === '/desk/snapshot') return [...query.entries()].every(([k, v]) => ['display', 'q', 'w'].includes(k) && /^[A-Za-z0-9_.:-]{1,64}$/.test(v)) && new Set(query.keys()).size === [...query.keys()].length;
+  if (path === '/desk/snapshot') {
+    const keys = [...query.keys()]; if (new Set(keys).size !== keys.length) return false;
+    const rules = { display: v => /^[A-Za-z0-9_.:-]{1,64}$/.test(v), q: v => /^\d{1,3}$/.test(v) && +v >= 1 && +v <= 100, w: v => /^\d{1,4}$/.test(v) };
+    for (const k of ['x', 'y', 'cw', 'ch']) rules[k] = v => /^\d{1,5}$/.test(v);
+    return [...query.entries()].every(([k, v]) => Object.hasOwn(rules, k) && rules[k](v));
+  }
+  // Creations tab: bytes by path and thumbnails by id. The gateway still requires the media right and a file its artifact index listed.
+  if (path === '/api/files/download') return [...query.keys()].length === 1 && query.getAll('path').length === 1 && /^\/[^\x00]{1,1024}$/.test(query.get('path'));
+  if (path === '/api/artifacts/thumb') return [...query.keys()].every(key => ['id', 'size'].includes(key)) && query.getAll('id').length === 1 && /^[0-9a-f]{16}$/.test(query.get('id')) && query.getAll('size').length <= 1 && /^[0-9]{2,4}$/.test(query.get('size') ?? '480');
   if (path === '/api/sessions') return [...query.keys()].every(key => ['limit', 'offset', 'min_messages', 'archived', 'order'].includes(key));
   return /^\/api\/sessions\/[A-Za-z0-9_-]+\/messages$/.test(path) && !rest.length;
 }

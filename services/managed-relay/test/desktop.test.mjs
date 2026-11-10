@@ -166,3 +166,62 @@ test('standalone connector relays local WebSocket text and binary', { timeout: 1
   await connector.replaceDevices([]);
   assert.notEqual(await result, 101);
 });
+
+test('phone burst of 40 messages is forwarded through the flow connector without closing the channel', { timeout: 20000 }, async t => {
+  buildSync({ entryPoints: ['src/worker.mjs'], outfile: 'dist/worker.mjs', bundle: true, format: 'esm', platform: 'neutral' });
+  const mf = new Miniflare({ workers: [{ name: 'relay', modules: true, scriptPath: 'dist/worker.mjs', compatibilityDate: '2026-07-30', bindings: { ENROLLMENT_ENABLED: 'true', ALLOW_LEGACY_TEST_TRANSPORT: 'true', REQUEST_TIMEOUT_MS: '1000', ALLOW_TEST_TIMEOUT: 'true' }, durableObjects: { INSTALLATIONS: { className: 'Installation', useSQLite: true }, DIRECTORY: { className: 'Directory', useSQLite: true }, GUARD: { className: 'Guard', useSQLite: true } } }] });
+  t.after(() => mf.dispose()); const origin = (await mf.ready).origin;
+  const dir = await mkdtemp(join(tmpdir(), 'relay-burst-')); t.after(() => rm(dir, { recursive: true, force: true }));
+  const { identity } = await ensureEnrolled(origin, join(dir, 'identity'), { allowInsecureLocalhost: true });
+  const token = 'cdt_' + randomBytes(32).toString('hex'), ticket = randomBytes(32).toString('base64url');
+  const backend = createServer((req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ticket, ttl_seconds: 30 })); });
+  const wss = new WebSocketServer({ noServer: true, handleProtocols: p => p.has('clover-gateway-v1') ? 'clover-gateway-v1' : false });
+  backend.on('upgrade', (req, socket, head) => wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws)));
+  wss.on('connection', ws => ws.on('message', (data, binary) => ws.send(data, { binary })));
+  await new Promise(resolve => backend.listen(0, '127.0.0.1', resolve)); t.after(() => new Promise(resolve => { for (const ws of wss.clients) ws.terminate(); backend.close(resolve); }));
+  const connector = await openConnector({ relayOrigin: origin, identity, backendOrigin: `http://127.0.0.1:${backend.address().port}`, allowInsecureLocalhost: true }); t.after(() => connector.close());
+  await connector.replaceDevices([{ hash: createHash('sha256').update(token).digest('hex'), expiresAt: Date.now() + 60000 }]);
+  const minted = await fetch(origin + '/api/auth/ws-ticket', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); assert.equal(minted.status, 200);
+  const dial = new URL('/api/ws', origin); dial.protocol = 'ws:';
+  const rawPhone = new WebSocket(dial, ['clover-gateway-v1', `clover-gateway-ticket.${(await minted.json()).ticket}`], { handshakeTimeout: 3000 }); t.after(() => rawPhone.terminate());
+  await new Promise((resolve, reject) => { rawPhone.once('open', resolve); rawPhone.once('error', reject); });
+  let closed = false; rawPhone.on('close', () => { closed = true; });
+  const got = new Set(); const done = new Promise(resolve => rawPhone.on('message', data => { got.add(String(data)); if (got.size === 40) resolve(); }));
+  for (let i = 0; i < 40; i++) { rawPhone.send(`m${i}`); }
+  await Promise.race([done, new Promise((_, rej) => setTimeout(() => rej(new Error(`only ${got.size}/40 echoes, closed=${closed}`)), 15000))]);
+  assert.equal(got.size, 40); assert.equal(closed, false);
+});
+
+test('six parallel phone HTTP requests all succeed through one connector', { timeout: 20000 }, async t => {
+  buildSync({ entryPoints: ['src/worker.mjs'], outfile: 'dist/worker.mjs', bundle: true, format: 'esm', platform: 'neutral' });
+  const mf = new Miniflare({ workers: [{ name: 'relay', modules: true, scriptPath: 'dist/worker.mjs', compatibilityDate: '2026-07-30', bindings: { ENROLLMENT_ENABLED: 'true' }, durableObjects: { INSTALLATIONS: { className: 'Installation', useSQLite: true }, DIRECTORY: { className: 'Directory', useSQLite: true }, GUARD: { className: 'Guard', useSQLite: true } } }] });
+  t.after(() => mf.dispose()); const origin = (await mf.ready).origin;
+  const dir = await mkdtemp(join(tmpdir(), 'relay-par-')); t.after(() => rm(dir, { recursive: true, force: true }));
+  const { identity } = await ensureEnrolled(origin, join(dir, 'identity'), { allowInsecureLocalhost: true });
+  const token = 'cdt_' + randomBytes(32).toString('hex');
+  // Backend answers in reverse order so responses return out of order.
+  const backend = createServer((req, res) => { const n = Number(new URL(req.url, 'http://x').searchParams.get('limit')) - 1; setTimeout(() => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ n })); }, (6 - n) * 40); });
+  await new Promise(resolve => backend.listen(0, '127.0.0.1', resolve)); t.after(() => { backend.closeAllConnections(); backend.close(); });
+  const connector = await openConnector({ relayOrigin: origin, identity, backendOrigin: `http://127.0.0.1:${backend.address().port}`, allowInsecureLocalhost: true });
+  t.after(() => connector.close());
+  await connector.replaceDevices([{ hash: createHash('sha256').update(token).digest('hex'), expiresAt: Date.now() + 60000 }]);
+  const results = await Promise.all(Array.from({ length: 6 }, async (_, n) => { const r = await fetch(origin + '/api/sessions?limit=' + (n + 1), { headers: { Authorization: `Bearer ${token}` } }); return [r.status, r.status === 200 ? await r.json() : null]; }));
+  assert.deepEqual(results.map(r => r[0]), Array(6).fill(200));
+});
+
+test('twelve parallel (queued past 8 in flight) phone HTTP requests all succeed through one connector', { timeout: 30000 }, async t => {
+  buildSync({ entryPoints: ['src/worker.mjs'], outfile: 'dist/worker.mjs', bundle: true, format: 'esm', platform: 'neutral' });
+  const mf = new Miniflare({ workers: [{ name: 'relay', modules: true, scriptPath: 'dist/worker.mjs', compatibilityDate: '2026-07-30', bindings: { ENROLLMENT_ENABLED: 'true' }, durableObjects: { INSTALLATIONS: { className: 'Installation', useSQLite: true }, DIRECTORY: { className: 'Directory', useSQLite: true }, GUARD: { className: 'Guard', useSQLite: true } } }] });
+  t.after(() => mf.dispose()); const origin = (await mf.ready).origin;
+  const dir = await mkdtemp(join(tmpdir(), 'relay-par12-')); t.after(() => rm(dir, { recursive: true, force: true }));
+  const { identity } = await ensureEnrolled(origin, join(dir, 'identity'), { allowInsecureLocalhost: true });
+  const token = 'cdt_' + randomBytes(32).toString('hex');
+  // Backend answers in reverse order so responses return out of order.
+  const backend = createServer((req, res) => { const n = Number(new URL(req.url, 'http://x').searchParams.get('limit')) - 1; setTimeout(() => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ n })); }, 60); });
+  await new Promise(resolve => backend.listen(0, '127.0.0.1', resolve)); t.after(() => { backend.closeAllConnections(); backend.close(); });
+  const connector = await openConnector({ relayOrigin: origin, identity, backendOrigin: `http://127.0.0.1:${backend.address().port}`, allowInsecureLocalhost: true });
+  t.after(() => connector.close());
+  await connector.replaceDevices([{ hash: createHash('sha256').update(token).digest('hex'), expiresAt: Date.now() + 60000 }]);
+  const results = await Promise.all(Array.from({ length: 12 }, async (_, n) => { const r = await fetch(origin + '/api/sessions?limit=' + (n + 1), { headers: { Authorization: `Bearer ${token}` } }); return [r.status, r.status === 200 ? await r.json() : await r.text()]; }));
+  assert.deepEqual(results.map(r => r[0]), Array(12).fill(200), JSON.stringify(results.map(r => r[1])));
+});
