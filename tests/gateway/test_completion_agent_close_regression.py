@@ -93,3 +93,23 @@ async def test_retry_verdict_backs_off_without_burning_attempts(db, tmp_path, mo
     for _ in range(20):
         assert await runner._deliver_completion_notification("done", evt) is False
     assert len(calls) == 1  # one claim; the rest wait out the backoff
+
+
+@pytest.mark.asyncio
+async def test_retry_backoff_table_stays_bounded(db, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from gateway.completion_ownership import RETRY, Resolution
+    from tools import async_delegation as ad
+
+    monkeypatch.setattr(ad, "claim_completion_delivery", lambda d, c: True)
+    monkeypatch.setattr(ad, "release_completion_delivery", lambda d, c: True)
+    runner = object.__new__(GatewayRunner)
+    runner._completion_delivery_identity = lambda evt: None
+    runner._preflight_completion = AsyncMock(
+        return_value=(object(), Resolution("r", "t", RETRY, "owner_ended_no_successor"))
+    )
+    for i in range(400):
+        evt = {"type": "async_delegation", "delegation_id": f"d{i}", "parent_session_id": "p"}
+        await runner._deliver_completion_notification("done", evt)
+    assert len(runner._completion_retry_backoff) <= 256

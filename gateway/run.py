@@ -29019,6 +29019,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                             )
                     return None if recorded else False
                 if resolution is not None and resolution.verdict == "retry":
+                    # Bound the table: drop holds that expired long ago (their
+                    # delegations resolved or were abandoned) and cap its size.
+                    _now_m = time.monotonic()
+                    for _k in [k for k, v in self._completion_retry_backoff.items()
+                               if _now_m - v[0] > 600.0]:
+                        self._completion_retry_backoff.pop(_k, None)
+                    while len(self._completion_retry_backoff) >= 256:
+                        self._completion_retry_backoff.pop(
+                            next(iter(self._completion_retry_backoff)))
                     _prev = self._completion_retry_backoff.get(durable_delegation_id)
                     _n = (_prev[1] if _prev else 0) + 1
                     self._completion_retry_backoff[durable_delegation_id] = (
