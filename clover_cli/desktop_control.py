@@ -45,7 +45,7 @@ DEFAULTS: Dict[str, Any] = {
     "view_only": False,
     "allow_input": True,
     "fps": 8,
-    "width": 1280,
+    "width": 1920,
 }
 
 
@@ -150,6 +150,51 @@ def split_combo(norm: str) -> Tuple[List[str], str]:
     return parts[:-1], parts[-1]
 
 
+SNAPSHOT_MAX_WIDTH = 3840
+SNAPSHOT_DEFAULT_MAX_WIDTH = 2560
+SNAPSHOT_MIN_WIDTH = 320
+SNAPSHOT_DEFAULT_QSCALE = 3      # mjpeg -q:v: 2 = best .. 31 = worst
+STREAM_QSCALE = 6
+SNAPSHOT_SOFT_LIMIT = 1_800_000  # relay caps a response at 2 MiB
+
+
+def _qv(d: Dict[str, Any]) -> str:
+    return str(d.get("qscale", STREAM_QSCALE))
+
+
+def quality_to_qscale(q: Optional[int]) -> int:
+    """1-100 quality (100 best) -> mjpeg qscale 2-31."""
+    if q is None:
+        return SNAPSHOT_DEFAULT_QSCALE
+    q = max(1, min(100, int(q)))
+    return max(2, min(31, round(31 - (q - 1) * 29 / 99)))
+
+
+def snapshot_plan(display: Dict[str, Any], w: Optional[int] = None, q: Optional[int] = None,
+                  crop: Optional[Tuple[int, int, int, int]] = None) -> Dict[str, Any]:
+    """Display dict for one still: sized by ``w`` (aspect kept, never upscaled past the
+    source, <=3840, default native capped at 2560), ``q`` quality, optional native-pixel
+    ``crop`` (x, y, cw, ch). Raises ValueError for a crop outside the display."""
+    nw, nh = int(display["width"]), int(display["height"])
+    out = dict(display)
+    if crop is not None:
+        x, y, cw, ch = (int(v) for v in crop)
+        if x < 0 or y < 0 or cw < 2 or ch < 2 or x + cw > nw or y + ch > nh:
+            raise ValueError("crop outside display")
+        cw, ch = cw - cw % 2, ch - ch % 2
+        out["crop"] = (x, y, cw, ch)
+        nw, nh = cw, ch
+    top = min(nw, SNAPSHOT_MAX_WIDTH)
+    if w is None:
+        width = min(nw, SNAPSHOT_DEFAULT_MAX_WIDTH)
+    else:
+        width = max(min(SNAPSHOT_MIN_WIDTH, top), min(int(w), top))
+    height = max(2, round(nh * width / float(nw)))
+    out["stream_width"], out["stream_height"] = width - width % 2 or 2, height + height % 2
+    out["qscale"] = quality_to_qscale(q)
+    return out
+
+
 def stream_size(width: int, height: int, max_width: int) -> Tuple[int, int]:
     """Streamed image size: never upscaled, capped at ``max_width``, even height."""
     scale = min(1.0, max_width / float(width))
@@ -201,7 +246,7 @@ class Backend:
 
     name = "none"
 
-    def __init__(self, width: int = 1280, fps: int = 8):
+    def __init__(self, width: int = 1920, fps: int = 8):
         self.width = width
         self.fps = fps
         self._cache: Tuple[float, List[dict]] = (0.0, [])
@@ -245,7 +290,9 @@ class Backend:
         return {}
 
     def _vf(self, d: dict, fps: int) -> str:
-        return (f"fps={fps}," if fps else "") + f"scale={d['stream_width']}:{d['stream_height']}"
+        crop = d.get("crop")
+        crop_f = f"crop={crop[2]}:{crop[3]}:{crop[0]}:{crop[1]}," if crop else ""
+        return (f"fps={fps}," if fps else "") + crop_f + f"scale={d['stream_width']}:{d['stream_height']}"
 
     # -- input (all take absolute coords already mapped) --------------------
     def move(self, x: int, y: int) -> None: raise NotImplementedError
@@ -303,7 +350,7 @@ class LinuxX11Backend(Backend):
                # A one-frame snapshot must not wait a whole frame interval at 1 fps.
                "-framerate", str(30 if frames == 1 else max(fps, 1)), "-i", f"{self.display_name}+{d['x']},{d['y']}",
                "-vf", self._vf(d, fps), "-sws_flags", "fast_bilinear", "-threads", "1",
-               "-c:v", "mjpeg", "-q:v", "6"]
+               "-c:v", "mjpeg", "-q:v", _qv(d)]
         if frames:
             cmd += ["-frames:v", str(frames)]
         return cmd + ["-f", "image2pipe", "-"]
@@ -385,7 +432,7 @@ class MacBackend(Backend):
         cmd = ["nice", "-n", "10", "ffmpeg", "-loglevel", "error", "-f", "avfoundation",
                "-capture_cursor", "1", "-framerate", str(max(fps, 1)), "-pixel_format", "uyvy422",
                "-i", "Capture screen 0", "-vf", self._vf(d, fps), "-threads", "1",
-               "-c:v", "mjpeg", "-q:v", "6"]
+               "-c:v", "mjpeg", "-q:v", _qv(d)]
         if frames:
             cmd += ["-frames:v", str(frames)]
         return cmd + ["-f", "image2pipe", "-"]
@@ -458,7 +505,7 @@ class WindowsBackend(Backend):
         cmd = ["ffmpeg", "-loglevel", "error", "-f", "gdigrab", "-draw_mouse", "1",
                "-framerate", str(max(fps, 1)), "-offset_x", str(d["x"]), "-offset_y", str(d["y"]),
                "-video_size", f"{d['width']}x{d['height']}", "-i", "desktop",
-               "-vf", self._vf(d, fps), "-threads", "1", "-c:v", "mjpeg", "-q:v", "6"]
+               "-vf", self._vf(d, fps), "-threads", "1", "-c:v", "mjpeg", "-q:v", _qv(d)]
         if frames:
             cmd += ["-frames:v", str(frames)]
         return cmd + ["-f", "image2pipe", "-"]
@@ -532,7 +579,7 @@ class WindowsBackend(Backend):
         for vk in reversed(vks): self._u().keybd_event(vk, 0, 0x2, 0)
 
 
-def default_backend(width: int = 1280, fps: int = 8) -> Backend:
+def default_backend(width: int = 1920, fps: int = 8) -> Backend:
     if sys.platform.startswith("linux"):
         return LinuxX11Backend(width, fps)
     if sys.platform == "darwin":
@@ -736,7 +783,7 @@ class DesktopController:
         cap.d = d
         return cap
 
-    async def snapshot(self, d: dict) -> bytes:
+    async def _grab(self, d: dict) -> bytes:
         proc = await asyncio.create_subprocess_exec(
             *self.backend.capture_cmd(d, 0, 1), env=self.backend.capture_env(),
             stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
@@ -747,6 +794,17 @@ class DesktopController:
         except asyncio.TimeoutError:
             proc.kill()
             return b""
+        return data
+
+    async def snapshot(self, d: dict) -> bytes:
+        """One JPEG of display ``d`` (already sized/quality-tagged by snapshot_plan, or the
+        plain display). Over ~1.8 MB it is re-encoded once at lower quality."""
+        data = await self._grab(d)
+        if len(data) > SNAPSHOT_SOFT_LIMIT and "qscale" in d:
+            retry = {**d, "qscale": min(31, int(d["qscale"]) + 6)}
+            smaller = await self._grab(retry)
+            if smaller:
+                data = smaller
         return data
 
 
@@ -844,7 +902,9 @@ def build_router(
                 "input": in_reason is None, **({"input_reason": in_reason} if in_reason else {})}
 
     @router.get("/desk/snapshot")
-    async def desk_snapshot(request: Request, display: int = 0):
+    async def desk_snapshot(request: Request, display: int = 0, w: Optional[int] = None,
+                            q: Optional[int] = None, x: Optional[int] = None, y: Optional[int] = None,
+                            cw: Optional[int] = None, ch: Optional[int] = None):
         s, c = gate(request)
         loop = asyncio.get_running_loop()
         reason = await loop.run_in_executor(None, unavailable, c)
@@ -853,7 +913,17 @@ def build_router(
         d = await loop.run_in_executor(None, c.backend.display, display)
         if not d:
             return JSONResponse({"error": "unknown display"}, status_code=404)
-        data = await c.snapshot(d)
+        crop_args = (x, y, cw, ch)
+        crop = None
+        if any(v is not None for v in crop_args):
+            if any(v is None for v in crop_args):
+                return JSONResponse({"error": "crop needs x, y, cw and ch"}, status_code=400)
+            crop = crop_args
+        try:
+            plan = snapshot_plan(d, w, q, crop)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        data = await c.snapshot(plan)
         if not data:
             return JSONResponse({"error": "capture failed"}, status_code=500)
         return Response(content=data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})

@@ -173,14 +173,14 @@ def device_http_gate(request, principal: "DevicePrincipal") -> Any:
     if path in DESK_GET_PATHS:
         if request.scope.get("raw_path", b"").split(b"?", 1)[0] != path.encode("ascii"):
             return "unauthorized"
-        # q and w are admitted by the relay for forward compatibility; the gateway ignores them (stills use desktop_control.width).
-        allowed_query = {"display", "q", "w"} if path.endswith("snapshot") else set()
+        # w (width), q (quality 1-100) and x,y,cw,ch (native-pixel crop) size a still; the gateway clamps them.
+        allowed_query = {"display", "q", "w", "x", "y", "cw", "ch"} if path.endswith("snapshot") else set()
         if set(request.query_params) - allowed_query:
             return "unauthorized"
         display = request.query_params.get("display")
         if display is not None and not re.fullmatch(r"[0-9]{1,3}", display):
             return "unauthorized"
-        if any(not re.fullmatch(r"[0-9]{1,4}", request.query_params.get(k, "0")) for k in ("q", "w")):
+        if any(not re.fullmatch(r"[0-9]{1,4}", request.query_params.get(k, "0")) for k in ("q", "w", "x", "y", "cw", "ch")):
             return "unauthorized"
         if "control_view" not in principal.capabilities:
             return {"error": "forbidden", **denial_reason(principal, "control_view")}

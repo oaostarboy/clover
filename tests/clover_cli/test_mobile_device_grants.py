@@ -222,6 +222,8 @@ def test_http_gate_codes(env, monkeypatch):
     assert gate(snap, p) is None
     assert gate(make_request("GET", "/desk/displays"), p) is None
     assert gate(make_request("GET", "/desk/snapshot", "display=0&q=60&w=800"), p) is None
+    assert gate(make_request("GET", "/desk/snapshot", "display=0&w=3440&q=95&x=10&y=20&cw=800&ch=600"), p) is None
+    assert gate(make_request("GET", "/desk/snapshot", "cw=abc"), p) == "unauthorized"
     assert gate(make_request("GET", "/desk/snapshot", "w=abc"), p) == "unauthorized"
     assert gate(make_request("GET", "/desk/snapshot", "display=x"), p) == "unauthorized"
     assert gate(make_request("GET", "/desk/snapshot", "token=1"), p) == "unauthorized"

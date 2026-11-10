@@ -15,7 +15,7 @@ desktop_control:
   view_only: false   # true = stream the screen, never accept input
   allow_input: true  # false = same as view_only
   fps: 8             # 1-15
-  width: 1280        # stream width in pixels, 320-1920
+  width: 1920        # live-stream width cap in pixels, 320-1920 (never upscaled)
 ```
 
 Or: `clover config set desktop_control.enabled true`.
@@ -23,7 +23,12 @@ Or: `clover config set desktop_control.enabled true`.
 ## What it does
 
 * `GET /desk/displays` lists your monitors (or says why capture is unavailable).
-* `GET /desk/snapshot?display=N` returns one JPEG.
+* `GET /desk/snapshot?display=N` returns one JPEG at the display's native width
+  (capped at 2560) and high quality. Optional query parameters: `w` output width
+  (320 to native, max 3840, aspect kept), `q` quality 1-100 (default about 95),
+  and `x`, `y`, `cw`, `ch` to fetch only a native-pixel region at full sharpness
+  (all four together; out-of-bounds is HTTP 400). A frame over about 1.8 MB is
+  re-encoded once at lower quality so it fits the relay's 2 MiB response cap.
 * `WS /desk/stream?display=N` streams JPEG frames (about 8 per second) and takes
   control messages. The phone must send `take_control` before any mouse or
   keyboard message is accepted. Only one phone controls at a time, and control is

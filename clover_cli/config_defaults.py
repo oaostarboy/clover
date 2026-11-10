@@ -4159,7 +4159,7 @@ DEFAULT_CONFIG = {
         "view_only": False,
         "allow_input": True,
         "fps": 8,
-        "width": 1280,
+        "width": 1920,
     },
 
     # Config schema version - bump this when adding new required fields
