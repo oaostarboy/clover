@@ -75,9 +75,14 @@ def test_device_can_select_model_only_for_owned_live_session(tmp_path, monkeypat
     sessions = {'own': {'profile_home': str(tmp_path / 'default')}}
     params = {'session_id': 'own', 'key': 'model', 'value': 'test', 'confirm_expensive_model': True}
     assert authorize_request(transport, 'config.set', params, sessions) == params
-    for changed in ({'session_id': ''}, {'session_id': 'foreign'}, {'key': 'yolo'}, {'value': 'test --global'}):
+    for changed in ({'session_id': 'foreign'}, {'key': 'yolo'}, {'value': 'test --global'}):
         with pytest.raises(DeviceAccessDenied):
             authorize_request(transport, 'config.set', {**params, **changed}, sessions)
+    # No session yet (fresh chat): authorized, handled as the device's pending model (never global).
+    fresh = {'key': 'model', 'value': 'test', 'confirm_expensive_model': True}
+    assert authorize_request(transport, 'config.set', fresh, sessions) == fresh
+    with pytest.raises(DeviceAccessDenied):
+        authorize_request(transport, 'config.set', {**fresh, 'key': 'yolo'}, sessions)
 
 
 def test_owner_request_is_unchanged():
