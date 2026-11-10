@@ -80,6 +80,10 @@ from clover_cli.fallback_config import get_fallback_chain
 # deployment.  Neither bound knows how many BYTES a cached agent holds, so
 # _sweep_agent_cache_under_pressure() adds the missing memory-pressure valve
 # (see gateway/agent_cache_pressure.py).
+# RETRY verdicts on a durable completion back off exponentially so transient
+# uncertainty cannot burn the delivery-attempt budget in seconds.
+_COMPLETION_RETRY_BACKOFF_BASE_S = 5.0
+_COMPLETION_RETRY_BACKOFF_MAX_S = 120.0
 _AGENT_CACHE_MAX_SIZE = 128
 _AGENT_CACHE_IDLE_TTL_SECS = 3600.0  # evict agents idle for >1h
 _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT = 30.0
@@ -12618,10 +12622,26 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 cleanup_exc,
             )
 
-    def _cleanup_agent_resources(self, agent: Any) -> None:
-        """Best-effort cleanup for temporary or cached agent instances."""
+    def _cleanup_agent_resources(
+        self, agent: Any, *, finalize_session: bool = False,
+    ) -> None:
+        """Best-effort cleanup for temporary or cached agent instances.
+
+        The agent's session row is NOT finalized by default: every gateway
+        caller tears down an agent whose session is (or may still be) the
+        route's current session, and ``AIAgent.close()`` would otherwise stamp
+        it ``ended_at`` / ``agent_close``. A real boundary (/new, /resume,
+        expiry) is recorded by the session store, not by agent cleanup. Only a
+        throwaway agent that exclusively owns its own session id (``/background``)
+        passes ``finalize_session=True``.
+        """
         if agent is None:
             return
+        if not finalize_session:
+            try:
+                agent._end_session_on_close = False
+            except Exception:
+                pass
         try:
             if hasattr(agent, "shutdown_memory_provider"):
                 # Drain queued memory writes BEFORE tearing the provider down.
@@ -25596,7 +25616,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                         task_id=task_id,
                     )
                 finally:
-                    self._cleanup_agent_resources(agent)
+                    # /background owns its throwaway task_id session.
+                    self._cleanup_agent_resources(agent, finalize_session=True)
 
             result = await self._run_in_executor_with_context(run_sync)
 
@@ -28933,6 +28954,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         if evt.get("type") == "async_delegation":
             durable_delegation_id = str(evt.get("delegation_id") or "")
             if durable_delegation_id:
+                _backoff = getattr(self, "_completion_retry_backoff", None)
+                if _backoff is None:
+                    _backoff = self._completion_retry_backoff = {}
+                _hold = _backoff.get(durable_delegation_id)
+                if _hold is not None and time.monotonic() < _hold[0]:
+                    # Still backing off after a RETRY verdict: re-queue without
+                    # claiming, so waiting never burns a delivery attempt.
+                    return False
                 try:
                     from tools.async_delegation import claim_completion_delivery
 
@@ -28990,6 +29019,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                             )
                     return None if recorded else False
                 if resolution is not None and resolution.verdict == "retry":
+                    _prev = self._completion_retry_backoff.get(durable_delegation_id)
+                    _n = (_prev[1] if _prev else 0) + 1
+                    self._completion_retry_backoff[durable_delegation_id] = (
+                        time.monotonic() + min(
+                            _COMPLETION_RETRY_BACKOFF_BASE_S * 2 ** (_n - 1),
+                            _COMPLETION_RETRY_BACKOFF_MAX_S,
+                        ),
+                        _n,
+                    )
                     if durable_claim_id:
                         try:
                             from tools.async_delegation import release_completion_delivery
