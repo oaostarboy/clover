@@ -1,7 +1,8 @@
 """Tell the owner a paired phone is asking for rights.
 
-Telegram goes to the owner's home channel through the same outbound lane cron
-delivery uses. The desktop popup is raised by the desktop app, which polls the
+Telegram (opt-in via ``mobile.request_alerts.telegram``) goes to the owner's
+home channel through the same outbound lane cron delivery uses. The desktop
+popup is raised by the desktop app, which polls the
 owner endpoint (see ``/api/mobile/devices``). Messages never carry tokens.
 """
 
@@ -63,8 +64,26 @@ def _send_telegram(text: str) -> None:
         raise RuntimeError(str(result["error"])[:200])
 
 
+def telegram_alerts_enabled() -> bool:
+    """Telegram copies of access requests are opt-in: ``mobile.request_alerts.telegram``.
+
+    The PC popup is where the owner approves (the code shows there), so a chat
+    ping by default is noise.
+    """
+    try:
+        from clover_cli.config import load_config_readonly
+
+        mobile = (load_config_readonly() or {}).get("mobile") or {}
+        alerts = mobile.get("request_alerts") or {}
+        return alerts.get("telegram") is True
+    except Exception:
+        return False
+
+
 def announce_request(device: Dict[str, Any], request: Dict[str, Any]) -> None:
-    """Fire-and-forget Telegram ping; failure never blocks the RPC."""
+    """Fire-and-forget Telegram ping when opted in; failure never blocks the RPC."""
+    if not telegram_alerts_enabled():
+        return
     text = request_text(device.get("name", "iPhone"), list(request.get("capabilities") or []),
                         str(request.get("match_code", "")))
 

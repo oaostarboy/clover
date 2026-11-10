@@ -129,7 +129,7 @@ def _(rid, params: dict) -> dict:
 @method("device.request_access")
 def _(rid, params: dict) -> dict:
     """Ask the owner for rights. Params ``{capabilities: [...]}``. Result ``{request_id, match_code}``;
-    the PC shows a popup and Telegram pings the owner. Rate limited to one per 10 s."""
+    the PC shows a popup (Telegram too if mobile.request_alerts.telegram). Rate limited to one per 10 s."""
     from clover_cli.mobile_pairing import get_device_store, normalize_capabilities
     from clover_cli.mobile_device_notify import announce_request
 

@@ -20,6 +20,7 @@ HOW TO EDIT (by hand, at release time)
 - You choose per phone: see your crew, chat as your crew, view the screen, or control it for one hour.
 - Approvals show a 4-digit code that matches the one on the phone, and you can revoke any time.
 - A phone you approve for control can now tap, type and press keys on your computer through the relay, for one hour. Phones without that approval stay view-only.
+- Phone access requests show as a popup on this computer only. Turn on Telegram copies with `mobile.request_alerts.telegram: true`.
 
 ## 2.0.3 | Clover C2.0.3 | 2026-11-08
 - The desktop app now sets up phone access for you automatically, with no gateway setup needed.
