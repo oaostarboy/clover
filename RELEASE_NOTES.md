@@ -15,6 +15,11 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.5 | Clover C2.0.5 | 2026-11-10
+- Finished background tasks always report back instead of being dropped with a "not delivered" notice.
+- Phone Control refreshes faster and skips frames when your screen has not changed.
+- Chatting in a long-running conversation no longer closes that conversation behind the scenes.
+
 ## 2.0.4 | Clover C2.0.4 | 2026-11-09
 - Each paired iPhone needs your approval on this computer before it can do more than chat, and you can revoke it any time.
 - You choose per phone: see your crew, chat as your crew, view the screen, or control it for one hour.
