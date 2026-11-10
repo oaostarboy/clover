@@ -299,7 +299,14 @@ export function PhonePairingSection() {
             Try again
           </Button>
         </div>
-      ) : !status ? null : !status.configured ? (
+      ) : !status ? null : status.reason === 'relay_auth_rejected' ? (
+        <div className="flex items-center gap-3 py-2 text-[length:var(--conversation-caption-font-size)] text-destructive" role="alert">
+          The phone relay rejected this computer, so the link is stopped. Check your Clover account or reinstall, then try again.
+          <Button onClick={load} size="sm" variant="secondary">
+            Try again
+          </Button>
+        </div>
+      ) : !status.configured ? (
         <GatewayAddressForm onSaved={load} />
       ) : (
         <>
