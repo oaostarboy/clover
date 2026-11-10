@@ -365,6 +365,12 @@ export class Installation {
             const contentType = m.headers?.['content-type'];
             if (typeof contentType === 'string' && /^(application\/(json|octet-stream|pdf)|text\/plain|audio\/[a-z0-9.+-]+|image\/(png|jpeg|webp))(?:\s*;[^\r\n]*)?$/i.test(contentType)) headers.set('content-type', contentType);
             headers.set('cache-control', 'no-store');
+            if (resolve.snapshot) {
+              const etag = m.headers?.etag;
+              if (typeof etag === 'string' && /^(?:W\/)?"[\x21\x23-\x7e]{1,128}"$/.test(etag)) headers.set('etag', etag);
+              const cc = m.headers?.['cache-control'];
+              if (typeof cc === 'string' && /^[a-z0-9=, -]{1,64}$/i.test(cc)) headers.set('cache-control', cc);
+            }
             if (resolve.ticketRequest && m.status === 200) {
               if (bytes.length > 4096 || !/^application\/json(?:\s*;|$)/i.test(contentType || '')) throw Error('invalid ticket response');
               const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
@@ -443,7 +449,7 @@ export class Installation {
       const current = await this.state.storage.get('identity');
       if (epoch !== this.epoch || socket !== this.socket || !current?.devices.some(d => d.hash === deviceHash && d.expiresAt > Date.now())) { body = null; release(); return reply({ error: 'unavailable' }, 503); }
       const headers = {};
-      for (const name of ['authorization','content-type','accept']) { const value = request.headers.get(name); if (value) headers[name] = value; }
+      for (const name of ['authorization','content-type','accept','if-none-match']) { const value = request.headers.get(name); if (value && value.length <= 1024) headers[name] = value; }
       const configured = boundedNumber(this.env.REQUEST_TIMEOUT_MS, 15000, 120000);
       const timeout = this.env.ALLOW_TEST_TIMEOUT === 'true' ? Math.max(100, configured) : Math.max(5000, configured);
       return await new Promise(resolve => {
@@ -630,7 +636,7 @@ export default {
         const { id } = await lookup.json();
         if (Number(request.headers.get('content-length') || 0) > 8 * 1024 * 1024) return reply({ error: 'too large' }, 413);
         const headers = { authorization, 'x-relay-device-hash': deviceHash, 'x-relay-method': request.method, 'x-relay-target': url.pathname + url.search, 'x-relay-started': String(started) };
-        for (const name of ['content-type', 'accept']) { const value = request.headers.get(name); if (value && value.length <= 1024) headers[name] = value; }
+        for (const name of ['content-type', 'accept', 'if-none-match']) { const value = request.headers.get(name); if (value && value.length <= 1024) headers[name] = value; }
         return obj(env.INSTALLATIONS, id).fetch('https://internal/forward', { method: 'POST', headers, body: request.body });
       }
       return reply({ error: 'not found' }, 404);

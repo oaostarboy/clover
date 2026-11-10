@@ -418,3 +418,22 @@ for (const mode of ['flow', 'plain']) test(`large gateway replies (9 MB history)
   phone.send('history');
   assert.deepEqual(await outcome, { len: big.length });
 });
+
+test('desk snapshot forwards If-None-Match, returns ETag on 200 and a bodiless 304', async t => {
+  const mf = await start(); t.after(() => mf.dispose());
+  const id = makeIdentity(); await enroll(mf, id); const token = 'cdt_' + randomBytes(32).toString('hex');
+  const seen = [];
+  const http = m => { seen.push(m.headers['if-none-match']);
+    return m.headers['if-none-match'] === '"abc123"' ? { status: 304, headers: { etag: '"abc123"', 'cache-control': 'private, no-cache' }, body: '' }
+      : { status: 200, headers: { 'content-type': 'image/jpeg', etag: '"abc123"', 'cache-control': 'private, no-cache' }, body: jpeg(5000) }; };
+  const c = await connect(mf, id, token, 'pc', { http }); t.after(() => c.ws.close());
+  const headers = { Authorization: `Bearer ${token}` };
+  const a = await mf.dispatchFetch(origin + '/desk/snapshot?display=0&w=1280&q=60', { headers });
+  assert.equal(a.status, 200); assert.equal(a.headers.get('etag'), '"abc123"'); assert.equal(a.headers.get('cache-control'), 'private, no-cache');
+  assert.equal((await a.arrayBuffer()).byteLength, 5000);
+  const b = await mf.dispatchFetch(origin + '/desk/snapshot?display=0&w=1280&q=60', { headers: { ...headers, 'If-None-Match': '"abc123"' } });
+  assert.equal(b.status, 304); assert.equal(b.headers.get('etag'), '"abc123"'); assert.equal((await b.arrayBuffer()).byteLength, 0);
+  assert.deepEqual(seen, [undefined, '"abc123"']);
+  const x = await mf.dispatchFetch(origin + '/desk/snapshot?display=0&w=1280&q=60', { headers: { ...headers, 'If-None-Match': '"stale"' } });
+  assert.equal(x.status, 200);
+});
