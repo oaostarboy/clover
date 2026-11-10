@@ -357,18 +357,27 @@ async def gated_auth_middleware(
     # Mobile credentials are never dashboard sessions. Admit only the
     # released client's history reads and one-use ticket minting here.
     if bearer.startswith("cdt_"):
+        verdict = "unauthorized"
+        principal = None
         try:
-            from clover_cli.mobile_pairing import get_device_store, device_request_allowed
+            from clover_cli.mobile_pairing import get_device_store, device_http_gate
             from clover_cli.profiles import get_active_profile_name
             store = get_device_store()
             principal = store.authenticate(bearer)
-            if principal and (principal.profile != get_active_profile_name()
-                              or not store.principal_is_active(principal)
-                              or not device_request_allowed(request, principal)):
-                principal = None
+            if (principal and principal.profile == get_active_profile_name()
+                    and store.principal_is_active(principal)):
+                verdict = device_http_gate(request, principal)
         except Exception:
-            principal = None
-        if principal is None:
+            verdict = "unauthorized"
+        if isinstance(verdict, dict):
+            # Valid phone, right not granted: 403 so the app shows "ask on your PC", not "sign in again".
+            try:
+                get_device_store().audit(principal.device_id, verdict.get("capability", ""),
+                                         f"{request.method} {request.url.path}", "deny")
+            except Exception:
+                pass
+            return JSONResponse(status_code=403, content=verdict)
+        if verdict is not None:
             return _unauth_response(request, reason="invalid_or_expired_session")
         request.state.device_principal = principal
         return await call_next(request)

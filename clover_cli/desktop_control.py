@@ -300,7 +300,8 @@ class LinuxX11Backend(Backend):
     def capture_cmd(self, d, fps, frames):
         cmd = ["nice", "-n", "10", "ffmpeg", "-loglevel", "error", "-f", "x11grab",
                "-draw_mouse", "1", "-video_size", f"{d['width']}x{d['height']}",
-               "-framerate", str(max(fps, 1)), "-i", f"{self.display_name}+{d['x']},{d['y']}",
+               # A one-frame snapshot must not wait a whole frame interval at 1 fps.
+               "-framerate", str(30 if frames == 1 else max(fps, 1)), "-i", f"{self.display_name}+{d['x']},{d['y']}",
                "-vf", self._vf(d, fps), "-sws_flags", "fast_bilinear", "-threads", "1",
                "-c:v", "mjpeg", "-q:v", "6"]
         if frames:
@@ -798,6 +799,7 @@ def build_router(
     http_auth: Callable[[Any], None],
     ws_auth: Callable[[Any], bool],
     ws_origin_ok: Callable[[Any], bool],
+    device_caps_fn: Optional[Callable[[Any], Optional[frozenset]]] = None,
     settings_fn: Callable[[], Dict[str, Any]] = read_settings,
     controller_fn: Callable[[Dict[str, Any]], DesktopController] = get_controller,
 ):
@@ -918,7 +920,21 @@ def build_router(
             await switch(first)
             task = asyncio.create_task(pump())
             while True:
-                msg = await ws.receive()
+                if device_caps_fn is not None and getattr(ws, "_clover_device_principal", None) is not None:
+                    # Phone clients: re-read grants at least every 5 s so a revoke ends the stream.
+                    try:
+                        msg = await asyncio.wait_for(ws.receive(), timeout=5)
+                    except asyncio.TimeoutError:
+                        caps = await loop.run_in_executor(None, device_caps_fn, ws)
+                        if not caps or "control_view" not in caps:
+                            await ws.send_json({"type": "error", "error": "access revoked"})
+                            await ws.close(code=4401)
+                            break
+                        if "control_drive" not in caps:
+                            c.release(client, "revoked")
+                        continue
+                else:
+                    msg = await ws.receive()
                 if msg["type"] == "websocket.disconnect":
                     break
                 text = msg.get("text")
@@ -938,6 +954,12 @@ def build_router(
                         await switch(int(m.get("display", 0)))
                     except (TypeError, ValueError):
                         await ws.send_json({"type": "error", "error": "unknown display"})
+                elif t in ("take_control", *INPUT_TYPES) and device_caps_fn is not None \
+                        and getattr(ws, "_clover_device_principal", None) is not None \
+                        and "control_drive" not in ((await loop.run_in_executor(None, device_caps_fn, ws)) or ()):
+                    c.release(client, "not granted")
+                    await ws.send_json({"type": "error", "error": "control_drive not granted",
+                                        "capability": "control_drive", "reason": "not_granted"})
                 elif t == "take_control":
                     ok, err = c.take(client, who)
                     await ws.send_json({"type": "control", "owner": "user"} if ok else {"type": "error", "error": err})

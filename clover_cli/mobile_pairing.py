@@ -55,16 +55,47 @@ TOKEN_PREFIX = "cdt_"
 MAX_NAME_LEN = 60
 
 
+def _iso(ts: float) -> str:
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(ts, timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 DEVICE_CAPABILITIES = frozenset({"chat", "history", "media", "model_selection"})
 AUDIO_CAPABILITIES = frozenset({"audio_transcribe", "audio_speak"})
-KNOWN_DEVICE_CAPABILITIES = DEVICE_CAPABILITIES | AUDIO_CAPABILITIES
+# Rights that need an explicit owner grant on the PC. Never part of a legacy record.
+CREW_CAPABILITIES = frozenset({"crew_read", "crew_act"})
+CONTROL_CAPABILITIES = frozenset({"control_view", "control_drive"})
+GRANTED_CAPABILITIES = CREW_CAPABILITIES | CONTROL_CAPABILITIES
+BASE_CAPABILITIES = DEVICE_CAPABILITIES | AUDIO_CAPABILITIES
+KNOWN_DEVICE_CAPABILITIES = BASE_CAPABILITIES | GRANTED_CAPABILITIES
+# A grant implies another: control_drive -> control_view, crew_act -> crew_read.
+IMPLIED_CAPABILITIES = {"control_drive": "control_view", "crew_act": "crew_read"}
+# Capabilities that lapse on their own (seconds from grant). control_view lasts until revoked.
+GRANT_TTL_SECONDS = {"control_drive": 60 * 60}
+REQUEST_TTL_SECONDS = 10 * 60
+REQUEST_MIN_INTERVAL_SECONDS = 10
+AUDIT_FILE = "mobile-device-audit.log"
 
 
-def _record_capabilities(record: Dict[str, Any]) -> Optional[frozenset[str]]:
+def normalize_capabilities(caps: Any) -> List[str]:
+    """Validate a requested capability list and add implied rights. Raises ValueError."""
+    if not isinstance(caps, (list, tuple, set, frozenset)) or any(not isinstance(c, str) for c in caps):
+        raise ValueError("capabilities must be a list of strings")
+    wanted = set(caps)
+    unknown = wanted - KNOWN_DEVICE_CAPABILITIES
+    if unknown:
+        raise ValueError("unknown capability")
+    for cap, needed in IMPLIED_CAPABILITIES.items():
+        if cap in wanted:
+            wanted.add(needed)
+    return sorted(wanted)
+
+
+def _stored_capabilities(record: Dict[str, Any]) -> Optional[frozenset[str]]:
     # Profile-bound records predating explicit scopes retain only their old grants.
     if "capabilities" not in record:
         return DEVICE_CAPABILITIES
@@ -75,27 +106,108 @@ def _record_capabilities(record: Dict[str, Any]) -> Optional[frozenset[str]]:
     return frozenset(caps)
 
 
-def device_request_allowed(request, principal: "DevicePrincipal") -> bool:
-    """The same narrow HTTP policy applies at both dashboard auth gates."""
+def _grant_expiries(record: Dict[str, Any]) -> Dict[str, float]:
+    raw = record.get("grant_expires_at")
+    if not isinstance(raw, dict):
+        return {}
+    return {k: float(v) for k, v in raw.items() if isinstance(k, str) and isinstance(v, (int, float))}
+
+
+def _record_status(record: Dict[str, Any]) -> str:
+    # Records without ``status`` predate approvals: approved with exactly their stored caps.
+    return "pending" if record.get("status") == "pending" else "approved"
+
+
+def _record_lapsed(record: Dict[str, Any], now: float) -> frozenset[str]:
+    stored = _stored_capabilities(record) or frozenset()
+    return frozenset(c for c, t in _grant_expiries(record).items() if c in stored and t <= now)
+
+
+def _record_capabilities(record: Dict[str, Any], now: Optional[float] = None) -> Optional[frozenset[str]]:
+    """Effective rights: stored caps minus lapsed grants; nothing at all while pending."""
+    caps = _stored_capabilities(record)
+    if caps is None:
+        return None
+    if _record_status(record) == "pending":
+        return frozenset()
+    return caps - _record_lapsed(record, time.time() if now is None else now)
+
+
+def denial_reason(principal: "DevicePrincipal", capability: str) -> Dict[str, str]:
+    """Stable refusal body for a valid device that lacks ``capability``."""
+    if principal.status == "pending":
+        reason = "pending"
+    elif capability in principal.lapsed:
+        reason = "expired"
+    else:
+        reason = "not_granted"
+    return {"capability": capability, "reason": reason}
+
+
+_AUDIO_PATHS = ("/api/audio/transcribe", "/api/audio/speak")
+DESK_GET_PATHS = ("/desk/displays", "/desk/snapshot")
+
+
+def device_http_gate(request, principal: "DevicePrincipal") -> Any:
+    """Decide one HTTP request from a device credential.
+
+    Returns ``None`` when allowed, ``"unauthorized"`` when the route is simply not
+    part of the device surface (401, as before), or a JSON-able dict (HTTP 403) when
+    the route is a device route the device has not been granted.
+    """
     import re
 
     method, path = request.method, request.url.path
-    if method == "POST" and path in ("/api/audio/transcribe", "/api/audio/speak"):
-        # Do not let path decoding turn an alternate URL into an audio grant.
+    if method == "POST" and path in _AUDIO_PATHS:
         if request.scope.get("raw_path", b"").split(b"?", 1)[0] != path.encode("ascii"):
-            return False
+            return "unauthorized"
         query = request.query_params.multi_items()
         if len(query) > 1 or (query and query[0] != ("profile", principal.profile)):
-            return False
-        capability = "audio_transcribe" if path.endswith("transcribe") else "audio_speak"
-        return capability in principal.capabilities
+            return "unauthorized"
+        cap = "audio_transcribe" if path.endswith("transcribe") else "audio_speak"
+        return None if cap in principal.capabilities else {"error": "forbidden", **denial_reason(principal, cap)}
     if method == "POST" and path == "/api/auth/ws-ticket":
-        return True
-    if method != "GET" or "history" not in principal.capabilities:
-        return False
+        return None
+    if method != "GET":
+        return "unauthorized"
+    if path in DESK_GET_PATHS:
+        if request.scope.get("raw_path", b"").split(b"?", 1)[0] != path.encode("ascii"):
+            return "unauthorized"
+        # q and w are admitted by the relay for forward compatibility; the gateway ignores them (stills use desktop_control.width).
+        allowed_query = {"display", "q", "w"} if path.endswith("snapshot") else set()
+        if set(request.query_params) - allowed_query:
+            return "unauthorized"
+        display = request.query_params.get("display")
+        if display is not None and not re.fullmatch(r"[0-9]{1,3}", display):
+            return "unauthorized"
+        if any(not re.fullmatch(r"[0-9]{1,4}", request.query_params.get(k, "0")) for k in ("q", "w")):
+            return "unauthorized"
+        if "control_view" not in principal.capabilities:
+            return {"error": "forbidden", **denial_reason(principal, "control_view")}
+        try:
+            from clover_cli.desktop_control import read_settings
+            enabled = read_settings()["enabled"]
+        except Exception:
+            enabled = False
+        if not enabled:
+            return {"error": "forbidden", "capability": "control_view", "reason": "disabled"}
+        return None
     if path == "/api/sessions":
-        return not (set(request.query_params) - {"limit", "offset", "min_messages", "archived", "order"})
-    return bool(re.fullmatch(r"/api/sessions/[^/]+/messages", path) and not request.query_params)
+        ok_query = not (set(request.query_params) - {"limit", "offset", "min_messages", "archived", "order"})
+    elif re.fullmatch(r"/api/sessions/[^/]+/messages", path):
+        ok_query = not request.query_params
+    else:
+        return "unauthorized"
+    if not ok_query:
+        return "unauthorized"
+    if "history" not in principal.capabilities:
+        return {"error": "forbidden", **denial_reason(principal, "history")}
+    return None
+
+
+def device_request_allowed(request, principal: "DevicePrincipal") -> bool:
+    """True when the request is within the device's current grants."""
+    return device_http_gate(request, principal) is None
 
 
 @dataclass(frozen=True)
@@ -104,6 +216,8 @@ class DevicePrincipal:
     profile: str
     expires_at: float
     capabilities: frozenset[str]
+    status: str = "approved"
+    lapsed: frozenset[str] = frozenset()
 
 
 class DeviceStore:
@@ -170,8 +284,12 @@ class DeviceStore:
     def _active(self, d: Dict[str, Any], now: float) -> bool:
         return not d.get("revoked") and not self._expired(d, now)
 
-    def create(self, name: str = "iPhone") -> Dict[str, Any]:
-        """Create a device; returns the public record plus the one-time plaintext ``token``."""
+    def create(self, name: str = "iPhone", *, pending: bool = False) -> Dict[str, Any]:
+        """Create a device; returns the public record plus the one-time plaintext ``token``.
+
+        ``pending=True`` (relay pairing) starts with no rights until the owner approves
+        on the PC. Other pairing paths keep minting the full base set as before.
+        """
         from clover_cli.profiles import get_active_profile_name
 
         token = TOKEN_PREFIX + secrets.token_urlsafe(32)
@@ -185,8 +303,10 @@ class DeviceStore:
             "last_seen_at": None,
             "token_hash": _hash(token),
             "revoked": False,
-            "capabilities": sorted(KNOWN_DEVICE_CAPABILITIES),
+            "capabilities": [] if pending else sorted(BASE_CAPABILITIES),
         }
+        if pending:
+            rec["status"] = "pending"
         with self._transaction():
             devices = list(self._load())
             # Drop dead entries (revoked / never-used expired) so the file stays small.
@@ -196,13 +316,30 @@ class DeviceStore:
         return {**self.public(rec, now), "token": token}
 
     def public(self, d: Dict[str, Any], now: Optional[float] = None) -> Dict[str, Any]:
-        return {
+        now = self._clock() if now is None else now
+        out = {
             "id": d["id"],
             "name": d.get("name", "iPhone"),
             "created_at": d.get("created_at"),
             "last_seen_at": d.get("last_seen_at"),
             "connected": d.get("last_seen_at") is not None,
+            "status": _record_status(d),
         }
+        stored = _stored_capabilities(d) or frozenset()
+        out["capabilities"] = sorted(stored)
+        out["effective_capabilities"] = sorted(_record_capabilities(d, now) or frozenset())
+        out["expires"] = {c: _iso(t) for c, t in sorted(_grant_expiries(d).items()) if c in stored}
+        req = self._live_request(d, now)
+        if req:
+            out["pending_request"] = {k: req[k] for k in ("request_id", "match_code", "capabilities", "created_at")}
+        return out
+
+    @staticmethod
+    def _live_request(d: Dict[str, Any], now: float) -> Optional[Dict[str, Any]]:
+        req = d.get("pending_request")
+        if not isinstance(req, dict) or float(req.get("created_at", 0)) + REQUEST_TTL_SECONDS <= now:
+            return None
+        return req
 
     def list(self) -> List[Dict[str, Any]]:
         now = self._clock()
@@ -253,31 +390,187 @@ class DeviceStore:
             # Legacy unscoped tokens cannot safely acquire inferred authority.
             if match is None or not isinstance(match.get("profile"), str):
                 return None
-            caps = _record_capabilities(match)
+            caps = _record_capabilities(match, now)
             if caps is None:
                 return None
             last = match.get("last_seen_at")
             if last is None or now - float(last) >= LAST_SEEN_THROTTLE_SECONDS:
                 match["last_seen_at"] = now
                 self._save(list(devices))
-            return DevicePrincipal(match["id"], match["profile"],
-                                   float(match["created_at"]) + ACTIVE_TOKEN_TTL_SECONDS,
-                                   caps)
+            return self._principal(match, caps, now)
+
+    @staticmethod
+    def _principal(d: Dict[str, Any], caps: frozenset, now: float) -> DevicePrincipal:
+        return DevicePrincipal(d["id"], d["profile"], float(d["created_at"]) + ACTIVE_TOKEN_TTL_SECONDS,
+                               caps, _record_status(d), _record_lapsed(d, now))
 
     def principal_is_active(self, principal: DevicePrincipal) -> bool:
-        """Revalidate against persisted state on every authorized operation."""
+        """Is this device still paired (not revoked/expired)? Grants are NOT compared:
+        a changed grant must refuse calls (4030), never drop the connection."""
+        return self.current_principal(principal) is not None
+
+    def current_principal(self, principal: DevicePrincipal) -> Optional[DevicePrincipal]:
+        """Re-read persisted state; the returned principal carries the rights in force now."""
         if not isinstance(principal, DevicePrincipal):
-            return False
+            return None
         now = self._clock()
         with self._transaction():
-            return any(
-                d.get("id") == principal.device_id
-                and d.get("profile") == principal.profile
-                and float(d.get("created_at", 0)) + ACTIVE_TOKEN_TTL_SECONDS == principal.expires_at
-                and _record_capabilities(d) == principal.capabilities
-                and self._active(d, now)
-                for d in self._load()
-            )
+            for d in self._load():
+                if (d.get("id") == principal.device_id
+                        and d.get("profile") == principal.profile
+                        and float(d.get("created_at", 0)) + ACTIVE_TOKEN_TTL_SECONDS == principal.expires_at
+                        and self._active(d, now)):
+                    caps = _record_capabilities(d, now)
+                    return None if caps is None else self._principal(d, caps, now)
+        return None
+
+    # -- owner decisions ---------------------------------------------------------
+    def _mutate(self, device_id: str, fn) -> Optional[Dict[str, Any]]:
+        now = self._clock()
+        with self._transaction():
+            devices = list(self._load())
+            for d in devices:
+                if d.get("id") == device_id and self._active(d, now):
+                    result = fn(d, now)
+                    self._save(devices)
+                    return result
+        return None
+
+    def get(self, device_id: str) -> Optional[Dict[str, Any]]:
+        now = self._clock()
+        with self._transaction():
+            for d in self._load():
+                if d.get("id") == device_id and self._active(d, now):
+                    return self.public(d, now)
+        return None
+
+    def _apply_caps(self, d: Dict[str, Any], caps: List[str], now: float) -> None:
+        d["capabilities"] = caps
+        old = _grant_expiries(d)
+        expiries = {}
+        for cap in caps:
+            ttl = GRANT_TTL_SECONDS.get(cap)
+            if ttl is None:
+                continue
+            # A still-running grant keeps its clock; a new or lapsed one starts now.
+            expiries[cap] = old[cap] if cap in old and old[cap] > now else now + ttl
+        d["grant_expires_at"] = expiries
+
+    def approve(self, device_id: str, capabilities: Any, *, request_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Owner approval: set the exact rights, clear the request. ``None`` if unknown."""
+        caps = normalize_capabilities(capabilities)
+
+        def apply(d, now):
+            req = d.get("pending_request")
+            if request_id is not None and not (isinstance(req, dict) and req.get("request_id") == request_id):
+                raise ValueError("request not found")
+            self._apply_caps(d, caps, now)
+            d["status"] = "approved"
+            d["approved_at"] = now
+            d["approved_by"] = "desktop"
+            d.pop("pending_request", None)
+            return self.public(d, now)
+
+        out = self._mutate(device_id, apply)
+        if out is not None:
+            self.audit(device_id, "*", "owner.approve", "allow", detail=",".join(caps))
+        return out
+
+    def set_capabilities(self, device_id: str, capabilities: Any) -> Optional[Dict[str, Any]]:
+        caps = normalize_capabilities(capabilities)
+
+        def apply(d, now):
+            if _record_status(d) == "pending":
+                raise ValueError("device is pending; approve it first")
+            self._apply_caps(d, caps, now)
+            return self.public(d, now)
+
+        out = self._mutate(device_id, apply)
+        if out is not None:
+            self.audit(device_id, "*", "owner.set_capabilities", "allow", detail=",".join(caps))
+        return out
+
+    def deny(self, device_id: str, request_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Deny a request. A still-pending (never approved) device is removed; an approved
+        device just loses the request and keeps its current rights."""
+        def apply(d, now):
+            req = d.get("pending_request")
+            if request_id is not None and not (isinstance(req, dict) and req.get("request_id") == request_id):
+                raise ValueError("request not found")
+            d.pop("pending_request", None)
+            return _record_status(d)
+
+        status = self._mutate(device_id, apply)
+        if status is None:
+            return None
+        self.audit(device_id, "*", "owner.deny", "deny")
+        if status == "pending":
+            self.revoke(device_id)
+            return {"id": device_id, "removed": True}
+        return self.get(device_id)
+
+    def request_access(self, device_id: str, capabilities: Any) -> Optional[Dict[str, Any]]:
+        """Create (or return the live) access request. Returns
+        ``{request_id, match_code, capabilities, created}``; ``None`` for an unknown device."""
+        caps = normalize_capabilities(capabilities) if capabilities else sorted(BASE_CAPABILITIES)
+
+        def apply(d, now):
+            req = self._live_request(d, now)
+            if req and sorted(req["capabilities"]) == caps:
+                return {**{k: req[k] for k in ("request_id", "match_code", "capabilities")}, "created": False}
+            if now - float(d.get("last_request_at", 0)) < REQUEST_MIN_INTERVAL_SECONDS:
+                raise ValueError("rate_limited")
+            req = {"request_id": uuid.uuid4().hex[:16], "match_code": f"{secrets.randbelow(10000):04d}",
+                   "capabilities": caps, "created_at": now}
+            d["pending_request"] = req
+            d["last_request_at"] = now
+            return {**{k: req[k] for k in ("request_id", "match_code", "capabilities")}, "created": True}
+
+        return self._mutate(device_id, apply)
+
+    # -- audit ---------------------------------------------------------------------
+    def _audit_path(self) -> Path:
+        return self.path.parent / "logs" / AUDIT_FILE
+
+    def audit(self, device_id: str, capability: str, method: str, decision: str, *, detail: str = "") -> None:
+        """Append one event. Never tokens, never prompt text."""
+        line = {"t": _iso(self._clock()), "device": device_id, "cap": capability,
+                "method": method[:64], "decision": decision}
+        if detail:
+            line["detail"] = detail[:200]
+        try:
+            path = self._audit_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists() and path.stat().st_size > 2 * 1024 * 1024:
+                path.replace(path.with_suffix(".log.1"))
+            fd = os.open(str(path), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            try:
+                os.write(fd, (json.dumps(line, separators=(",", ":")) + "\n").encode("utf-8"))
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
+
+    def audit_tail(self, device_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        try:
+            lines = self._audit_path().read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        out: List[Dict[str, Any]] = []
+        for raw in reversed(lines):
+            try:
+                ev = json.loads(raw)
+            except ValueError:
+                continue
+            if isinstance(ev, dict) and ev.get("device") == device_id:
+                out.append(ev)
+                if len(out) >= limit:
+                    break
+        return out[::-1]
+
+    def owner_list(self) -> List[Dict[str, Any]]:
+        """Device rows for the desktop owner UI (adds the audit tail)."""
+        return [{**row, "audit": self.audit_tail(row["id"], 20)} for row in self.list()]
 
 
 _default_store: Optional[DeviceStore] = None

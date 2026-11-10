@@ -401,7 +401,13 @@ def _(rid, params: dict) -> dict:
     # local profile's state.db. None/own profile → the launch profile (unchanged).
     profile = (params.get("profile") or "").strip() or None
     if principal is not None:
-        profile = principal.profile
+        from tui_gateway.device_auth import effective_profile
+        try:
+            profile = effective_profile(principal, profile)
+            expected_home = device_profile_home(type(principal)(
+                principal.device_id, profile, principal.expires_at, principal.capabilities))
+        except DeviceAccessDenied as exc:
+            return _err(rid, 4030, str(exc))
     profile_home = _profile_home(profile)
     if principal is not None and (profile_home is None or Path(profile_home).resolve() != expected_home):
         if Path(_clover_home).resolve() != expected_home:

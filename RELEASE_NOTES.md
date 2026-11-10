@@ -15,6 +15,11 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.4 | Clover C2.0.4 | 2026-11-09
+- Each paired iPhone now needs your approval on this computer before it can do more than chat.
+- You choose per phone: see your crew, chat as your crew, view the screen, or control it for one hour.
+- Approvals show a 4-digit code that matches the one on the phone, and you can revoke any time.
+
 ## 2.0.3 | Clover C2.0.3 | 2026-11-08
 - The desktop app now sets up phone access for you automatically, with no gateway setup needed.
 - Scan the QR code in desktop settings and your phone connects through Clover's secure relay.

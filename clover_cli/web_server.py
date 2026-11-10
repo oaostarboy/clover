@@ -694,6 +694,32 @@ def _has_valid_query_token(request: Request, path: str) -> bool:
     return bool(token) and hmac.compare_digest(token.encode(), _SESSION_TOKEN.encode())
 
 
+def _audit_http_denial(principal, verdict, request) -> None:
+    cap = verdict.get("capability", "")
+    if cap in ("control_view", "control_drive", "crew_read", "crew_act"):
+        try:
+            from clover_cli.mobile_pairing import get_device_store
+            get_device_store().audit(principal.device_id, cap, f"{request.method} {request.url.path}", "deny")
+        except Exception:
+            pass
+
+
+def _desk_http_auth(request: Request) -> None:
+    """``/desk/*`` HTTP auth: the owner as before, or a paired phone the auth middleware
+    already admitted for exactly this route (control_view, desk enabled)."""
+    if getattr(request.state, "device_principal", None) is not None:
+        return
+    _require_token(request)
+
+
+def _desk_device_caps(ws) -> "Optional[frozenset]":
+    """Current rights of the phone behind a ``/desk/stream`` socket (None = revoked)."""
+    from clover_cli.mobile_pairing import get_device_store
+    principal = getattr(ws, "_clover_device_principal", None)
+    current = get_device_store().current_principal(principal) if principal is not None else None
+    return current.capabilities if current is not None else None
+
+
 def _require_token(request: Request) -> None:
     """Authorize a sensitive endpoint, raising 401 if the caller isn't allowed.
 
@@ -1011,14 +1037,20 @@ async def auth_middleware(request: Request, call_next):
         try:
             from clover_cli.mobile_pairing import get_device_store, device_request_allowed
             from clover_cli.profiles import get_active_profile_name
+            from clover_cli.mobile_pairing import device_http_gate
             store = get_device_store()
             principal = store.authenticate(_extract_bearer(request))
-            allowed = (principal and principal.profile == get_active_profile_name()
-                       and store.principal_is_active(principal)
-                       and device_request_allowed(request, principal))
+            verdict = "unauthorized"
+            if (principal and principal.profile == get_active_profile_name()
+                    and store.principal_is_active(principal)):
+                verdict = device_http_gate(request, principal)
         except Exception:
-            allowed = False
-        if not allowed:
+            verdict = "unauthorized"
+        if isinstance(verdict, dict):
+            # Valid phone, right not granted: 403 (the app must not treat it as a dead token).
+            _audit_http_denial(principal, verdict, request)
+            return JSONResponse(status_code=403, content=verdict)
+        if verdict is not None:
             return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
         request.state.device_principal = principal
         return await call_next(request)
@@ -7483,15 +7515,87 @@ async def mobile_relay_pairing(request: Request):
 async def list_mobile_devices():
     from clover_cli.mobile_pairing import get_device_store
 
-    return {"devices": await asyncio.to_thread(get_device_store().list)}
+    return {"devices": await asyncio.to_thread(get_device_store().owner_list)}
+
+
+def _require_desktop_owner(request: Request) -> None:
+    # Approving rights is the desktop owner's decision, never a phone's or a remote session's.
+    if getattr(app.state, "auth_required", False) or not _has_valid_session_token(request):
+        raise HTTPException(status_code=401, detail="Desktop owner required")
+
+
+class _DeviceDecision(BaseModel):
+    capabilities: Optional[List[str]] = None
+    request_id: Optional[str] = None
+
+
+def _device_decision(fn, *args):
+    try:
+        out = fn(*args)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if out is None:
+        raise HTTPException(status_code=404, detail="Unknown device")
+    return out
+
+
+@app.post("/api/mobile/devices/{device_id}/approve")
+async def approve_mobile_device(device_id: str, body: _DeviceDecision, request: Request):
+    _require_desktop_owner(request)
+    from clover_cli.mobile_pairing import get_device_store
+
+    store = get_device_store()
+    row = await asyncio.to_thread(
+        _device_decision,
+        lambda: store.approve(device_id, body.capabilities if body.capabilities is not None else [],
+                              request_id=body.request_id))
+    await asyncio.to_thread(_release_desk_for_device, device_id)
+    return {"device": row}
+
+
+@app.post("/api/mobile/devices/{device_id}/deny")
+async def deny_mobile_device(device_id: str, body: _DeviceDecision, request: Request):
+    _require_desktop_owner(request)
+    from clover_cli.mobile_pairing import get_device_store
+
+    return {"device": await asyncio.to_thread(_device_decision, get_device_store().deny, device_id, body.request_id)}
+
+
+@app.post("/api/mobile/devices/{device_id}/capabilities")
+async def set_mobile_device_capabilities(device_id: str, body: _DeviceDecision, request: Request):
+    _require_desktop_owner(request)
+    from clover_cli.mobile_pairing import get_device_store
+
+    row = await asyncio.to_thread(
+        _device_decision, get_device_store().set_capabilities, device_id, body.capabilities or [])
+    await asyncio.to_thread(_release_desk_for_device, device_id)
+    return {"device": row}
+
+
+def _release_desk_for_device(device_id: str) -> None:
+    """Dropping control_* ends any desk control now; open streams re-check within 5 s."""
+    try:
+        from clover_cli import desktop_control
+        from clover_cli.mobile_pairing import get_device_store
+
+        row = get_device_store().get(device_id)
+        caps = set(row["effective_capabilities"]) if row else set()
+        controller = desktop_control._controller
+        if controller is not None and "control_drive" not in caps and controller.owner is not None:
+            controller.release(controller.owner, "revoked")
+    except Exception:
+        _log.debug("desk release after grant change failed", exc_info=True)
 
 
 @app.delete("/api/mobile/devices/{device_id}")
 async def delete_mobile_device(device_id: str):
     from clover_cli.mobile_pairing import get_device_store
 
-    if not await asyncio.to_thread(get_device_store().revoke, device_id):
+    store = get_device_store()
+    if not await asyncio.to_thread(store.revoke, device_id):
         raise HTTPException(status_code=404, detail="Unknown device")
+    await asyncio.to_thread(store.audit, device_id, "*", "owner.revoke", "allow")
+    await asyncio.to_thread(_release_desk_for_device, device_id)
     return {"ok": True}
 
 
@@ -18687,9 +18791,20 @@ def _desk_ws_auth(ws: "WebSocket") -> bool:
         from clover_cli.dashboard_auth.ws_tickets import TicketInvalid, consume_ticket
 
         try:
-            consume_ticket(ticket)
+            info = consume_ticket(ticket)
         except TicketInvalid:
             return False
+        principal = info.get("device_principal")
+        if principal is not None or info.get("provider") == "mobile-device":
+            # A phone may view the desk only with control_view (input needs control_drive per message).
+            from clover_cli.mobile_pairing import DevicePrincipal, get_device_store
+            try:
+                current = get_device_store().current_principal(principal) if isinstance(principal, DevicePrincipal) else None
+            except Exception:
+                current = None
+            if current is None or "control_view" not in current.capabilities:
+                return False
+            ws._clover_device_principal = current
         ws._clover_ws_subprotocol = _GATEWAY_WS_PROTOCOL
         return True
     return False
@@ -18701,9 +18816,10 @@ def _mount_desktop_control(application: FastAPI) -> None:
 
     application.include_router(
         build_router(
-            http_auth=_require_token,
+            http_auth=_desk_http_auth,
             ws_auth=_desk_ws_auth,
             ws_origin_ok=_ws_request_is_allowed,
+            device_caps_fn=_desk_device_caps,
         )
     )
 

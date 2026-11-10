@@ -61,9 +61,10 @@ export async function openConnector({ relayOrigin, identity, backendOrigin, allo
   const wire = new WebSocket(relay, protocol, { headers: { Authorization: `Bearer ${identity.secret}` }, maxPayload: 23000, handshakeTimeout: 10000, followRedirects: false });
   await new Promise((resolve, reject) => { wire.once('open', resolve); wire.once('error', reject); });
   if (wire.protocol !== protocol) { wire.close(); throw Error('invalid connector protocol'); }
-  const ws = new FlowSocket(wire, { maxMessageBytes: 12582912 });
+  const ws = new FlowSocket(wire, { maxMessageBytes: 12582912, closeOnCapacity: false });
   const controls = new Map(); const channels = new Map(); const httpJobs = new Set(); let active = 0, closing = false;
-  const send = value => { try { ws.send(JSON.stringify(value)); if (ws.bufferedAmount) for (const local of channels.values()) if (local.readyState === WebSocket.OPEN) local.pause(); } catch (error) { ws.close(1011, 'connector capacity'); throw error; } };
+  // Capacity errors never close the shared link; callers end only their own channel.
+  const send = value => { ws.send(JSON.stringify(value)); if (ws.bufferedAmount) for (const local of channels.values()) if (local.readyState === WebSocket.OPEN) local.pause(); };
   const endChannel = id => { const local = channels.get(id); if (!local) return; channels.delete(id); local.terminate(); };
   const closed = () => { closing = true; for (const job of httpJobs) job.abort(); for (const reject of controls.values()) reject(Error('connector closed')); controls.clear(); for (const id of [...channels.keys()]) endChannel(id); };
   ws.addEventListener('close', closed);
@@ -90,9 +91,9 @@ export async function openConnector({ relayOrigin, identity, backendOrigin, allo
       const data = m.binary ? Buffer.from(m.data, 'base64') : m.data; if (Buffer.byteLength(data) > 1048576 || local.bufferedAmount > 2 * 1024 * 1024) { endChannel(m.id); return; }
       local.send(data, { binary: m.binary }, error => { if (error) endChannel(m.id); }); return;
     }
-    if (m.type !== 'http.request' || active >= 2 || !allowMobileRequest(m.method, m.target) || typeof m.body !== 'string' || m.body.length > 11184812 || !validBase64(m.body)) return;
+    if (m.type !== 'http.request' || active >= 8 || !allowMobileRequest(m.method, m.target) || typeof m.body !== 'string' || m.body.length > 11184812 || !validBase64(m.body)) return;
     active++; const job = new AbortController(); httpJobs.add(job);
-    // Transfer ownership into one of two bounded HTTP jobs, acknowledging the
+    // Transfer ownership into one of two bounded HTTP jobs (up to 8, matching the relay's default in-flight limit), acknowledging the
     // request before its response can begin. These jobs never replay requests.
     // The event-loop turn lets FlowSocket emit the admission ACK first; both
     // ACK and subsequent response use the same ordered connector socket.
