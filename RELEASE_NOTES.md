@@ -15,6 +15,10 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.6 | Clover C2.0.6 | 2026-11-10
+- Creations on your phone opens instantly instead of timing out.
+- Phone Control skips frames when your screen hasn't changed.
+
 ## 2.0.5 | Clover C2.0.5 | 2026-11-10
 - Finished background tasks always report back instead of being dropped with a "not delivered" notice.
 - Phone Control refreshes faster and skips frames when your screen has not changed.
