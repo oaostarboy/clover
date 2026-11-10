@@ -88,7 +88,8 @@ async function readSmallBody(request, limit, timeout) {
 const stableProtocol = 'clover-gateway-v1';
 const phoneFlowProtocol = 'clover-relay-flow-v1';
 const ticketPrefix = 'clover-gateway-ticket.';
-const wsLimit = 1024 * 1024;
+const wsLimit = 1024 * 1024; // phone -> gateway frames
+const wsDownLimit = 8 * 1024 * 1024; // gateway -> phone frames (session history / resume replies can be several MB)
 const FORWARD_QUEUE_BYTES = 8 * 1024 * 1024;
 const PUSH_DEDUPE_MS = 10 * 60 * 1000;
 const validTicket = ticket => typeof ticket === 'string' && /^[A-Za-z0-9_-]{16,256}$/.test(ticket);
@@ -133,7 +134,7 @@ export class Installation {
             const identity = await this.state.storage.get('identity');
             if (epoch !== this.epoch || this.channels.get(m.id) !== channel || !identity?.devices.some(d => d.hash === channel.deviceHash && d.expiresAt > Date.now())) { this.endChannel(m.id, 1008, 'device revoked'); return; }
             const [client, rawPhone] = Object.values(new WebSocketPair()); rawPhone.accept(); rawPhone.binaryType = 'arraybuffer';
-            const phone = channel.flow ? new FlowSocket(rawPhone, { reserve: reserveTransport }) : rawPhone; channel.phone = phone;
+            const phone = channel.flow ? new FlowSocket(rawPhone, { reserve: reserveTransport, maxMessageBytes: wsDownLimit, queueBytes: wsDownLimit }) : rawPhone; channel.phone = phone;
             phone.addEventListener('message', async e => {
               if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
               if (e.data instanceof Blob && e.data.size > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
@@ -299,10 +300,10 @@ export class Installation {
           if (m.type === 'ws.error') { slog('connector_ws_error', { ch: cid(m.id) }); this.endChannel(m.id, 1011, 'backend unavailable'); }
           else if (m.type === 'ws.close') this.endChannel(m.id, 1000, '');
           else {
-            if (!channel.phone || typeof m.binary !== 'boolean' || typeof m.data !== 'string' || m.data.length > (m.binary ? 1398104 : wsLimit) || (m.binary && !validBase64(m.data))) { this.endChannel(m.id, 1008, 'invalid frame'); return; }
+            if (!channel.phone || typeof m.binary !== 'boolean' || typeof m.data !== 'string' || m.data.length > wsDownLimit || (m.binary && !validBase64(m.data))) { this.endChannel(m.id, 1008, 'invalid frame'); return; }
             try {
               const data = m.binary ? Uint8Array.from(atob(m.data), c => c.charCodeAt(0)) : m.data;
-              if ((m.binary ? data.byteLength : new TextEncoder().encode(data).length) > wsLimit) throw Error('oversize');
+              if ((m.binary ? data.byteLength : new TextEncoder().encode(data).length) > wsDownLimit) throw Error('oversize');
               const phone = channel.phone;
               if (!m.binary && channel.pushPend && channel.pushPend.size && (data.includes('"result"') || data.includes('"error"'))) {
                 try {

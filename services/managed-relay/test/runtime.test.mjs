@@ -86,7 +86,7 @@ test('real Worker disables enrollment explicitly', async t => {
 // End-to-end fixtures below use the production connector frame protocol, not a mock Worker.
 export async function connect(mf, identity, token, name, options = {}) {
   const r = await mf.dispatchFetch(`${origin}/v1/installations/${identity.id}/connect`, { headers: { Upgrade: 'websocket', Authorization: `Bearer ${identity.secret}`, 'Sec-WebSocket-Protocol': 'clover-relay-connector-v2' } });
-  assert.equal(r.status, 101); r.webSocket.accept(); const ws = new FlowSocket(r.webSocket);
+  assert.equal(r.status, 101); r.webSocket.accept(); const ws = new FlowSocket(r.webSocket, { maxMessageBytes: 12582912 });
   const pending = new Map(); let seq = 0;
   ws.addEventListener('message', e => {
     const m = JSON.parse(e.data);
@@ -403,4 +403,18 @@ test('device.status and device.request_access JSON-RPC pass untouched, including
   const denied = await rpc(2, 'device.request_access');
   assert.equal(denied.error.code, 4030); assert.deepEqual(denied.error.data, { capability: 'control_view' });
   assert.deepEqual(seen, ['device.status', 'device.request_access']); phone.close();
+});
+
+for (const mode of ['flow', 'plain']) test(`large gateway replies (3 MB history) reach the ${mode} phone without a 1009 close`, { timeout: 15000 }, async t => {
+  const mf = await start(mode === 'plain' ? { PHONE_FLOW: 'off' } : {}); t.after(() => mf.dispose());
+  const identity = makeIdentity(), token = 'cdt_' + randomBytes(32).toString('hex'); await enroll(mf, identity);
+  const big = 'x'.repeat(3 * 1024 * 1024);
+  const connector = await connect(mf, identity, token, 'big', { data: () => big }); t.after(() => connector.ws.close());
+  const minted = await (await mf.dispatchFetch(origin + '/api/auth/ws-ticket', { method: 'POST', headers: { Authorization: `Bearer ${token}` } })).json();
+  const headers = { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': `${mode === 'flow' ? 'clover-relay-flow-v1, ' : ''}clover-gateway-v1, clover-gateway-ticket.${minted.ticket}` };
+  const r = await mf.dispatchFetch(origin + '/api/ws', { headers }); assert.equal(r.status, 101);
+  r.webSocket.accept(); const phone = mode === 'flow' ? new FlowSocket(r.webSocket, { maxMessageBytes: 12582912 }) : r.webSocket; t.after(() => { try { phone.close(); } catch {} });
+  const outcome = new Promise(resolve => { phone.addEventListener('message', e => resolve({ len: e.data.length }), { once: true }); phone.addEventListener('close', e => resolve({ closed: e.code }), { once: true }); });
+  phone.send('history');
+  assert.deepEqual(await outcome, { len: big.length });
 });
