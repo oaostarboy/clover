@@ -25,7 +25,9 @@ test('admits only still-screenshot desk GETs', () => {
   assert.equal(allowMobileRequest('GET', '/desk/displays'), true);
   assert.equal(allowMobileRequest('GET', '/desk/snapshot?display=1&q=60&w=800'), true);
   assert.equal(allowMobileRequest('GET', '/desk/snapshot'), true);
-  for (const [m, p] of [['GET', '/desk/stream'], ['POST', '/desk/snapshot'], ['POST', '/desk/input'], ['GET', '/desk/snapshot?x=1'], ['GET', '/desk/snapshot?display=1&display=2'], ['GET', '/desk/displays?a=1'], ['GET', '/desk/snapshot/'], ['GET', '/desk/%73napshot']]) assert.equal(allowMobileRequest(m, p), false, p);
+  for (const p of ['/desk/snapshot?display=1&x=0&y=10&cw=99999&ch=1080&q=100&w=3840', '/desk/snapshot?q=1&w=0', '/desk/snapshot?x=00001']) assert.equal(allowMobileRequest('GET', p), true, p);
+  for (const p of ['/desk/snapshot?x=-1', '/desk/snapshot?x=100000', '/desk/snapshot?cw=1.5', '/desk/snapshot?ch=abc', '/desk/snapshot?y=', '/desk/snapshot?q=0', '/desk/snapshot?q=101', '/desk/snapshot?q=1000', '/desk/snapshot?w=12345', '/desk/snapshot?w=-5', '/desk/snapshot?x=1&x=2', '/desk/snapshot?z=1']) assert.equal(allowMobileRequest('GET', p), false, p);
+  for (const [m, p] of [['GET', '/desk/stream'], ['POST', '/desk/snapshot'], ['POST', '/desk/input'], ['GET', '/desk/snapshot?z=1'], ['GET', '/desk/snapshot?display=1&display=2'], ['GET', '/desk/displays?a=1'], ['GET', '/desk/snapshot/'], ['GET', '/desk/%73napshot']]) assert.equal(allowMobileRequest(m, p), false, p);
 });
 
 test('carries Creations downloads and thumbnails with exact queries only', () => {

@@ -372,14 +372,14 @@ test('desk still-screenshot paths relay JPEG unchanged and pass PC 403 bodies th
   assert.equal((await mf.dispatchFetch(origin + '/desk/displays')).status, 401);
 });
 
-test('desk snapshot over 2 MiB is a 502 and snapshots are limited to 4 per second per device', async t => {
+test('desk snapshot over 3 MiB is a 502 and snapshots are limited to 4 per second per device', async t => {
   const mf = await start(); t.after(() => mf.dispose());
   const id = makeIdentity(); await enroll(mf, id); const token = 'cdt_' + randomBytes(32).toString('hex');
   // Legacy plain transport carries a single large frame; the flow link caps frames at 1 MiB.
   const r0 = await mf.dispatchFetch(`${origin}/v1/installations/${id.id}/connect`, { headers: { Upgrade: 'websocket', Authorization: `Bearer ${id.secret}`, 'Sec-WebSocket-Protocol': 'clover-relay-connector-v1' } });
   assert.equal(r0.status, 101); const ws = r0.webSocket; ws.accept(); t.after(() => ws.close());
   ws.addEventListener('message', e => { const m = JSON.parse(e.data);
-    if (m.type === 'http.request') ws.send(JSON.stringify({ type: 'http.response', id: m.id, status: 200, headers: { 'content-type': 'image/jpeg' }, body: jpeg(2 * 1024 * 1024 + 1024).toString('base64') })); });
+    if (m.type === 'http.request') ws.send(JSON.stringify({ type: 'http.response', id: m.id, status: 200, headers: { 'content-type': 'image/jpeg' }, body: jpeg(3 * 1024 * 1024 + 1024).toString('base64') })); });
   ws.send(JSON.stringify({ type: 'devices.replace', id: 'c1', devices: [{ hash: digest(token), expiresAt: Date.now() + 600000 }] }));
   await new Promise(r => setTimeout(r, 200));
   const headers = { Authorization: `Bearer ${token}` };

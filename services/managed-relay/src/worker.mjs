@@ -358,7 +358,7 @@ export class Installation {
           try {
             if (!Number.isInteger(m.status) || m.status < 200 || m.status > 599 || typeof m.body !== 'string' || m.body.length > 11184812 || !validBase64(m.body)) throw Error('bad response');
             const binary = atob(m.body); if (binary.length > 8 * 1024 * 1024) throw Error('oversize');
-            if (resolve.snapshot && binary.length > 2 * 1024 * 1024) { response = reply({ error: 'frame too large' }, 502); this.pending.delete(m.id); try { await resolve(response, true); } finally { resolve.processingDone(); } return; }
+            if (resolve.snapshot && binary.length > 3 * 1024 * 1024) { response = reply({ error: 'frame too large' }, 502); this.pending.delete(m.id); try { await resolve(response, true); } finally { resolve.processingDone(); } return; }
             const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
             const headers = new Headers();
             const contentType = m.headers?.['content-type'];
