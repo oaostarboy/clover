@@ -29,6 +29,8 @@ Or: `clover config set desktop_control.enabled true`.
   and `x`, `y`, `cw`, `ch` to fetch only a native-pixel region at full sharpness
   (all four together; out-of-bounds is HTTP 400). A frame over about 1.8 MB is
   re-encoded once at lower quality so it fits the relay's 2 MiB response cap.
+* `WS /desk/stream?v=1` is the phone's pushed live screen (protocol v1: ack-paced JPEG frames up to 30 per second,
+  only when the screen changed, zoom crops, `/desk/displays` advertises `"stream":{"v":1}`). Taps and keys stay on the RPCs.
 * `WS /desk/stream?display=N` streams JPEG frames (about 8 per second) and takes
   control messages. The phone must send `take_control` before any mouse or
   keyboard message is accepted. Only one phone controls at a time, and control is

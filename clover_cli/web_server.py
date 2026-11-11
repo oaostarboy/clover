@@ -18783,12 +18783,28 @@ def _desk_ws_auth(ws: "WebSocket") -> bool:
     auth = str(headers.get("authorization", "") or "")
     parts = auth.split(" ", 1)
     bearer = parts[1].strip() if len(parts) == 2 and parts[0].strip().lower() == "bearer" else ""
+    if bearer.startswith("cdt_"):
+        # A paired phone dialing the gateway directly with its device bearer: it may view
+        # the desk only while active, on this profile, with control_view.
+        try:
+            from clover_cli.mobile_pairing import get_device_store
+            from clover_cli.profiles import get_active_profile_name
+            store = get_device_store()
+            principal = store.authenticate(bearer)
+            if (principal and principal.profile == get_active_profile_name() and store.principal_is_active(principal)
+                    and "control_view" in principal.capabilities):
+                ws._clover_device_principal = principal
+                return True
+        except Exception:  # noqa: BLE001
+            pass
+        return False
     if not getattr(app.state, "auth_required", False):
         for cand in (bearer, str(headers.get(_SESSION_HEADER_NAME, "") or "")):
             if cand and hmac.compare_digest(cand.encode(), _SESSION_TOKEN.encode()):
                 return True
-        return False
-    if bearer:
+        # Loopback gateway behind the desktop connector: a paired phone arrives with a
+        # single-use device ticket (never a URL credential); handled below.
+    elif bearer:
         from clover_cli.dashboard_auth import list_session_providers
 
         for provider in list_session_providers():
@@ -18807,6 +18823,9 @@ def _desk_ws_auth(ws: "WebSocket") -> bool:
         except TicketInvalid:
             return False
         principal = info.get("device_principal")
+        if not getattr(app.state, "auth_required", False) and principal is None \
+                and info.get("provider") != "mobile-device":
+            return False  # loopback: only phone tickets, never other ticket kinds
         if principal is not None or info.get("provider") == "mobile-device":
             # A phone may view the desk only with control_view (input needs control_drive per message).
             from clover_cli.mobile_pairing import DevicePrincipal, get_device_store

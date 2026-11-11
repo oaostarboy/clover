@@ -15,6 +15,10 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.9 | Clover C2.0.9 | 2026-11-11
+- Control on your phone now streams your screen live instead of refreshing a few times a second.
+- Zooming in on the phone sharpens the part you are looking at, and a still screen uses almost no data.
+
 ## 2.0.8 | Clover C2.0.8 | 2026-11-10
 - Apps Clover opens for you, like the desktop app, stay open when Clover restarts or updates.
 
