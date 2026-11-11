@@ -15,7 +15,7 @@ import pytest
 
 from tools.process_registry import ProcessRegistry, ProcessSession
 
-posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX process semantics")
+posix_only = pytest.mark.skipif(sys.platform != "linux", reason="needs Linux /proc and setsid")
 
 
 def _alive(pid: int) -> bool:
@@ -116,13 +116,11 @@ def reg(tmp_path, monkeypatch):
                         staticmethod(lambda: 1.0))
     r = ProcessRegistry()
     yield r
-    import psutil
-    for p in psutil.process_iter(["cmdline"]):
-        if (p.info["cmdline"] or [""])[0] == "clover-spare-test-daemon":
-            try:
-                p.kill()
-            except Exception:
-                pass
+    for f in tmp_path.glob("*.pid"):
+        try:
+            os.kill(int(f.read_text()), 9)
+        except Exception:
+            pass
 
 
 @posix_only
@@ -133,7 +131,7 @@ def test_shutdown_kills_normal_job_but_spares_setsid_double_fork(reg, tmp_path):
     # Detached app: double-fork + setsid, as nohup/setsid launchers do.
     s1 = _register(
         reg,
-        f"(setsid sh -c 'exec -a clover-spare-test-daemon sleep 300 & echo $! > {pidfile}' &) ; sleep 300",
+        f"(setsid sh -c 'read p _ < /proc/self/stat; echo $p > {pidfile}.tmp; mv {pidfile}.tmp {pidfile}; exec sleep 300' &) ; sleep 300",
         "proc_detach",
     )
     # Ordinary background job with a child it still owns.
