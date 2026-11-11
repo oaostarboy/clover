@@ -280,6 +280,13 @@ declare global {
       watchDirectory?: (dir: string) => Promise<CloverPreviewWatch>
       stopPreviewFileWatch: (id: string) => Promise<boolean>
       setActiveWork?: (payload: CloverActiveWork) => void
+      /** Renderer saw user input; lets the main process wait for quiet before a self-restart. */
+      reportUserActivity?: () => void
+      /** A newer build was installed by `clover update`; restart waits for idle or an explicit click. */
+      buildUpdate?: {
+        restart: () => Promise<boolean>
+        onOffer: (callback: (offered: boolean) => void) => () => void
+      }
       setTitleBarTheme?: (payload: CloverTitleBarTheme) => void
       setNativeTheme?: (mode: 'dark' | 'light' | 'system') => void
       /** Main-process fact: this OS can back glass with a native material. */

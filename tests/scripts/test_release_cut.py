@@ -177,6 +177,15 @@ def test_bump_helpers():
     assert rc.bump("1.1.3", "patch") == "1.1.4"
     assert rc.bump("1.1.3", "minor") == "1.2.0"
     assert rc.bump("1.9.9", "patch") == "1.9.10"
+    assert rc.bump("2.0.9", "patch") == "2.0.10"
+    # Two-digit patches must compare numerically, never as strings, in the
+    # release tool and in the updater's release-notes comparison.
+    from clover_cli.release_notes import parse_version
+
+    assert rc.parse_strict("2.0.9") < rc.parse_strict("2.0.10")
+    assert rc._loose("v2.0.9") < rc._loose("v2.0.10")
+    assert parse_version("2.0.9") < parse_version("v2.0.10")
+    assert sorted(["2.0.10", "2.0.9", "2.0.8"], key=parse_version) == ["2.0.8", "2.0.9", "2.0.10"]
     assert rc.bump("1.5.9.1", "patch") == "1.5.9.2"
     assert rc.bump("1.5.9.1", "minor") == "1.6.0"
     assert rc.release_date_string(__import__("datetime").date(2026, 10, 8)) == "2026.10.8"

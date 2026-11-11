@@ -175,6 +175,9 @@ export interface Translations {
     backendOutOfDateMessage: string
     installMethodUnsupportedTitle: string
     updateClover: string
+    restartToUpdate: string
+    restartToUpdateMessage: string
+    restartToUpdateAction: string
     updateReadyTitle: string
     updateReadyMessage: (count: number) => string
     updateReadyMessageUnknown: string

@@ -6598,8 +6598,9 @@ def _desktop_dist_exists(desktop_dir: Path) -> bool:
 def _compute_desktop_content_hash(project_root: Path) -> str:
     """Return a SHA-256 hex digest of all source files that feed the desktop build.
 
-    Covers ``apps/desktop/`` (excluding anything matched by .gitignore)
-    plus the root ``package.json`` / ``package-lock.json`` (workspace config
+    Covers ``apps/desktop/`` (excluding anything matched by .gitignore),
+    every file outside it that the bundle imports (see
+    ``clover_cli.desktop_build_inputs``), plus the root ``package.json`` / ``package-lock.json`` (workspace config
     that determines dependency resolution for the desktop workspace).
 
     Parses the repo-root ``.gitignore`` via *pathspec* so we automatically
@@ -6651,6 +6652,20 @@ def _compute_desktop_content_hash(project_root: Path) -> str:
             rel = str(fp.relative_to(project_root))
             if not spec.match_file(rel):
                 _hash_file(fp)
+
+    # Vendored inputs the bundle imports from outside apps/desktop (the relay
+    # connector/pairing modules, apps/shared, ...), derived from the real
+    # import graph and build configs so the list cannot drift.
+    from clover_cli.desktop_build_inputs import external_desktop_build_inputs
+
+    def _is_ignored(path: Path) -> bool:
+        try:
+            return spec.match_file(str(path.resolve().relative_to(project_root.resolve())))
+        except ValueError:
+            return True
+
+    for fp in external_desktop_build_inputs(project_root, desktop_dir, _is_ignored):
+        _hash_file(fp)
 
     return h.hexdigest()
 
@@ -7362,6 +7377,35 @@ def _try_redownload_electron_dist(project_root: Path, env: dict) -> bool:
     if env.get("ELECTRON_MIRROR"):
         return False
     return _redownload_electron_dist(project_root, env, mirror=_ELECTRON_FALLBACK_MIRROR)
+
+
+def _relaunch_desktop_after_rebuild() -> bool:
+    """Start the canonical ``clover desktop`` detached after a rebuild closed the app.
+
+    Single-instance in Electron makes a duplicate harmless. Best-effort: a
+    failure to relaunch never fails the update.
+    """
+    try:
+        kwargs: dict = {
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "cwd": str(PROJECT_ROOT),
+            "close_fds": True,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = (
+                getattr(subprocess, "DETACHED_PROCESS", 0)
+                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            )
+        else:
+            kwargs["start_new_session"] = True
+        subprocess.Popen([sys.executable, "-m", "clover_cli.main", "desktop"], **kwargs)
+        print("  ✓ Restarted the desktop app on the new build")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ⚠ Could not restart the desktop app ({exc}); open it with `clover desktop`")
+        return False
 
 
 def _stop_desktop_processes_locking_build(desktop_dir: Path) -> list[int]:
@@ -8291,6 +8335,7 @@ def cmd_gui(args: argparse.Namespace):
         # If the source tree hasn't changed since the last successful build,
         # skip the npm install + build entirely (saves a ton of useless work).
         # --force-build overrides the stamp and always rebuilds.
+        stopped_running_app = False
         build_needed = force_build or _desktop_build_needed(
             desktop_dir, PROJECT_ROOT, source_mode=source_mode
         )
@@ -8338,6 +8383,7 @@ def cmd_gui(args: argparse.Namespace):
                 stopped = _stop_desktop_processes_locking_build(desktop_dir)
                 if stopped:
                     print(f"  ⚠ Stopped running desktop app to free the build output (pid {', '.join(map(str, stopped))})")
+                    stopped_running_app = True
             build_kwargs = {
                 "cwd": desktop_dir,
                 "env": npm_build_env,
@@ -8430,6 +8476,13 @@ def cmd_gui(args: argparse.Namespace):
 
             # Build succeeded — write the stamp so next run can skip
             _write_desktop_build_stamp(PROJECT_ROOT, source_mode=source_mode)
+
+            # Windows only: the pack needed the running app closed (exe lock).
+            # An update must not leave the user without their app, so bring it
+            # back on the new build. POSIX never stops the app; it restarts
+            # itself when idle (see apps/desktop/electron/build-update.ts).
+            if stopped_running_app and not source_mode:
+                _relaunch_desktop_after_rebuild()
 
     # Register the app in the system launcher / Applications / Start Menu,
     # so Clover shows up in the application menu with its icon.

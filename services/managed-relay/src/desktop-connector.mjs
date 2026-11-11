@@ -65,7 +65,7 @@ export async function openConnector({ relayOrigin, identity, backendOrigin, allo
   await new Promise((resolve, reject) => { wire.once('open', resolve); wire.once('error', reject); });
   if (wire.protocol !== protocol) { wire.close(); throw Error('invalid connector protocol'); }
   const ws = new FlowSocket(wire, { maxMessageBytes: 12582912, closeOnCapacity: false });
-  const controls = new Map(); const channels = new Map(); const httpJobs = new Set(); let active = 0, closing = false;
+  const controls = new Map(); const channels = new Map(); const httpJobs = new Set(); let active = 0, closing = false, lastChatDataAt = 0;
   // Capacity errors never close the shared link; callers end only their own channel.
   const send = value => { ws.send(JSON.stringify(value)); if (ws.bufferedAmount) for (const local of channels.values()) if (local.readyState === WebSocket.OPEN) local.pause(); };
   const endChannel = id => { const local = channels.get(id); if (!local) return; channels.delete(id); local.terminate(); };
@@ -88,7 +88,7 @@ export async function openConnector({ relayOrigin, identity, backendOrigin, allo
       local.isDesk = desk;
       local.on('error', () => { if (channels.get(m.id) !== local) return; try { send({ type: 'ws.error', id: m.id }); } catch {} endChannel(m.id); });
       local.on('open', () => { if (channels.get(m.id) !== local) return; if (local.protocol !== 'clover-gateway-v1') { try { send({ type: 'ws.error', id: m.id }); } catch {} endChannel(m.id); return; } try { send({ type: 'ws.opened', id: m.id, protocol: local.protocol, ...(desk ? { path: '/desk/stream' } : {}) }); } catch { endChannel(m.id); } });
-      local.on('message', (data, binary) => { if (channels.get(m.id) !== local) return; try { if (data.length > 10 * 1024 * 1024 || (binary && data.length > 8 * 1024 * 1024) || (desk && data.length > DESK_MAX_FRAME)) throw Error('oversize'); send({ type: 'ws.data', id: m.id, binary, data: binary ? data.toString('base64') : data.toString('utf8') }); } catch { endChannel(m.id); } });
+      local.on('message', (data, binary) => { if (channels.get(m.id) !== local) return; if (!desk) lastChatDataAt = Date.now(); try { if (data.length > 10 * 1024 * 1024 || (binary && data.length > 8 * 1024 * 1024) || (desk && data.length > DESK_MAX_FRAME)) throw Error('oversize'); send({ type: 'ws.data', id: m.id, binary, data: binary ? data.toString('base64') : data.toString('utf8') }); } catch { endChannel(m.id); } });
       local.on('close', () => { if (channels.get(m.id) !== local) return; channels.delete(m.id); try { send({ type: 'ws.close', id: m.id, code: 1000, reason: '' }); } catch {} });
       return;
     }
@@ -97,6 +97,7 @@ export async function openConnector({ relayOrigin, identity, backendOrigin, allo
       if (m.type === 'ws.close') { endChannel(m.id); return; }
       if (local.isDesk && (m.binary !== false || typeof m.data !== 'string' || m.data.length > DESK_MAX_CLIENT_TEXT)) { endChannel(m.id); return; }
       if (local.readyState !== WebSocket.OPEN || typeof m.binary !== 'boolean' || typeof m.data !== 'string' || m.data.length > (m.binary ? 1398104 : 1048576) || (m.binary && !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(m.data))) { endChannel(m.id); return; }
+      if (!local.isDesk) lastChatDataAt = Date.now();
       const data = m.binary ? Buffer.from(m.data, 'base64') : m.data; if (Buffer.byteLength(data) > 1048576 || local.bufferedAmount > 2 * 1024 * 1024) { endChannel(m.id); return; }
       local.send(data, { binary: m.binary }, error => { if (error) endChannel(m.id); }); return;
     }
@@ -136,6 +137,8 @@ export async function openConnector({ relayOrigin, identity, backendOrigin, allo
       controls.set(id, (error, result) => { clearTimeout(timer); if (error) reject(error); else if (!result.ok) reject(Error('device registration rejected')); else resolve(); });
       try { send({ type: 'devices.replace', id, devices }); } catch (error) { const finish = controls.get(id); controls.delete(id); finish?.(error); }
     }); },
+    // What the phone/viewer side is doing right now; the desktop app waits for quiet before it restarts itself.
+    activity() { let chat = 0, desk = 0; for (const c of channels.values()) if (c.isDesk) desk++; else chat++; return { chatChannels: chat, deskChannels: desk, httpJobs: active, lastChatDataAt }; },
     close() { closed(); ws.close(); },
   };
 }

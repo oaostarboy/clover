@@ -155,6 +155,16 @@ export function createDesktopPairing({ identityPath, request, enroll = ensureEnr
         catch (error) { onSyncError?.(error, attempt, false); await sleep(backoff(attempt)); }
       }
     },
+    // Aggregate live phone-side activity across every connector (see openConnector().activity()).
+    activity() {
+      const total = { chatChannels: 0, deskChannels: 0, httpJobs: 0, lastChatDataAt: 0 };
+      for (const e of entries.values()) {
+        const a = e.connector?.activity?.(); if (!a) continue;
+        total.chatChannels += a.chatChannels; total.deskChannels += a.deskChannels; total.httpJobs += a.httpJobs;
+        total.lastChatDataAt = Math.max(total.lastChatDataAt, a.lastChatDataAt);
+      }
+      return total;
+    },
     close() { stopped = true; for (const e of entries.values()) dispose(e); entries.clear(); aliases.clear(); }
   };
 }

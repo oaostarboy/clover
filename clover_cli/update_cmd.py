@@ -8528,7 +8528,10 @@ def _rebuild_desktop_after_update(
         _m()._register_desktop_launchers(desktop_dir)
     except Exception:
         pass
-    print("  ✓ Desktop app up to date")
+    # A running app keeps the old code until it restarts; it does so by itself
+    # when idle (or offers "Restart to update"). On Windows the rebuild closed
+    # and already relaunched it.
+    print("  ✓ Desktop app updated (will restart when idle)")
     return True
 
 

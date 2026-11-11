@@ -250,3 +250,20 @@ test('a failed device-list snapshot keeps the connector open and keeps retrying'
   await new Promise(r => setTimeout(r, 700));
   assert.ok(snaps > before + 1); assert.equal(closes, 0);
 });
+
+test('activity() sums live connector activity and tolerates connectors without it', async t => {
+  const acts = [{ chatChannels: 1, deskChannels: 0, httpJobs: 2, lastChatDataAt: 50 }, { chatChannels: 0, deskChannels: 1, httpJobs: 0, lastChatDataAt: 90 }, undefined];
+  let n = 0;
+  const service = createDesktopPairing({
+    identityPath: scope => '/tmp/fixture-' + scope,
+    request: async (_c, path) => path === '/api/mobile/pairing' ? { configured: false, reason: 'no_public_https_url' } : { profile: 'default', gatewayId: 'a'.repeat(64), devices: [] },
+    enroll: async () => ({ identity: { id: 'fixture' } }),
+    connect: async () => { const a = acts[n++]; return { replaceDevices: async () => {}, close() {}, ...(a ? { activity: () => a } : {}) }; },
+    syncIntervalMs: 0,
+  });
+  t.after(() => service.close());
+  assert.deepEqual(service.activity(), { chatChannels: 0, deskChannels: 0, httpJobs: 0, lastChatDataAt: 0 });
+  const c = { mode: 'local', baseUrl: 'http://127.0.0.1:1', token: 't' };
+  await service.status('a', 'default', c);
+  assert.deepEqual(service.activity(), { chatChannels: 1, deskChannels: 0, httpJobs: 2, lastChatDataAt: 50 });
+});
