@@ -532,7 +532,7 @@ class TestShutdownSettleWindow:
 
         settled_at_kill: list = []
 
-        def _spy_kill_all(task_id=None):
+        def _spy_kill_all(task_id=None, **_kw):
             settled_at_kill.append(api.settled)
             return 0
 
@@ -574,7 +574,7 @@ class TestShutdownSettleWindow:
         api = _SettlingApiAdapter(polls_to_settle=10_000)  # never settles
         runner.adapters = {Platform.TELEGRAM: adapter, Platform.API_SERVER: api}
 
-        monkeypatch.setattr(_pr.process_registry, "kill_all", lambda task_id=None: 0)
+        monkeypatch.setattr(_pr.process_registry, "kill_all", lambda task_id=None, **_kw: 0)
         monkeypatch.setattr(_tt, "cleanup_all_environments", lambda: None)
         monkeypatch.setattr(_bt, "cleanup_all_browsers", lambda: None)
 

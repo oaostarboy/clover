@@ -15,6 +15,9 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.8 | Clover C2.0.8 | 2026-11-10
+- Apps Clover opens for you, like the desktop app, stay open when Clover restarts or updates.
+
 ## 2.0.7 | Clover C2.0.7 | 2026-11-10
 - Trust a phone once and it keeps its access until you revoke it — no more approving every hour.
 
