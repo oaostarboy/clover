@@ -47,7 +47,7 @@ _IS_WINDOWS = platform.system() == "Windows"
 from tools.environments.local import _find_shell, _resolve_safe_cwd, _sanitize_subprocess_env
 from clover_cli._subprocess_compat import windows_hide_flags
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from clover_cli.config import get_clover_home
 
@@ -959,7 +959,12 @@ class ProcessRegistry:
             return 2.0
 
     @classmethod
-    def _terminate_host_pid(cls, pid: int, expected_start: Optional[int] = None) -> None:
+    def _terminate_host_pid(
+        cls,
+        pid: int,
+        expected_start: Optional[int] = None,
+        spare_pids: frozenset = frozenset(),
+    ) -> None:
         """Terminate a host-visible PID and its descendants.
 
         ``expected_start`` is the kernel start time captured when we spawned the
@@ -1045,6 +1050,9 @@ class ProcessRegistry:
         except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
             targets = []
         targets.append(parent)
+        if spare_pids:
+            # Detached apps (and everything below them) are not ours to kill.
+            targets = [t for t in targets if t.pid not in spare_pids]
 
         for proc in targets:
             try:
@@ -1084,6 +1092,148 @@ class ProcessRegistry:
             except psutil.NoSuchProcess:
                 pass
             except (psutil.AccessDenied, OSError):
+                pass
+
+
+    # ----- Ownership: what a shutdown sweep may kill -----
+
+    @staticmethod
+    def _proc_cgroup_sid(pid: int) -> Tuple[Optional[str], Optional[int]]:
+        """(cgroup path, session id) for ``pid``; ``None`` where the OS has no such notion.
+
+        cgroup comes from ``/proc/<pid>/cgroup`` (Linux only); the session id
+        from ``os.getsid`` (POSIX). Windows has neither, so both are ``None``.
+        """
+        cgroup: Optional[str] = None
+        sid: Optional[int] = None
+        try:
+            with open(f"/proc/{pid}/cgroup", "r", encoding="utf-8") as fh:
+                lines = [ln.strip() for ln in fh if ln.strip()]
+            unified = [ln for ln in lines if ln.startswith("0::")]
+            chosen = (unified or lines or [None])[0]
+            cgroup = chosen.split(":", 2)[-1] if chosen else None
+        except (OSError, ValueError):
+            cgroup = None
+        if hasattr(os, "getsid"):
+            try:
+                sid = os.getsid(pid)
+            except (OSError, ProcessLookupError):
+                sid = None
+        return cgroup, sid
+
+    @staticmethod
+    def _is_owned(
+        cgroup: Optional[str],
+        sid: Optional[int],
+        *,
+        reference_cgroup: Optional[str],
+        unit: str,
+        session_sid: Optional[int],
+        check_sid: bool = True,
+    ) -> bool:
+        """Ownership rule: a process is still ours iff it stayed where we put it.
+
+        * cgroup: it is in the worker's transient scope (``unit``) or, when the
+          worker has no scope, in the gateway's own cgroup. A process that
+          moved to another scope (``systemd-run --scope``/``--unit``, an
+          Electron app joining ``app-*.scope``) deliberately left.
+        * session: descendants still belong to the worker's session. One that
+          called ``setsid`` (nohup/setsid daemons) deliberately detached.
+
+        An unknown value (``None``: Windows, no /proc) never disqualifies, so
+        platforms that cannot tell keep the historical kill-the-tree behaviour.
+        """
+        if cgroup is not None:
+            if unit:
+                if not cgroup.endswith("/" + unit):
+                    return False
+            elif reference_cgroup is not None and cgroup != reference_cgroup:
+                return False
+        if check_sid and sid is not None and session_sid is not None and sid != session_sid:
+            return False
+        return True
+
+    def _classify_session_pids(self, session: "ProcessSession") -> Tuple[List[int], List[int]]:
+        """Split a session's live processes into ``(owned, detached)`` PIDs."""
+        if _IS_WINDOWS or not session.pid or session.pid_scope != "host":
+            return [], []
+        try:
+            import psutil
+        except ImportError:  # pragma: no cover - hard dependency
+            return [], []
+        unit = session.systemd_unit or ""
+        reference = None
+        if not unit:
+            reference, _ = self._proc_cgroup_sid(os.getpid())
+        candidates: Dict[int, Any] = {}
+        if self._host_pid_is_ours(session.pid, session.host_start_time):
+            try:
+                root = psutil.Process(session.pid)
+                candidates[root.pid] = root
+                for ch in root.children(recursive=True):
+                    candidates[ch.pid] = ch
+            except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+                pass
+        if unit:
+            # Daemonized descendants re-parent to init but stay in the scope.
+            for proc in psutil.process_iter():
+                if proc.pid in candidates:
+                    continue
+                cg, _sid = self._proc_cgroup_sid(proc.pid)
+                if cg is not None and cg.endswith("/" + unit):
+                    candidates[proc.pid] = proc
+        owned: List[int] = []
+        detached: List[int] = []
+        for pid in candidates:
+            cg, sid = self._proc_cgroup_sid(pid)
+            ok = self._is_owned(
+                cg, sid, reference_cgroup=reference, unit=unit,
+                session_sid=session.pid, check_sid=(pid != session.pid),
+            )
+            (owned if ok else detached).append(pid)
+        # Everything below a detached process leaves with it.
+        seen = set(detached)
+        for pid in list(detached):
+            try:
+                for ch in candidates[pid].children(recursive=True):
+                    if ch.pid not in seen:
+                        seen.add(ch.pid)
+                        detached.append(ch.pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+                pass
+        owned = [p for p in owned if p not in seen]
+        return owned, detached
+
+    def _detached_pids(self, session: "ProcessSession") -> List[int]:
+        """PIDs started by ``session`` that left its ownership (see ``_is_owned``)."""
+        return self._classify_session_pids(session)[1]
+
+    @classmethod
+    def _terminate_pids(cls, pids: List[int]) -> None:
+        """SIGTERM then (after the grace window) SIGKILL the given host PIDs."""
+        import psutil
+        procs = []
+        for pid in pids:
+            try:
+                procs.append(psutil.Process(pid))
+            except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+                pass
+        for proc in procs:
+            try:
+                proc.terminate()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+                pass
+        grace = cls._daemon_term_grace_seconds()
+        deadline = time.monotonic() + grace
+        while grace > 0 and time.monotonic() < deadline:
+            if not any(cls._proc_alive(p) for p in procs):
+                break
+            time.sleep(0.05)
+        for proc in procs:
+            try:
+                if cls._proc_alive(proc):
+                    proc.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
                 pass
 
     # ----- Spawn -----
@@ -2538,6 +2688,7 @@ class ProcessRegistry:
         *,
         source: str = "process.kill",
         consume_output: bool = True,
+        spare_detached: bool = False,
     ) -> dict:
         """Kill a background process and return its output snapshot.
 
@@ -2555,13 +2706,40 @@ class ProcessRegistry:
         if session is None:
             return {"status": "not_found", "error": f"No process with ID {session_id}"}
 
+        # Shutdown sweeps pass spare_detached=True: anything the agent
+        # deliberately detached from this worker (own scope/unit, setsid,
+        # re-parented GUI apps) keeps running; only what we still own dies.
+        spare: frozenset = frozenset()
+        owned_in_scope: List[int] = []
+        if spare_detached:
+            try:
+                _owned, _det = self._classify_session_pids(session)
+                spare = frozenset(_det)
+                owned_in_scope = _owned
+            except Exception as exc:  # never let the ownership probe block cleanup
+                logger.debug("detached-process probe failed: %s", exc)
+        if spare:
+            logger.info(
+                "Sparing %d detached process(es) of %s: %s",
+                len(spare), session.id, sorted(spare),
+            )
+
+        def _stop_scope() -> None:
+            if not session.systemd_unit:
+                return
+            if not spare:
+                _stop_systemd_unit(session.systemd_unit)
+            elif owned_in_scope:
+                # Stopping the whole unit could take a setsid'd app inside it;
+                # reap only the members we still own.
+                self._terminate_pids(owned_in_scope)
+
         if session.exited:
             # Even if the main process already exited, a double-forked
             # descendant may still be alive in the systemd scope (#70716,
             # reviewer gap #2 — the ``already_exited`` early return skipped
             # unit cleanup).  Stop the scope to reap any survivors.
-            if session.systemd_unit:
-                _stop_systemd_unit(session.systemd_unit)
+            _stop_scope()
             with session._lock:
                 result = {
                     "status": "already_exited",
@@ -2593,7 +2771,9 @@ class ProcessRegistry:
                 # Local process -- kill the process tree. On Windows this
                 # must be taskkill /T /F; Popen.terminate() only kills the
                 # shell wrapper and leaves Git Bash descendants behind.
-                self._terminate_host_pid(session.process.pid, session.host_start_time)
+                self._terminate_host_pid(
+                    session.process.pid, session.host_start_time, spare,
+                )
             elif session.env_ref and session.pid:
                 # Non-local -- kill inside sandbox
                 session.env_ref.execute(f"kill {session.pid} 2>/dev/null", timeout=5)
@@ -2620,7 +2800,7 @@ class ProcessRegistry:
                         "exit_code": session.exit_code,
                         "output": output,
                     }
-                self._terminate_host_pid(session.pid, session.host_start_time)
+                self._terminate_host_pid(session.pid, session.host_start_time, spare)
             else:
                 return {
                     "status": "error",
@@ -2637,8 +2817,7 @@ class ProcessRegistry:
             # SIGTERM to every process in the cgroup and escalates to SIGKILL
             # after TimeoutStopSec.  This is additive — the PID-based kill
             # above already handled the main process; this catches stragglers.
-            if session.systemd_unit:
-                _stop_systemd_unit(session.systemd_unit)
+            _stop_scope()
             # Capture output before marking consumed, then mark consumed before
             # exposing ``exited`` to watcher tasks. This closes the delayed
             # notification race without discarding the terminal transcript.
@@ -2946,8 +3125,14 @@ class ProcessRegistry:
         exclude_ids: frozenset = frozenset(),
         source: str = "kill_all",
         consume_output: bool = False,
+        spare_detached: bool = False,
     ) -> int:
-        """Kill all running processes, optionally filtered by task_id. Returns count killed."""
+        """Kill all running processes, optionally filtered by task_id. Returns count killed.
+
+        ``spare_detached`` leaves alive processes the agent deliberately
+        detached from their worker (see ``_is_owned``); gateway shutdown uses
+        it so restarts and updates don't close apps Clover opened.
+        """
         with self._lock:
             targets = [
                 s for s in self._running.values()
@@ -2958,10 +3143,12 @@ class ProcessRegistry:
 
         killed = 0
         for session in targets:
+            extra = {"spare_detached": True} if spare_detached else {}
             result = self.kill_process(
                 session.id,
                 source=source,
                 consume_output=consume_output,
+                **extra,
             )
             if result.get("status") in {"killed", "already_exited"}:
                 killed += 1

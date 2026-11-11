@@ -204,7 +204,7 @@ async def test_gateway_stop_kills_tool_subprocesses_before_adapter_disconnect_on
 
     call_order: list[str] = []
 
-    def _fake_kill_all(task_id=None):
+    def _fake_kill_all(task_id=None, **_kw):
         call_order.append("kill_all")
         return 2
 
