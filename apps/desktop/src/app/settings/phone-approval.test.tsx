@@ -76,6 +76,24 @@ describe('PhoneApprovalHost', () => {
     expect(post.body.capabilities).not.toContain('control_drive')
   })
 
+  it('trust is off by default and is sent when switched on', async () => {
+    api.mockImplementation(async (req: { method?: string }) => (req.method === 'POST' ? { device: {} } : { devices: [pendingDevice()] }))
+    render(<PhoneApprovalHost />)
+    await screen.findByTestId('match-code')
+
+    const toggle = screen.getByRole('switch', { name: 'Trust this phone' })
+
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(toggle)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    })
+
+    const post = api.mock.calls.map(c => c[0]).find((r: { method?: string }) => r.method === 'POST')
+
+    expect(post.body.trust).toBe(true)
+  })
+
   it('Deny posts deny', async () => {
     api.mockImplementation(async (req: { method?: string }) => (req.method === 'POST' ? { device: {} } : { devices: [pendingDevice()] }))
     render(<PhoneApprovalHost />)

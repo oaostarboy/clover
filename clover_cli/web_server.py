@@ -7527,6 +7527,7 @@ def _require_desktop_owner(request: Request) -> None:
 class _DeviceDecision(BaseModel):
     capabilities: Optional[List[str]] = None
     request_id: Optional[str] = None
+    trust: Optional[bool] = None
 
 
 def _device_decision(fn, *args):
@@ -7548,8 +7549,19 @@ async def approve_mobile_device(device_id: str, body: _DeviceDecision, request: 
     row = await asyncio.to_thread(
         _device_decision,
         lambda: store.approve(device_id, body.capabilities if body.capabilities is not None else [],
-                              request_id=body.request_id))
+                              request_id=body.request_id, trust=body.trust))
     await asyncio.to_thread(_release_desk_for_device, device_id)
+    return {"device": row}
+
+
+@app.post("/api/mobile/devices/{device_id}/trust")
+async def trust_mobile_device(device_id: str, body: _DeviceDecision, request: Request):
+    """Desktop owner only. A phone can never mark itself (or another phone) trusted."""
+    _require_desktop_owner(request)
+    from clover_cli.mobile_pairing import get_device_store
+
+    row = await asyncio.to_thread(
+        _device_decision, get_device_store().set_trusted, device_id, bool(body.trust))
     return {"device": row}
 
 

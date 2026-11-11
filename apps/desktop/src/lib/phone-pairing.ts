@@ -30,6 +30,8 @@ export interface PairedDevice {
   name: string
   pending_request?: PhoneAccessRequest
   status?: 'approved' | 'pending'
+  /** Owner-trusted: keeps its rights until removed, no repeat approvals. */
+  trusted?: boolean
 }
 
 export interface PhoneAccessRequest {

@@ -404,3 +404,121 @@ def test_telegram_notice_uses_home_channel_and_env_token(monkeypatch):
     monkeypatch.setattr(smt, "_send_to_platform", fake_send)
     n._send_telegram("iPhone wants Crew view. Code 4821. Approve in Clover on your PC.")
     assert sent["chat"] == "8172525590" and sent["token"] == "tok" and "4821" in sent["text"]
+
+
+# ---- trusted phone -----------------------------------------------------------------------
+
+DAY = 86400
+
+
+def _approved(env, caps=("chat", "control_drive"), trust=None):
+    dev = env.store.create("p", pending=True)
+    env.store.authenticate(dev["token"])  # first use, so the unused-code clock is off
+    env.store.approve(dev["id"], list(caps), trust=trust)
+    return dev
+
+
+def test_trusted_control_drive_never_lapses(env):
+    dev = _approved(env, trust=True)
+    for _ in range(40):
+        env.clock.t += 10 * DAY
+        p = env.store.authenticate(dev["token"])
+        assert p is not None and "control_drive" in p.capabilities and not p.lapsed
+    row = env.store.get(dev["id"])
+    assert row["trusted"] is True and row["expires"] == {}
+
+
+def test_untrusted_control_drive_still_lapses_at_one_hour(env):
+    dev = _approved(env)
+    assert "control_drive" in env.store.authenticate(dev["token"]).capabilities
+    env.clock.t += 3601
+    p = env.store.authenticate(dev["token"])
+    assert "control_drive" not in p.capabilities and "control_drive" in p.lapsed
+    assert env.store.get(dev["id"])["trusted"] is False
+
+
+def test_rolling_expiry_trusted_fixed_untrusted(env):
+    t = _approved(env, caps=("chat",), trust=True)
+    u = _approved(env, caps=("chat",))
+    for _ in range(12):  # 120 days, used every 10 days
+        env.clock.t += 10 * DAY
+        assert env.store.authenticate(t["token"]) is not None
+        env.store.authenticate(u["token"])
+    assert env.store.authenticate(t["token"]) is not None
+    assert env.store.authenticate(u["token"]) is None  # fixed 90 days from creation
+    env.clock.t += 91 * DAY  # idle 91 days: trusted token lapses too
+    assert env.store.authenticate(t["token"]) is None
+
+
+def test_live_connection_survives_last_seen_updates(env):
+    dev = _approved(env, caps=("chat",), trust=True)
+    p = env.store.authenticate(dev["token"])
+    for _ in range(5):
+        env.clock.t += 2 * DAY
+        env.store.authenticate(dev["token"])  # bumps last_seen_at
+        cur = env.store.current_principal(p)
+        assert cur is not None and cur.expires_at == p.expires_at
+    assert env.store.principal_is_active(p)
+
+
+def test_revoke_trusted_device(env):
+    dev = _approved(env, trust=True)
+    p = env.store.authenticate(dev["token"])
+    assert env.store.revoke(dev["id"])
+    assert env.store.authenticate(dev["token"]) is None
+    assert env.store.current_principal(p) is None
+
+
+def test_old_record_without_trusted_field_behaves_as_before(env):
+    dev = _approved(env)
+    raw = json.loads(env.store.path.read_text())
+    assert all("trusted" not in d for d in raw["devices"])
+    assert env.store.get(dev["id"])["trusted"] is False
+
+
+def test_trust_migrates_far_future_stopgap_expiry(env):
+    dev = _approved(env)
+    raw = json.loads(env.store.path.read_text())
+    raw["devices"][0]["grant_expires_at"]["control_drive"] = env.clock.t + 3650 * DAY
+    env.store.path.write_text(json.dumps(raw))
+    env.store.set_trusted(dev["id"], True)
+    d = json.loads(env.store.path.read_text())["devices"][0]
+    assert d["trusted"] is True and d["grant_expires_at"] == {}
+    assert "control_drive" in d["capabilities"]
+    env.store.set_trusted(dev["id"], False)  # untrust: normal 1 h clock restarts
+    d = json.loads(env.store.path.read_text())["devices"][0]
+    assert "trusted" not in d and d["grant_expires_at"]["control_drive"] == env.clock.t + 3600
+
+
+def test_trust_does_not_grant_rights_and_needs_approval(env):
+    dev = env.store.create("p", pending=True)
+    with pytest.raises(ValueError):
+        env.store.set_trusted(dev["id"], True)
+    ok = _approved(env, caps=("chat",), trust=True)
+    assert "crew_act" not in env.store.authenticate(ok["token"]).capabilities
+
+
+def test_trust_changes_are_audited(env):
+    dev = _approved(env, caps=("chat",), trust=True)
+    env.store.set_trusted(dev["id"], False)
+    methods = [e["method"] for e in env.store.audit_tail(dev["id"], 20)]
+    assert "owner.trust" in methods and "owner.untrust" in methods
+
+
+def test_trust_endpoint_owner_only_phone_gets_403(env, client):
+    from fastapi.testclient import TestClient
+    from clover_cli import web_server
+    dev = _approved(env, caps=("chat",))
+    r = client.post(f"/api/mobile/devices/{dev['id']}/trust", json={"trust": True})
+    assert r.status_code == 200 and r.json()["device"]["trusted"] is True
+    phone = TestClient(web_server.app)
+    r = phone.post(f"/api/mobile/devices/{dev['id']}/trust", json={"trust": False},
+                   headers={"Authorization": f"Bearer {dev['token']}"})
+    assert r.status_code in (401, 403)
+    assert env.store.get(dev["id"])["trusted"] is True
+
+
+def test_approve_endpoint_can_trust_in_one_step(env, client):
+    dev = env.store.create("p", pending=True)
+    r = client.post(f"/api/mobile/devices/{dev['id']}/approve", json={"capabilities": ["chat"], "trust": True})
+    assert r.json()["device"]["trusted"] is True
