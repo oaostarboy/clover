@@ -7,6 +7,9 @@ import { FlowSocket } from './flow-socket.mjs';
 
 const MAX = 8 * 1024 * 1024;
 const protocol = 'clover-relay-connector-v2';
+// /desk/stream frames: <= 900 KB by protocol, plus the 4-byte header length and JSON header.
+const DESK_MAX_FRAME = 1000000;
+const DESK_MAX_CLIENT_TEXT = 4096;
 const validBase64 = s => typeof s === 'string' && s.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(s);
 const identityValid = x => x && typeof x === 'object' && /^[a-f0-9]{32}$/.test(x.id) && /^[a-f0-9]{64}$/.test(x.secret);
 function relayURL(origin, allowInsecureLocalhost) {
@@ -76,17 +79,23 @@ export async function openConnector({ relayOrigin, identity, backendOrigin, allo
     if (m.type === 'control.result') { const done = controls.get(m.id); if (done) { controls.delete(m.id); done(null, m); } return; }
     if (m.type === 'ws.open') {
       if (!/^[a-zA-Z0-9-]{1,128}$/.test(m.id) || channels.has(m.id) || channels.size >= 4 || typeof m.ticket !== 'string' || !/^[A-Za-z0-9_-]{16,256}$/.test(m.ticket) || !Array.isArray(m.protocols) || m.protocols.length !== 2 || m.protocols[0] !== 'clover-gateway-v1' || m.protocols[1] !== `clover-gateway-ticket.${m.ticket}`) { try { send({ type: 'ws.error', id: m.id }); } catch {} return; }
-      const url = new URL('/api/ws', backend); url.protocol = 'ws:';
-      const local = new WebSocket(url, m.protocols, { maxPayload: 10 * 1024 * 1024, handshakeTimeout: 10000, followRedirects: false }); channels.set(m.id, local);
+      // `path` is optional and exact: the chat socket (default) or the pushed Control screen stream.
+      if (m.path !== undefined && m.path !== '/api/ws' && m.path !== '/desk/stream') { try { send({ type: 'ws.error', id: m.id }); } catch {} return; }
+      const desk = m.path === '/desk/stream';
+      if (desk && [...channels.values()].filter(c => c.isDesk).length >= 1) { try { send({ type: 'ws.error', id: m.id }); } catch {} return; }
+      const url = new URL(desk ? '/desk/stream?v=1' : '/api/ws', backend); url.protocol = 'ws:';
+      const local = new WebSocket(url, m.protocols, { maxPayload: desk ? DESK_MAX_FRAME : 10 * 1024 * 1024, handshakeTimeout: 10000, followRedirects: false }); channels.set(m.id, local);
+      local.isDesk = desk;
       local.on('error', () => { if (channels.get(m.id) !== local) return; try { send({ type: 'ws.error', id: m.id }); } catch {} endChannel(m.id); });
-      local.on('open', () => { if (channels.get(m.id) !== local) return; if (local.protocol !== 'clover-gateway-v1') { try { send({ type: 'ws.error', id: m.id }); } catch {} endChannel(m.id); return; } try { send({ type: 'ws.opened', id: m.id, protocol: local.protocol }); } catch { endChannel(m.id); } });
-      local.on('message', (data, binary) => { if (channels.get(m.id) !== local) return; try { if (data.length > 10 * 1024 * 1024 || (binary && data.length > 8 * 1024 * 1024)) throw Error('oversize'); send({ type: 'ws.data', id: m.id, binary, data: binary ? data.toString('base64') : data.toString('utf8') }); } catch { endChannel(m.id); } });
+      local.on('open', () => { if (channels.get(m.id) !== local) return; if (local.protocol !== 'clover-gateway-v1') { try { send({ type: 'ws.error', id: m.id }); } catch {} endChannel(m.id); return; } try { send({ type: 'ws.opened', id: m.id, protocol: local.protocol, ...(desk ? { path: '/desk/stream' } : {}) }); } catch { endChannel(m.id); } });
+      local.on('message', (data, binary) => { if (channels.get(m.id) !== local) return; try { if (data.length > 10 * 1024 * 1024 || (binary && data.length > 8 * 1024 * 1024) || (desk && data.length > DESK_MAX_FRAME)) throw Error('oversize'); send({ type: 'ws.data', id: m.id, binary, data: binary ? data.toString('base64') : data.toString('utf8') }); } catch { endChannel(m.id); } });
       local.on('close', () => { if (channels.get(m.id) !== local) return; channels.delete(m.id); try { send({ type: 'ws.close', id: m.id, code: 1000, reason: '' }); } catch {} });
       return;
     }
     if (m.type === 'ws.data' || m.type === 'ws.close') {
       const local = channels.get(m.id); if (!local) return;
       if (m.type === 'ws.close') { endChannel(m.id); return; }
+      if (local.isDesk && (m.binary !== false || typeof m.data !== 'string' || m.data.length > DESK_MAX_CLIENT_TEXT)) { endChannel(m.id); return; }
       if (local.readyState !== WebSocket.OPEN || typeof m.binary !== 'boolean' || typeof m.data !== 'string' || m.data.length > (m.binary ? 1398104 : 1048576) || (m.binary && !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(m.data))) { endChannel(m.id); return; }
       const data = m.binary ? Buffer.from(m.data, 'base64') : m.data; if (Buffer.byteLength(data) > 1048576 || local.bufferedAmount > 2 * 1024 * 1024) { endChannel(m.id); return; }
       local.send(data, { binary: m.binary }, error => { if (error) endChannel(m.id); }); return;

@@ -284,6 +284,13 @@ class Backend:
     def capture_cmd(self, d: dict, fps: int, frames: Optional[int]) -> List[str]:
         raise NotImplementedError
 
+    def raw_capture_cmd(self, d: dict, fps: int = 30) -> List[str]:
+        """Same grab as ``capture_cmd`` but raw RGB24 frames (for the pushed /desk/stream:
+        the server JPEG-encodes only frames that changed and are wanted)."""
+        cmd = self.capture_cmd(d, fps, None)
+        i = cmd.index("-c:v")
+        return cmd[:i] + ["-pix_fmt", "rgb24", "-f", "rawvideo", "-"]
+
     def capture_env(self) -> Optional[dict]:
         return None
 
@@ -924,7 +931,7 @@ def build_router(
         in_reason = None if input_allowed(s) else "input disabled by configuration"
         in_reason = in_reason or await loop.run_in_executor(None, c.backend.input_unavailable_reason)
         return {"displays": displays, "available": True, "backend": c.backend.name,
-                "input": in_reason is None, **({"input_reason": in_reason} if in_reason else {})}
+                "stream": {"v": 1}, "input": in_reason is None, **({"input_reason": in_reason} if in_reason else {})}
 
     @router.get("/desk/snapshot")
     async def desk_snapshot(request: Request, display: int = 0, w: Optional[int] = None,
@@ -982,6 +989,27 @@ def build_router(
         if reason:
             await ws.send_json({"type": "error", "error": f"desktop unavailable: {reason}"})
             await ws.close(code=1011)
+            return
+
+        if ws.query_params.get("v") == "1":
+            # Pushed frame stream for phones (clover_cli/desk_stream.py); input stays on the RPCs.
+            from clover_cli.desk_stream import StreamSession
+
+            caps_check = None
+            if device_caps_fn is not None and getattr(ws, "_clover_device_principal", None) is not None:
+                caps_check = lambda: device_caps_fn(ws)  # noqa: E731
+            _log.info("AUDIT stream client connected ip=%s", ws.client.host if ws.client else "")
+            try:
+                await StreamSession(ws, c, who=ws.client.host if ws.client else "", caps_check=caps_check).run()
+            except (WebSocketDisconnect, RuntimeError):
+                pass
+            finally:
+                _log.info("AUDIT stream client disconnected")
+                try:
+                    if ws.application_state != WebSocketState.DISCONNECTED:
+                        await ws.close()
+                except Exception:  # noqa: BLE001
+                    pass
             return
 
         client = object()
