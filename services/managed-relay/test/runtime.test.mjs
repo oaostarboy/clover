@@ -367,7 +367,7 @@ test('desk still-screenshot paths relay JPEG unchanged and pass PC 403 bodies th
   const snap = await mf.dispatchFetch(origin + '/desk/snapshot?display=1&q=60&w=800', { headers });
   assert.equal(snap.status, 200); assert.equal(snap.headers.get('content-type'), 'image/jpeg'); assert.equal(snap.headers.get('cache-control'), 'no-store');
   assert.deepEqual(Buffer.from(await snap.arrayBuffer()), jpeg(100000));
-  assert.equal((await mf.dispatchFetch(origin + '/desk/stream', { headers })).status, 404);
+  assert.equal((await mf.dispatchFetch(origin + '/desk/stream', { headers })).status, 400); // a plain GET is not a WebSocket upgrade (stream is WS-only, see desk-stream.test.mjs)
   assert.equal((await mf.dispatchFetch(origin + '/desk/input', { method: 'POST', headers })).status, 404);
   assert.equal((await mf.dispatchFetch(origin + '/desk/displays')).status, 401);
 });

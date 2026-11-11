@@ -89,6 +89,11 @@ const stableProtocol = 'clover-gateway-v1';
 const phoneFlowProtocol = 'clover-relay-flow-v1';
 const ticketPrefix = 'clover-gateway-ticket.';
 const wsLimit = 1024 * 1024; // phone -> gateway frames
+// Control screen stream (/desk/stream): pushed JPEG frames, one stream per device.
+const deskFrameLimit = 1000000;         // protocol caps a frame message at 900 KB; headroom for the header
+const deskClientTextLimit = 4096;       // phone -> PC is tiny JSON (start/update/ack/stop)
+const deskBytesPerSecond = 6 * 1024 * 1024;
+const deskClientMessagesPerSecond = 120;
 const wsDownLimit = 10 * 1024 * 1024; // gateway -> phone frames (session history / resume replies can be several MB)
 const FORWARD_QUEUE_BYTES = 8 * 1024 * 1024;
 const PUSH_DEDUPE_MS = 10 * 60 * 1000;
@@ -137,6 +142,11 @@ export class Installation {
             const phone = channel.flow ? new FlowSocket(rawPhone, { reserve: reserveTransport, maxMessageBytes: wsDownLimit, queueBytes: wsDownLimit }) : rawPhone; channel.phone = phone;
             phone.addEventListener('message', async e => {
               if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
+              if (channel.path === '/desk/stream') {
+                // Only small control text goes up; anything else, or a flood of acks, ends just this stream.
+                const nowMs = Date.now(); if (nowMs - (channel.upWindow || 0) >= 1000) { channel.upWindow = nowMs; channel.upCount = 0; }
+                if (typeof e.data !== 'string' || e.data.length > deskClientTextLimit || ++channel.upCount > deskClientMessagesPerSecond) { this.endChannel(m.id, 1008, 'invalid stream message'); return; }
+              }
               if (e.data instanceof Blob && e.data.size > wsLimit) { this.endChannel(m.id, 1009, 'frame too large'); return; }
               const binary = typeof e.data !== 'string'; const bytes = binary ? new Uint8Array(e.data instanceof Blob ? await e.data.arrayBuffer() : e.data) : new TextEncoder().encode(e.data);
               if (this.channels.get(m.id) !== channel || epoch !== this.epoch) return;
@@ -291,6 +301,8 @@ export class Installation {
           const channel = this.channels.get(m.id); if (!channel || channel.epoch !== epoch) return;
           if (m.type === 'ws.opened') {
             if (!channel.finish || m.protocol !== stableProtocol) { this.endChannel(m.id, 1008, 'invalid protocol'); return; }
+            // An older desktop would silently open the chat socket for a stream request; refuse that.
+            if ((channel.path || undefined) !== (m.path || undefined)) { this.endChannel(m.id, 1008, 'desktop update required'); return; }
             // ws.data from the connector can arrive while we await storage; make it wait for the phone socket.
             let opened; channel.opening = new Promise(r => { opened = r; });
             try { await this.openPhone(m, channel, epoch, server); } finally { channel.opening = null; opened(); }
@@ -300,6 +312,12 @@ export class Installation {
           if (m.type === 'ws.error') { slog('connector_ws_error', { ch: cid(m.id) }); this.endChannel(m.id, 1011, 'backend unavailable'); }
           else if (m.type === 'ws.close') this.endChannel(m.id, 1000, '');
           else {
+            if (channel.path === '/desk/stream') {
+              const sz = typeof m.data === 'string' ? m.data.length : 0; const nowMs = Date.now();
+              if (nowMs - (channel.downWindow || 0) >= 1000) { channel.downWindow = nowMs; channel.downBytes = 0; }
+              channel.downBytes += Math.ceil(sz * 3 / 4);
+              if (typeof m.data !== 'string' || sz > Math.ceil(deskFrameLimit * 4 / 3) + 4 || channel.downBytes > deskBytesPerSecond) { slog('desk_stream_limit', { ch: cid(m.id), bytes: channel.downBytes }); this.endChannel(m.id, 1008, 'stream rate limit'); return; }
+            }
             if (!channel.phone || typeof m.binary !== 'boolean' || typeof m.data !== 'string' || m.data.length > wsDownLimit || (m.binary && !validBase64(m.data))) { this.endChannel(m.id, 1008, 'invalid frame'); return; }
             try {
               const data = m.binary ? Uint8Array.from(atob(m.data), c => c.charCodeAt(0)) : m.data;
@@ -399,16 +417,18 @@ export class Installation {
       if (!device || !validTicket(ticket)) { slog('open_ws_reject', { reason: 'open_ws_unauthorized' }); return reply({ error: 'unauthorized' }, 401); }
       if (!this.socket) { slog('open_ws_reject', { reason: 'open_ws_offline' }); return reply({ error: 'offline' }, 503); }
       if (this.channels.size >= 4) { slog('open_ws_reject', { reason: 'open_ws_busy' }); return reply({ error: 'busy' }, 503); }
+      const path = request.headers.get('x-relay-path') === '/desk/stream' ? '/desk/stream' : undefined;
+      if (path && [...this.channels.values()].some(c => c.path === path && c.deviceHash === deviceHash)) { slog('open_ws_reject', { reason: 'desk_stream_exists' }); return reply({ error: 'busy' }, 503); }
       const id = crypto.randomUUID(), socket = this.socket, epoch = this.epoch;
       return await new Promise(resolve => {
-        const channel = { deviceHash, epoch, socket, finish: resolve, phone: null, flow: request.headers.get('x-relay-phone-flow') === 'v1' };
+        const channel = { deviceHash, epoch, socket, finish: resolve, phone: null, flow: request.headers.get('x-relay-phone-flow') === 'v1', path };
         this.channels.set(id, channel);
         slog('channel_open_requested', { ch: cid(id), flow: channel.flow });
         const configured = boundedNumber(this.env.REQUEST_TIMEOUT_MS, 15000, 120000);
         const timeout = this.env.ALLOW_TEST_TIMEOUT === 'true' ? Math.max(100, configured) : Math.max(5000, configured);
         channel.timer = setTimeout(() => this.endChannel(id, 1011, 'deadline exceeded'), timeout);
         this.revokeChannels(identity.devices);
-        try { socket.send(JSON.stringify({ type: 'ws.open', id, ticket, protocols: [stableProtocol, ticketPrefix + ticket] })); }
+        try { socket.send(JSON.stringify({ type: 'ws.open', id, ticket, protocols: [stableProtocol, ticketPrefix + ticket], ...(path ? { path } : {}) })); }
         catch { this.endChannel(id, 1011, 'offline'); }
       });
     }
@@ -561,7 +581,7 @@ export default {
     const response = await this.handle(request, env);
     try {
       const path = new URL(request.url).pathname;
-      if (path === '/api/ws' || path === '/api/auth/ws-ticket' || (path.startsWith('/api/') && response.status >= 400)) slog('api_request', { path, method: request.method, status: response.status, reason: reasons.get(request), ...reqFacts(request) });
+      if (path === '/api/ws' || path === '/desk/stream' || path === '/api/auth/ws-ticket' || (path.startsWith('/api/') && response.status >= 400)) slog('api_request', { path, method: request.method, status: response.status, reason: reasons.get(request), ...reqFacts(request) });
     } catch {}
     return response;
   },
@@ -599,7 +619,7 @@ export default {
       if (status && request.method === 'GET' && !url.search) return obj(env.INSTALLATIONS, status[1]).fetch(new Request('https://internal/status', request));
       const connector = /^\/v1\/installations\/([a-f0-9]{32})\/connect$/.exec(url.pathname);
       if (connector && request.method === 'GET' && !url.search) return obj(env.INSTALLATIONS, connector[1]).fetch(new Request('https://internal/connect', request));
-      if (url.pathname === '/api/ws') {
+      if (url.pathname === '/api/ws' || url.pathname === '/desk/stream') {
         if (request.method !== 'GET') return R({ error: 'invalid upgrade' }, 400, 'bad_method');
         if (url.search) return R({ error: 'invalid upgrade' }, 400, 'has_query');
         if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return R({ error: 'invalid upgrade' }, 400, 'not_upgrade');
@@ -621,7 +641,7 @@ export default {
         // iOS Build 54's flow client caps its send queue at 16 and tears the socket down on its
         // opening request burst; the plain protocol (same one direct gateways use) has no such cap.
         const useFlow = flow && env.PHONE_FLOW !== 'off';
-        const forwarded = await obj(env.INSTALLATIONS, id).fetch('https://internal/open-ws', { method: 'GET', headers: { Upgrade: 'websocket', 'x-relay-ticket': ticket, 'x-relay-device-hash': deviceHash, 'x-relay-phone-flow': useFlow ? 'v1' : 'legacy' } });
+        const forwarded = await obj(env.INSTALLATIONS, id).fetch('https://internal/open-ws', { method: 'GET', headers: { Upgrade: 'websocket', 'x-relay-ticket': ticket, 'x-relay-device-hash': deviceHash, 'x-relay-phone-flow': useFlow ? 'v1' : 'legacy', ...(url.pathname === '/desk/stream' ? { 'x-relay-path': '/desk/stream' } : {}) } });
         reasons.set(request, forwarded.status === 101 ? 'forward_ok' : 'forward_status_' + forwarded.status);
         return forwarded;
       }
