@@ -7387,7 +7387,6 @@ def _relaunch_desktop_after_rebuild() -> bool:
     """
     try:
         kwargs: dict = {
-            "stdin": subprocess.DEVNULL,
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.DEVNULL,
             "cwd": str(PROJECT_ROOT),
@@ -7400,7 +7399,11 @@ def _relaunch_desktop_after_rebuild() -> bool:
             )
         else:
             kwargs["start_new_session"] = True
-        subprocess.Popen([sys.executable, "-m", "clover_cli.main", "desktop"], **kwargs)
+        subprocess.Popen(
+            [sys.executable, "-m", "clover_cli.main", "desktop"],
+            stdin=subprocess.DEVNULL,
+            **kwargs,
+        )
         print("  ✓ Restarted the desktop app on the new build")
         return True
     except Exception as exc:  # noqa: BLE001
