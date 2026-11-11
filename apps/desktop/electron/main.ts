@@ -83,6 +83,12 @@ import {
   BROWSER_WINDOW_WIDTH,
   buildBrowserWindowUrl
 } from './browser-windows'
+import {
+  BUILD_UPDATE_POLL_MS,
+  type BuildIdentity,
+  createBuildUpdateController,
+  resolveRelaunchStrategy
+} from './build-update'
 import { detectBundleSkew } from './bundle-skew'
 import { applyConnectionChange, teardownSshState } from './connection-apply'
 import {
@@ -15876,6 +15882,107 @@ ipcMain.on('clover:active-work', (event, payload) => {
   updateStreamThrottleFromActiveWork()
 })
 
+// ─── Restart into a newer installed build ─────────────────────────────────
+// `clover update` rebuilds the packaged app in place, but this process keeps
+// the code it started with. Watch the install stamp (rewritten by every
+// build); when it differs from the running one, restart at an idle moment
+// (no chat mid-turn, no phone turn or /desk/stream viewer on the relay, ~60 s
+// without input) or offer a calm "Restart to update" in the window.
+let lastUserInputAt = Date.now()
+let buildUpdateOffered = false
+let buildUpdateTimer: NodeJS.Timeout | null = null
+
+ipcMain.on('clover:user-activity', () => {
+  lastUserInputAt = Date.now()
+})
+
+ipcMain.on('clover:build-update:ready', event => {
+  event.sender.send('clover:build-update:offer', buildUpdateOffered)
+})
+
+function readInstalledBuild(): BuildIdentity | null {
+  if (!INSTALL_STAMP?.path) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(INSTALL_STAMP.path, 'utf8'))
+
+    if (parsed?.schemaVersion !== INSTALL_STAMP.schemaVersion || typeof parsed.commit !== 'string') {
+      return null
+    }
+
+    return { commit: parsed.commit, builtAt: typeof parsed.builtAt === 'string' ? parsed.builtAt : null }
+  } catch {
+    // Mid-rebuild or removed: never treat an unreadable stamp as "newer".
+    return null
+  }
+}
+
+async function relaunchIntoInstalledBuild() {
+  // Keep the window where the user left it; the new instance restores it.
+  persistWindowState()
+
+  let cgroup: null | string = null
+
+  try {
+    cgroup = fs.readFileSync('/proc/self/cgroup', 'utf8')
+  } catch {
+    cgroup = null
+  }
+
+  const strategy = resolveRelaunchStrategy({ cgroup, env: process.env, platform: process.platform })
+
+  if (strategy.kind === 'systemd-restart') {
+    // The unit owns this process (and its cgroup); restart it so ExecStart,
+    // environment and supervision stay exactly as the user set them up.
+    rememberLog(`[build-update] restarting systemd user unit ${strategy.unit}`)
+    const child = spawn('systemctl', ['--user', 'restart', strategy.unit], { detached: true, stdio: 'ignore' })
+
+    child.on('error', err => rememberLog(`[build-update] systemctl failed: ${err?.message || err}`))
+    child.unref()
+
+    return
+  }
+
+  // Plain process, macOS app, Windows: Electron starts the same executable
+  // with the same arguments once this process has exited. The single-instance
+  // lock is released by the exit, and startup re-dials the relay connector.
+  app.relaunch()
+  await exitAfterBackendShutdown(0)
+}
+
+const buildUpdate = createBuildUpdateController({
+  activeChatCount: () => mergeActiveWork(activeWorkByWebContents.values()).count,
+  lastInputAt: () => lastUserInputAt,
+  log: rememberLog,
+  offerRestart: offered => {
+    buildUpdateOffered = offered
+
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('clover:build-update:offer', offered)
+      }
+    }
+  },
+  readInstalled: readInstalledBuild,
+  relay: () => desktopPhonePairing.activity(),
+  relaunch: relaunchIntoInstalledBuild,
+  running: INSTALL_STAMP ? { commit: INSTALL_STAMP.commit, builtAt: INSTALL_STAMP.builtAt } : null,
+  updateInFlight: () => updateInFlight || Boolean(readLiveUpdateMarker(CLOVER_HOME))
+})
+
+ipcMain.handle('clover:build-update:restart', async () => buildUpdate.restartNow())
+
+function startBuildUpdateWatcher() {
+  if (!IS_PACKAGED || !INSTALL_STAMP || buildUpdateTimer) {
+    return
+  }
+
+  buildUpdateTimer = setInterval(() => void buildUpdate.tick(), BUILD_UPDATE_POLL_MS)
+  buildUpdateTimer.unref?.()
+}
+
 ipcMain.on('clover:titlebar-theme', (_event, payload) => {
   if (!payload || !isHexColor(payload.background) || !isHexColor(payload.foreground)) {
     return
@@ -16808,6 +16915,7 @@ app.whenReady().then(() => {
   registerPowerResumeListeners()
   registerDesktopPhoneRelayPowerListeners()
   startDesktopPhoneRelayLink()
+  startBuildUpdateWatcher()
   keepAwake.set(readPersistedKeepAwake())
   f12Blocked = readPersistedDisableF12()
   // Seed this before the first window exists: a picker can open before

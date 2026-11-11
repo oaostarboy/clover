@@ -254,6 +254,17 @@ contextBridge.exposeInMainWorld('cloverDesktop', {
   watchDirectory: dir => ipcRenderer.invoke('clover:watchDirectory', dir),
   stopPreviewFileWatch: id => ipcRenderer.invoke('clover:stopPreviewFileWatch', id),
   setActiveWork: payload => ipcRenderer.send('clover:active-work', payload),
+  reportUserActivity: () => ipcRenderer.send('clover:user-activity'),
+  buildUpdate: {
+    restart: () => ipcRenderer.invoke('clover:build-update:restart'),
+    onOffer: callback => {
+      const listener = (_event, offered) => callback(Boolean(offered))
+      ipcRenderer.on('clover:build-update:offer', listener)
+      ipcRenderer.send('clover:build-update:ready')
+
+      return () => ipcRenderer.removeListener('clover:build-update:offer', listener)
+    }
+  },
   setTitleBarTheme: payload => ipcRenderer.send('clover:titlebar-theme', payload),
   setNativeTheme: mode => ipcRenderer.send('clover:native-theme', mode),
   setTranslucency: payload => ipcRenderer.send('clover:translucency', payload),

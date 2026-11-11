@@ -1,6 +1,7 @@
 import './styles.css'
 // Side-effect: reports in-flight turns to the main process for the quit guard.
 import './store/active-work'
+import './store/build-update'
 // Side-effect: mirrors the machine's AC/battery state for poll demotion.
 import './store/power'
 // Side-effect: applies the persisted window translucency on load.

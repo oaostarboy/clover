@@ -87,7 +87,9 @@ def test_successful_rebuild_returns_true(desktop_env, monkeypatch, capsys):
     )
     assert _run(desktop_dir) is True
     assert len(builds) == 1
-    assert "Desktop app up to date" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Desktop app updated (will restart when idle)" in out
+    assert "Desktop app up to date" not in out
 
 
 def test_up_to_date_desktop_returns_true_without_spawning(desktop_env):
