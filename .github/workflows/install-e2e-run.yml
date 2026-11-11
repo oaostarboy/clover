@@ -81,6 +81,13 @@ jobs:
           echo "--- subuid/subgid for $(id -un)"
           grep "^$(id -un):" /etc/subuid /etc/subgid || echo "  (none — sandbox will say so)"
 
+      # A release can point at this exact checkout. Keep that release as the
+      # installed base while exercising a marker-only child as the update target.
+      - name: Prepare distinct update target
+        env:
+          INSTALL_REF: ${{ inputs.install-ref }}
+        run: python3 scripts/sandbox/prepare_update_target.py --install-ref "$INSTALL_REF"
+
       - name: Run install + update E2E
         run: |
           set -euo pipefail
