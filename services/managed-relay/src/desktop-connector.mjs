@@ -6,6 +6,15 @@ import { allowMobileRequest } from './admission.mjs';
 import { FlowSocket } from './flow-socket.mjs';
 
 const MAX = 8 * 1024 * 1024;
+// One relay HTTP exchange carries at most MAX bytes, so a media Range request is served as a bounded window (the phone's player asks for the next one).
+const RANGE_WINDOW = 4 * 1024 * 1024;
+export function boundedRange(value) {
+  const match = typeof value === 'string' ? /^bytes=(\d{0,15})-(\d{0,15})$/.exec(value.trim()) : null;
+  if (!match || (!match[1] && !match[2])) return null;
+  if (!match[1]) return `bytes=-${Math.min(Number(match[2]), RANGE_WINDOW)}`;
+  const start = Number(match[1]); const end = match[2] ? Math.min(Number(match[2]), start + RANGE_WINDOW - 1) : start + RANGE_WINDOW - 1;
+  return end < start ? null : `bytes=${start}-${end}`;
+}
 const protocol = 'clover-relay-connector-v2';
 // /desk/stream frames: <= 900 KB by protocol, plus the 4-byte header length and JSON header.
 const DESK_MAX_FRAME = 1000000;
@@ -101,7 +110,12 @@ export async function openConnector({ relayOrigin, identity, backendOrigin, allo
       const data = m.binary ? Buffer.from(m.data, 'base64') : m.data; if (Buffer.byteLength(data) > 1048576 || local.bufferedAmount > 2 * 1024 * 1024) { endChannel(m.id); return; }
       local.send(data, { binary: m.binary }, error => { if (error) endChannel(m.id); }); return;
     }
-    if (m.type !== 'http.request' || active >= 8 || !allowMobileRequest(m.method, m.target) || typeof m.body !== 'string' || m.body.length > 11184812 || !validBase64(m.body)) return;
+    if (m.type !== 'http.request') return;
+    // Answer a refusal instead of dropping it: a silent drop leaves the relay waiting out its whole deadline (504) and the phone never learns why.
+    const refuse = (status, error) => { try { send({ type: 'http.response', id: m.id, status, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify({ error })).toString('base64') }); } catch {} };
+    if (!allowMobileRequest(m.method, m.target)) return refuse(403, 'forbidden');
+    if (active >= 8) return refuse(503, 'busy');
+    if (typeof m.body !== 'string' || m.body.length > 11184812 || !validBase64(m.body)) return refuse(400, 'invalid request');
     active++; const job = new AbortController(); httpJobs.add(job);
     // Transfer ownership into one of two bounded HTTP jobs (up to 8, matching the relay's default in-flight limit), acknowledging the
     // request before its response can begin. These jobs never replay requests.
@@ -116,15 +130,16 @@ export async function openConnector({ relayOrigin, identity, backendOrigin, allo
       if (typeof authorization !== 'string' || !/^Bearer cdt_[A-Za-z0-9_-]{16,256}$/.test(authorization)) throw Error('invalid authorization');
       const headers = { authorization };
       for (const h of ['content-type', 'accept', 'if-none-match']) if (typeof m.headers[h] === 'string' && m.headers[h].length <= 1024) headers[h] = m.headers[h];
+      const range = boundedRange(m.headers.range); if (range) headers.range = range;
       const init = { method: m.method, headers, redirect: 'manual', signal: AbortSignal.any([job.signal, AbortSignal.timeout(30000)]) };
       if (!['GET', 'HEAD'].includes(m.method)) init.body = body;
       const response = await fetch(new URL(m.target, backend), init);
-      if (Number(response.headers.get('content-length') || 0) > MAX) throw Error('response too large');
+      if (Number(response.headers.get('content-length') || 0) > MAX) { await response.body?.cancel().catch(() => {}); if (ws.readyState === WebSocket.OPEN) send({ type: 'http.response', id: m.id, status: 413, headers: { 'content-type': 'application/json' }, body: Buffer.from('{"error":"too large"}').toString('base64') }); return; }
       const reader = response.body?.getReader(); const chunks = []; let length = 0;
       if (reader) while (true) { const { value, done } = await reader.read(); if (done) break; length += value.length; if (length > MAX) { await reader.cancel(); throw Error('response too large'); } chunks.push(value); }
       const contentType = response.headers.get('content-type');
       const outHeaders = contentType ? { 'content-type': contentType } : {};
-      for (const h of ['etag', 'cache-control']) { const v = response.headers.get(h); if (v) outHeaders[h] = v; }
+      for (const h of ['etag', 'cache-control', 'content-range', 'accept-ranges']) { const v = response.headers.get(h); if (v) outHeaders[h] = v; }
       if (ws.readyState === WebSocket.OPEN) send({ type: 'http.response', id: m.id, status: response.status, headers: outHeaders, body: Buffer.concat(chunks).toString('base64') });
     } catch { if (ws.readyState === WebSocket.OPEN) { try { send({ type: 'http.response', id: m.id, status: 502, headers: { 'content-type': 'application/json' }, body: Buffer.from('{"error":"backend unavailable"}').toString('base64') }); } catch {} } }
     finally { httpJobs.delete(job); active--; }

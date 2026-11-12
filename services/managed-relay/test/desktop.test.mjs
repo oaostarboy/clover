@@ -8,7 +8,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { buildSync } from 'esbuild';
 import { Miniflare } from 'miniflare';
 import WebSocket, { WebSocketServer } from 'ws';
-import { loadOrCreateIdentity, ensureEnrolled, openConnector } from '../src/desktop-connector.mjs';
+import { loadOrCreateIdentity, ensureEnrolled, openConnector, boundedRange } from '../src/desktop-connector.mjs';
 import { FlowSocket } from '../src/flow-socket.mjs';
 
 test('desktop persists before enrollment and forwards to its loopback backend', async t => {
@@ -166,4 +166,32 @@ test('standalone connector relays local WebSocket text and binary', { timeout: 1
   await upgradeArrived;
   await connector.replaceDevices([]);
   assert.notEqual(await result, 101);
+});
+
+test('connector carries Creations thumbnails and files to the gateway (was dropped silently, so the phone saw 504)', { timeout: 20000 }, async t => {
+  buildSync({ entryPoints: ['src/worker.mjs'], outfile: 'dist/worker.mjs', bundle: true, format: 'esm', platform: 'neutral' });
+  const mf = new Miniflare({ workers: [{ name: 'relay', modules: true, scriptPath: 'dist/worker.mjs', compatibilityDate: '2026-07-30', bindings: { ENROLLMENT_ENABLED: 'true' }, durableObjects: { INSTALLATIONS: { className: 'Installation', useSQLite: true }, DIRECTORY: { className: 'Directory', useSQLite: true }, GUARD: { className: 'Guard', useSQLite: true } } }] });
+  t.after(() => mf.dispose()); const origin = (await mf.ready).origin;
+  const dir = await mkdtemp(join(tmpdir(), 'relay-media-')); t.after(() => rm(dir, { recursive: true, force: true }));
+  const { identity } = await ensureEnrolled(origin, join(dir, 'identity'), { allowInsecureLocalhost: true });
+  const token = 'cdt_' + randomBytes(32).toString('hex'); const seen = [];
+  const backend = createServer((req, res) => { seen.push(req.url); res.writeHead(200, { 'content-type': req.url.startsWith('/api/artifacts/thumb') ? 'image/jpeg' : 'application/json' }); res.end(Buffer.alloc(1500, 9)); });
+  await new Promise(resolve => backend.listen(0, '127.0.0.1', resolve)); t.after(() => { backend.closeAllConnections(); backend.close(); });
+  const connector = await openConnector({ relayOrigin: origin, identity, backendOrigin: `http://127.0.0.1:${backend.address().port}`, allowInsecureLocalhost: true });
+  t.after(() => connector.close());
+  await connector.replaceDevices([{ hash: createHash('sha256').update(token).digest('hex'), expiresAt: Date.now() + 60000 }]);
+  const headers = { Authorization: `Bearer ${token}` };
+  const thumb = await fetch(origin + '/api/artifacts/thumb?id=0123456789abcdef&size=480', { headers });
+  assert.equal(thumb.status, 200); assert.equal((await thumb.arrayBuffer()).byteLength, 1500);
+  const file = await fetch(origin + '/api/files/download?path=' + encodeURIComponent('/home/a/pic.png'), { headers });
+  assert.equal(file.status, 200); assert.equal((await file.arrayBuffer()).byteLength, 1500);
+  assert.deepEqual(seen, ['/api/artifacts/thumb?id=0123456789abcdef&size=480', '/api/files/download?path=%2Fhome%2Fa%2Fpic.png']);
+});
+
+test('boundedRange keeps a media Range request inside one relay exchange', () => {
+  assert.equal(boundedRange('bytes=0-1023'), 'bytes=0-1023');
+  assert.equal(boundedRange('bytes=100-'), 'bytes=100-4194403');
+  assert.equal(boundedRange('bytes=0-99999999'), 'bytes=0-4194303');
+  assert.equal(boundedRange('bytes=-500'), 'bytes=-500');
+  for (const bad of ['bytes=0-1,5-9', 'items=0-1', 'bytes=5-1', 'bytes=-', undefined]) assert.equal(boundedRange(bad), null, String(bad));
 });
