@@ -135,6 +135,7 @@ def register_artifact(env, monkeypatch, path):
     real = tmp = env.tmp / "pic.png"
     real.write_bytes(b"x")
     monkeypatch.setattr(artifact_index, "lookup", lambda home, i: str(real) if i == aid and path == str(tmp) else None)
+    monkeypatch.setattr(artifact_index, "lookup_listed", lambda home, i: str(real) if i == aid and path == str(tmp) else None)
     return aid
 
 

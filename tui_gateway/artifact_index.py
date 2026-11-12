@@ -316,6 +316,24 @@ def save_registry(home: Path, items: List[Dict[str, Any]]) -> None:
     tmp = root / "registry.json.tmp"
     tmp.write_text(json.dumps(data), encoding="utf-8")
     os.replace(tmp, root / "registry.json")
+    # Every listed kind (audio, docs, html, code, files too): a paired phone may download exactly these, never an arbitrary path.
+    tmp = root / "listed.json.tmp"
+    tmp.write_text(json.dumps({a["id"]: a["path"] for a in items}), encoding="utf-8")
+    os.replace(tmp, root / "listed.json")
+
+
+def lookup_listed(home: Path, aid: str) -> Optional[str]:
+    """Path of any file ``artifacts.list`` returned (all kinds), by id; None when it was never listed."""
+    if not re.fullmatch(r"[0-9a-f]{16}", aid or ""):
+        return None
+    try:
+        data = json.loads((_cache_root(home) / "listed.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    path = data.get(aid) if isinstance(data, dict) else None
+    if not isinstance(path, str) or artifact_id(path) != aid or is_sensitive(path):
+        return None
+    return path if os.path.isfile(path) else None
 
 
 def lookup(home: Path, aid: str) -> Optional[str]:
