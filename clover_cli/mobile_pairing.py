@@ -235,7 +235,7 @@ def _creation_listed(path: str, request) -> bool:
         home = get_clover_home()
         if path.endswith("thumb"):
             return artifact_index.lookup(home, request.query_params.get("id", "")) is not None
-        return artifact_index.lookup(home, artifact_index.artifact_id(request.query_params.get("path", ""))) is not None
+        return artifact_index.lookup_listed(home, artifact_index.artifact_id(request.query_params.get("path", ""))) is not None
     except Exception:
         return False
 

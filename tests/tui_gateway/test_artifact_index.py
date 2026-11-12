@@ -399,3 +399,15 @@ def test_long_gap_catches_up_in_background(big_db, files, monkeypatch):
     ai.index_for(db, home, force=True)
     _wait_idle(home)
     assert files["page.html"] in {i["path"] for i in ai.index_for(db, home, force=True)}
+
+
+def test_listed_lookup_covers_every_kind_but_thumb_registry_stays_image_video(files, tmp_path):
+    home = tmp_path / "home"
+    items = _many(files, 8)
+    ai.save_registry(home, items)
+    for it in items:
+        assert ai.lookup_listed(home, it["id"]) == it["path"], it["kind"]
+    audio = next(i for i in items if i["kind"] == "audio")
+    assert ai.lookup(home, audio["id"]) is None
+    assert ai.lookup_listed(home, "0" * 16) is None
+    assert ai.lookup_listed(home, "../../etc/passwd") is None

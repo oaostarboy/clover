@@ -15,6 +15,9 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.12 | Clover C2.0.12 | 2026-11-12
+- Audio, documents, web pages and code in Creations now open on your phone instead of being refused.
+
 ## 2.0.11 | Clover C2.0.11 | 2026-11-11
 - Creations on your phone now show thumbnails and open images, audio, video and documents over the relay.
 - Audio and video can seek, and a request the desktop app cannot serve now gets a clear answer.
