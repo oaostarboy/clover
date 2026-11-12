@@ -437,3 +437,34 @@ test('desk snapshot forwards If-None-Match, returns ETag on 200 and a bodiless 3
   const x = await mf.dispatchFetch(origin + '/desk/snapshot?display=0&w=1280&q=60', { headers: { ...headers, 'If-None-Match': '"stale"' } });
   assert.equal(x.status, 200);
 });
+
+const mediaHttp = m => {
+  const bytes = Buffer.alloc(2048, 5);
+  const p = decodeURIComponent(m.target.split('path=')[1] || '');
+  if (m.target.startsWith('/api/artifacts/thumb')) return { status: 200, headers: { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=86400' }, body: jpeg(2048) };
+  if (p === '/tmp/a.mp3') return m.headers.range ? { status: 206, headers: { 'content-type': 'audio/mpeg', 'content-range': 'bytes 0-1023/2048' }, body: bytes.subarray(0, 1024) } : { status: 200, headers: { 'content-type': 'audio/mpeg' }, body: bytes };
+  if (p === '/tmp/a.html') return { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' }, body: Buffer.from('<script>1</script>') };
+  if (p === '/tmp/a.md') return { status: 200, headers: { 'content-type': 'text/markdown' }, body: Buffer.from('# hi') };
+  if (p === '/tmp/a.mp4') return { status: 200, headers: { 'content-type': 'video/mp4' }, body: bytes };
+  return { status: 404, headers: {}, body: '{}' };
+};
+
+test('Creations media: thumbnails, files, audio Range and docs reach the phone with usable types', async t => {
+  const mf = await start(); t.after(() => mf.dispose());
+  const id = makeIdentity(); await enroll(mf, id); const token = 'cdt_' + randomBytes(32).toString('hex');
+  const c = await connect(mf, id, token, 'pc', { http: mediaHttp }); t.after(() => c.ws.close());
+  const headers = { Authorization: `Bearer ${token}` };
+  const dl = (path, extra = {}) => mf.dispatchFetch(origin + '/api/files/download?path=' + encodeURIComponent(path), { headers: { ...headers, ...extra } });
+  const thumb = await mf.dispatchFetch(origin + '/api/artifacts/thumb?id=0123456789abcdef&size=480', { headers });
+  assert.equal(thumb.status, 200); assert.equal(thumb.headers.get('content-type'), 'image/jpeg'); assert.equal(thumb.headers.get('cache-control'), 'private, max-age=86400');
+  assert.equal((await thumb.arrayBuffer()).byteLength, 2048);
+  const au = await dl('/tmp/a.mp3', { Range: 'bytes=0-1023' });
+  assert.equal(au.status, 206); assert.equal(au.headers.get('content-type'), 'audio/mpeg'); assert.equal(au.headers.get('content-range'), 'bytes 0-1023/2048'); assert.equal(au.headers.get('accept-ranges'), 'bytes');
+  assert.equal((await au.arrayBuffer()).byteLength, 1024);
+  const video = await dl('/tmp/a.mp4');
+  assert.equal(video.status, 200); assert.equal(video.headers.get('content-type'), 'video/mp4'); await video.arrayBuffer();
+  const md = await dl('/tmp/a.md');
+  assert.equal(md.headers.get('content-type'), 'text/markdown'); assert.equal(await md.text(), '# hi');
+  const html = await dl('/tmp/a.html');
+  assert.match(html.headers.get('content-type'), /^text\/plain/); assert.equal(html.headers.get('x-content-type-options'), 'nosniff'); await html.arrayBuffer();
+});

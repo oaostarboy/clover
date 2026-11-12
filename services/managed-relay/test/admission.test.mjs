@@ -48,3 +48,11 @@ test('desk input never rides HTTP; it is a JSON-RPC method on the phone socket',
   for (const p of ['/desk/stream', '/desk/input', '/api/desk/input']) assert.equal(allowMobileRequest('POST', p), false);
   assert.equal(allowMobileRequest('GET', '/desk/stream'), false);
 });
+
+test('Creations media paths are admitted with exact queries only', () => {
+  assert.equal(allowMobileRequest('GET', '/api/files/download?path=/tmp/a.png'), true);
+  assert.equal(allowMobileRequest('GET', '/api/files/download?path=/tmp/a.png&token=x'), false);
+  assert.equal(allowMobileRequest('GET', '/api/artifacts/thumb?id=0123456789abcdef&size=480'), true);
+  assert.equal(allowMobileRequest('GET', '/api/artifacts/thumb?id=nothex&size=480'), false);
+  assert.equal(allowMobileRequest('POST', '/api/files/download?path=/tmp/a.png'), false);
+});
