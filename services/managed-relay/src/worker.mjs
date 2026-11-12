@@ -40,6 +40,16 @@ function leasedResponse(response, release) {
   return new Response(stream, { status, headers });
 }
 
+// Content types the relay will pass to a phone for Creations bytes. Anything else is served as an opaque download,
+// and HTML is served as text so it can never run on the relay origin.
+const MEDIA_TYPE = /^(application\/(json|octet-stream|pdf|zip|xml|x-yaml)|text\/(plain|markdown|csv|css|xml|x-[a-z0-9.+-]+)|audio\/[a-z0-9.+-]+|video\/[a-z0-9.+-]+|image\/(png|jpeg|webp|gif|heic|heif|bmp|tiff|svg\+xml))(?:\s*;[^\r\n]*)?$/i;
+function mediaContentType(value, media) {
+  if (typeof value !== 'string') return media ? 'application/octet-stream' : 'application/json';
+  if (/^text\/html\b/i.test(value)) return media ? 'text/plain; charset=utf-8' : 'application/json';
+  if (MEDIA_TYPE.test(value)) return /^image\/svg/i.test(value) ? 'application/octet-stream' : value;
+  return media ? 'application/octet-stream' : 'application/json';
+}
+
 const hex = (bytes) => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join('');
 const hash = async value => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
 const obj = (ns, name) => ns.get(ns.idFromName(name));
@@ -381,8 +391,17 @@ export class Installation {
             const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
             const headers = new Headers();
             const contentType = m.headers?.['content-type'];
-            if (typeof contentType === 'string' && /^(application\/(json|octet-stream|pdf)|text\/plain|audio\/[a-z0-9.+-]+|image\/(png|jpeg|webp))(?:\s*;[^\r\n]*)?$/i.test(contentType)) headers.set('content-type', contentType);
+            headers.set('content-type', mediaContentType(contentType, resolve.media));
+            headers.set('x-content-type-options', 'nosniff');
             headers.set('cache-control', 'no-store');
+            if (resolve.media) {
+              // Creations bytes: let players seek (Range) and keep the gateway's cache hints for thumbnails.
+              const cr = m.headers?.['content-range'];
+              if (typeof cr === 'string' && /^bytes (?:\d{1,15}-\d{1,15}|\*)\/(?:\d{1,15}|\*)$/.test(cr)) headers.set('content-range', cr);
+              headers.set('accept-ranges', 'bytes');
+              const cc = m.headers?.['cache-control'];
+              if (typeof cc === 'string' && /^[a-z0-9=, -]{1,64}$/i.test(cc) && /^private/i.test(cc)) headers.set('cache-control', cc);
+            }
             if (resolve.snapshot) {
               const etag = m.headers?.etag;
               if (typeof etag === 'string' && /^(?:W\/)?"[\x21\x23-\x7e]{1,128}"$/.test(etag)) headers.set('etag', etag);
@@ -469,7 +488,7 @@ export class Installation {
       const current = await this.state.storage.get('identity');
       if (epoch !== this.epoch || socket !== this.socket || !current?.devices.some(d => d.hash === deviceHash && d.expiresAt > Date.now())) { body = null; release(); return reply({ error: 'unavailable' }, 503); }
       const headers = {};
-      for (const name of ['authorization','content-type','accept','if-none-match']) { const value = request.headers.get(name); if (value && value.length <= 1024) headers[name] = value; }
+      for (const name of ['authorization','content-type','accept','if-none-match','range']) { const value = request.headers.get(name); if (value && value.length <= 1024) headers[name] = value; }
       const configured = boundedNumber(this.env.REQUEST_TIMEOUT_MS, 15000, 120000);
       const timeout = this.env.ALLOW_TEST_TIMEOUT === 'true' ? Math.max(100, configured) : Math.max(5000, configured);
       return await new Promise(resolve => {
@@ -481,7 +500,7 @@ export class Installation {
           else { if (finish.processing) deferredRelease = true; else release(); resolve(response); }
         };
         finish.processingDone = () => { finish.processing = false; if (deferredRelease) release(); };
-        Object.assign(finish, { ticketRequest: method === 'POST' && target === '/api/auth/ws-ticket', snapshot, started: Number(request.headers.get('x-relay-started')), deviceHash, installationId: identity.id });
+        Object.assign(finish, { media: /^\/api\/(files\/download|artifacts\/thumb)\?/.test(target), ticketRequest: method === 'POST' && target === '/api/auth/ws-ticket', snapshot, started: Number(request.headers.get('x-relay-started')), deviceHash, installationId: identity.id });
         this.pending.set(id, finish); timer = setTimeout(() => finish(reply({ error: 'deadline exceeded' }, 504)), timeout);
         try { socket.send(JSON.stringify({ type: 'http.request', id, method, target, headers, body: base64(body) })); }
         catch { finish(reply({ error: 'offline' }, 503)); }
@@ -656,7 +675,7 @@ export default {
         const { id } = await lookup.json();
         if (Number(request.headers.get('content-length') || 0) > 8 * 1024 * 1024) return reply({ error: 'too large' }, 413);
         const headers = { authorization, 'x-relay-device-hash': deviceHash, 'x-relay-method': request.method, 'x-relay-target': url.pathname + url.search, 'x-relay-started': String(started) };
-        for (const name of ['content-type', 'accept', 'if-none-match']) { const value = request.headers.get(name); if (value && value.length <= 1024) headers[name] = value; }
+        for (const name of ['content-type', 'accept', 'if-none-match', 'range']) { const value = request.headers.get(name); if (value && value.length <= 1024) headers[name] = value; }
         return obj(env.INSTALLATIONS, id).fetch('https://internal/forward', { method: 'POST', headers, body: request.body });
       }
       return reply({ error: 'not found' }, 404);
