@@ -15,6 +15,10 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.0.11 | Clover C2.0.11 | 2026-11-11
+- Creations on your phone now show thumbnails and open images, audio, video and documents over the relay.
+- Audio and video can seek, and a request the desktop app cannot serve now gets a clear answer.
+
 ## 2.0.10 | Clover C2.0.10 | 2026-11-11
 - The desktop app now updates with Clover and restarts itself when you're not using it.
 

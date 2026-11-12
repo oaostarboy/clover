@@ -27,3 +27,9 @@ test('admits only still-screenshot desk GETs', () => {
   assert.equal(allowMobileRequest('GET', '/desk/snapshot'), true);
   for (const [m, p] of [['GET', '/desk/stream'], ['POST', '/desk/snapshot'], ['POST', '/desk/input'], ['GET', '/desk/snapshot?x=1'], ['GET', '/desk/snapshot?display=1&display=2'], ['GET', '/desk/displays?a=1'], ['GET', '/desk/snapshot/'], ['GET', '/desk/%73napshot']]) assert.equal(allowMobileRequest(m, p), false, p);
 });
+
+test('Creations media paths are admitted by the connector copy too', () => {
+  assert.equal(allowMobileRequest('GET', '/api/files/download?path=/tmp/a.png'), true);
+  assert.equal(allowMobileRequest('GET', '/api/artifacts/thumb?id=0123456789abcdef&size=480'), true);
+  assert.equal(allowMobileRequest('GET', '/api/files/download?path=/tmp/a.png&token=x'), false);
+});
