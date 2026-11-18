@@ -1132,6 +1132,77 @@ def _owned_database_update_pending(conn: sqlite3.Connection) -> bool:
         return True
 
 
+# --- Network filesystem detection (2.1; adapted from upstream 28bd0fca3f) ---
+# SQLite locking (fcntl + WAL -shm mmap) is unreliable on NFS/SMB/sshfs once
+# more than one process writes. Single-writer homes work, so only warn.
+_NETWORK_FS_FSTYPES = frozenset({"nfs", "nfs4", "cifs", "smb", "smb2", "sshfs", "fuse.sshfs"})
+_network_fs_warned_paths: set = set()
+_network_fs_warned_lock = threading.Lock()
+
+
+def _mountinfo_fstype(directory: str, mountinfo_path: str = "/proc/self/mountinfo") -> str:
+    """fstype of the longest mount point prefixing ``directory`` ("" if unknown)."""
+    best_len, best_type = -1, ""
+    try:
+        with open(mountinfo_path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                left, sep, right = line.partition(" - ")
+                if not sep:
+                    continue
+                fields = left.split()
+                if len(fields) < 5:
+                    continue
+                mount_point = fields[4].replace("\\040", " ")
+                rfields = right.split()
+                if not rfields:
+                    continue
+                if directory == mount_point or directory.startswith(mount_point.rstrip("/") + "/") or mount_point == "/":
+                    if len(mount_point) > best_len:
+                        best_len, best_type = len(mount_point), rfields[0]
+    except OSError:
+        return ""
+    return best_type
+
+
+def _path_on_network_fs(path: str, mountinfo_path: str = "/proc/self/mountinfo") -> bool:
+    """True when ``path`` lives on an nfs/cifs/smb/sshfs mount (Linux only)."""
+    if sys.platform != "linux":
+        return False
+    try:
+        directory = os.path.dirname(os.path.realpath(path)) or "/"
+    except (OSError, ValueError):
+        return False
+    return _mountinfo_fstype(directory, mountinfo_path) in _NETWORK_FS_FSTYPES
+
+
+def _warn_if_network_fs(db_file: str) -> bool:
+    """Log a once-per-path WARNING when ``db_file`` is on a network filesystem."""
+    if not db_file or not _path_on_network_fs(db_file):
+        return False
+    with _network_fs_warned_lock:
+        if db_file in _network_fs_warned_paths:
+            return True
+        _network_fs_warned_paths.add(db_file)
+    logger.warning(
+        "%s is on a network filesystem (nfs/cifs/smb/sshfs). SQLite locking is "
+        "unreliable there once more than one process writes, which can corrupt "
+        "the database. Keep CLOVER_HOME on local disk, or run only one Clover "
+        "process against it and set `database.journal_mode: delete`.",
+        db_file,
+    )
+    return True
+
+
+def _conn_db_file(conn: sqlite3.Connection) -> str:
+    try:
+        for _seq, name, file in conn.execute("PRAGMA database_list").fetchall():
+            if name == "main":
+                return file or ""
+    except sqlite3.Error:
+        pass
+    return ""
+
+
 def apply_wal_with_fallback(
     conn: sqlite3.Connection,
     *,
@@ -1189,6 +1260,7 @@ def apply_wal_with_fallback(
     WAL-reset vulnerability path.
     """
     configured = resolve_journal_mode()
+    _warn_if_network_fs(_conn_db_file(conn))
 
     # Vulnerable SQLite: do not enable WAL on new/non-WAL files. Resolve the
     # operator setting first so an explicit DELETE request still verifies that
