@@ -16,6 +16,7 @@ resolved through :func:`_ra` so those patches keep working.
 
 from __future__ import annotations
 
+from clover_cli.auth_external_process import is_external_process_provider as _is_ext_proc_provider
 import json
 import logging
 import os
@@ -3224,6 +3225,7 @@ def run_conversation(
                 # upgrade (lines ~1083-1085).
                 elif (
                     agent.provider in {"copilot-acp"}
+                    or _is_ext_proc_provider(agent.provider)
                     or str(agent.base_url or "").lower().startswith("acp://")
                     or str(agent.base_url or "").lower().startswith("acp+tcp://")
                 ):

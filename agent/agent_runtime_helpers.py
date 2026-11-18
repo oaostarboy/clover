@@ -2715,6 +2715,18 @@ def create_openai_client(agent, client_kwargs: dict, *, reason: str, shared: boo
     httpx_verify = resolve_httpx_verify(ca_bundle=ssl_ca_cert, ssl_verify=ssl_verify_cfg)
     _validate_proxy_env_urls()
     _validate_base_url(client_kwargs.get("base_url"))
+    # Plugin-defined external_process providers supply their own client via
+    # ProviderProfile.create_client(); a process profile's error propagates.
+    from clover_cli.auth_external_process import plugin_process_profile
+    _proc_profile = plugin_process_profile(agent.provider)
+    if _proc_profile is not None and agent.provider != "copilot-acp":
+        client = _proc_profile.create_client(**client_kwargs)
+        if client is not None:
+            _ra().logger.info(
+                "%s client created from provider profile (%s, shared=%s) %s",
+                agent.provider, reason, shared, agent._client_log_context(),
+            )
+            return client
     if agent.provider == "copilot-acp" or str(client_kwargs.get("base_url", "")).startswith("acp://copilot"):
         from agent.copilot_acp_client import CopilotACPClient
 

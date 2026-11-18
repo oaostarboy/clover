@@ -2212,6 +2212,20 @@ def resolve_runtime_provider(
             "requested_provider": requested_provider,
         }
 
+    _ext_pconfig = PROVIDER_REGISTRY.get(provider)
+    if _ext_pconfig and _ext_pconfig.auth_type == "external_process" and provider != "copilot-acp":
+        creds = resolve_external_process_provider_credentials(provider)
+        return {
+            "provider": provider,
+            "api_mode": "chat_completions",
+            "base_url": creds.get("base_url", "").rstrip("/"),
+            "api_key": creds.get("api_key", ""),
+            "command": creds.get("command", ""),
+            "args": list(creds.get("args") or []),
+            "source": creds.get("source", "process"),
+            "requested_provider": requested_provider,
+        }
+
     # Anthropic (native Messages API)
     if provider == "anthropic":
         # Allow base URL override from config.yaml model.base_url, but only

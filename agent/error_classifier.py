@@ -842,6 +842,31 @@ _SSL_TRANSIENT_PATTERNS = [
 
 # ── Classification pipeline ─────────────────────────────────────────────
 
+def _profile_error_classification(provider, error, **ctx):
+    """``ProviderProfile.classify_api_error`` verdict for *provider*, as the hook-result shape
+    ``{"reason": FailoverReason, ...flags}``, or None (no profile / declined / malformed)."""
+    try:
+        from providers import get_provider_profile
+
+        profile = get_provider_profile(provider)
+        hook = getattr(profile, "classify_api_error", None)
+        if not callable(hook):
+            return None
+        verdict = hook(error, **ctx)
+        if not isinstance(verdict, dict):
+            return None
+        verdict = dict(verdict)
+        reason = verdict.get("reason")
+        if not isinstance(reason, FailoverReason):
+            reason = FailoverReason[str(reason)]
+        verdict["reason"] = reason
+        allowed = {"retryable", "should_compress", "should_rotate_credential", "should_fallback"}
+        return {k: v for k, v in verdict.items() if k == "reason" or k in allowed}
+    except Exception as exc:
+        logger.debug("Provider profile error classification skipped: %s", exc)
+        return None
+
+
 def classify_api_error(
     error: Exception,
     *,
@@ -966,6 +991,11 @@ def classify_api_error(
     except Exception as exc:
         logger.debug("Plugin error classification unavailable: %s", exc)
         plugin_classification = None
+    if plugin_classification is None and provider_lower:
+        plugin_classification = _profile_error_classification(
+            provider_lower, error, status_code=status_code, error_code=error_code,
+            message=error_msg, body=body, model=model,
+        )
     if plugin_classification is not None:
         reason = plugin_classification.pop("reason")
         logger.info(

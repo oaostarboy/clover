@@ -108,6 +108,50 @@ def _user_plugins_dir() -> Path | None:
         return None
 
 
+def _installed_provider_plugin_dirs() -> list[Path]:
+    """Flat-installed, enabled ``kind: model-provider`` plugin dirs under ``$CLOVER_HOME/plugins``."""
+    try:
+        from clover_constants import get_clover_home
+
+        root = get_clover_home() / "plugins"
+        if not root.is_dir():
+            return []
+        from clover_cli.plugins import _get_disabled_plugins, _get_enabled_plugins
+
+        enabled = _get_enabled_plugins()
+        disabled = _get_disabled_plugins()
+    except Exception:
+        return []
+    out: list[Path] = []
+    for child in sorted(root.iterdir()):
+        if not child.is_dir() or child.name.startswith(("_", ".")) or child.name == "model-providers":
+            continue
+        manifest = _read_manifest(child)
+        if manifest.get("kind") != "model-provider":
+            continue
+        names = {child.name, str(manifest.get("name") or "")}
+        if names & set(disabled or ()):
+            continue
+        if not enabled or not (names & set(enabled)):
+            continue
+        out.append(child)
+    return out
+
+
+def _read_manifest(plugin_dir: Path) -> dict:
+    for filename in ("plugin.yaml", "plugin.yml"):
+        path = plugin_dir / filename
+        if path.is_file():
+            try:
+                import yaml
+
+                data = yaml.safe_load(path.read_text(encoding="utf-8", errors="replace"))
+            except Exception:
+                return {}
+            return data if isinstance(data, dict) else {}
+    return {}
+
+
 def _import_plugin_dir(plugin_dir: Path, source: str) -> None:
     """Import a single plugin directory so it self-registers.
 
@@ -316,6 +360,14 @@ def _discover_providers() -> None:
             if not child.is_dir() or child.name.startswith(("_", ".")):
                 continue
             _import_plugin_dir(child, "user")
+
+    # 2b. Plugins installed flat by ``clover plugins install`` into
+    #     ``$CLOVER_HOME/plugins/<name>/`` that declare ``kind: model-provider``
+    #     (the general PluginManager records but never imports that kind).
+    #     Opt-in like every user plugin: must be in ``plugins.enabled`` and
+    #     not in ``plugins.disabled``.
+    for child in _installed_provider_plugin_dirs():
+        _import_plugin_dir(child, "user")
 
     # 3. Legacy single-file profiles at providers/<name>.py. Kept for
     #    back-compat — if someone drops a ``providers/foo.py`` into an

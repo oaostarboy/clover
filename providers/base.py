@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from agent.account_usage import AccountUsageSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +56,7 @@ class ProviderProfile:
     env_vars: tuple = ()
     base_url: str = ""
     models_url: str = ""  # explicit models endpoint; falls back to {base_url}/models
-    auth_type: str = "api_key"   # api_key|oauth_device_code|oauth_external|copilot|aws_sdk
+    auth_type: str = "api_key"   # api_key|oauth_device_code|oauth_external|external_process|copilot|aws_sdk
     supports_health_check: bool = True  # False → doctor skips /models probe for this provider
 
     # ── Vision support ────────────────────────────────────────
@@ -103,6 +106,25 @@ class ProviderProfile:
     # ladder (agent.aux_fast_model); empty = discover one from the live catalog.
     fast_aux_model: str = ""
 
+    # ── External-process providers (auth_type="external_process") ──
+    # An agent CLI driven as a local subprocess instead of an HTTP endpoint.
+    # These describe how to launch it; clover_cli.auth reads them instead of
+    # hardcoding one vendor's binary. Env vars are checked in order and win
+    # over the static defaults, so an operator can point at a custom build.
+    process_command: str = ""             # default binary, e.g. "agy"
+    process_args: tuple = ()              # default argv tail
+    process_command_env_vars: tuple = ()  # env overrides for the binary, in priority order
+    process_args_env_var: str = ""        # env override for argv (shlex-split)
+
+    # ── Plugin-owned auth / error classification (optional) ──
+    # ``auth_handler(action, args) -> bool``: ``clover auth add|status|logout <name>``
+    # calls it FIRST; truthy = the plugin owned the action, falsy = built-in path.
+    # ``classify_api_error(error, *, status_code, error_code, message, body, model)``
+    # is consulted by agent.error_classifier for THIS provider's failures before
+    # the built-in pipeline; return ``{"reason": <FailoverReason name>, ...}`` or None.
+    auth_handler: Callable[[str, Any], Any] | None = None
+    classify_api_error: Callable[..., Any] | None = None
+
     # ── Hooks (override in subclass for complex providers) ───
 
     def resolve_aux_model(self, *, vision: bool = False) -> str:
@@ -120,6 +142,21 @@ class ProviderProfile:
         answer so the caller falls through to ``default_aux_model``.
         """
         return ""
+
+    def create_client(self, **client_kwargs: Any) -> Any | None:
+        """Return a custom (non-OpenAI-HTTP) client, or None for the standard path.
+
+        Providers whose wire protocol is not OpenAI-over-HTTP (e.g. an external
+        process CLI) override this. ``client_kwargs`` are the kwargs the runtime
+        would have given the OpenAI client (api_key, base_url, command, args, ...).
+        """
+        return None
+
+    def fetch_account_usage(
+        self, *, base_url: str | None = None, api_key: str | None = None
+    ) -> AccountUsageSnapshot | None:
+        """Account-usage snapshot for ``/usage`` when no built-in fetcher owns the provider."""
+        return None
 
     def get_hostname(self) -> str:
         """Return the provider's base hostname for URL-based detection.
