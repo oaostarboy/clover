@@ -760,7 +760,7 @@ class TestInit:
             assert a._use_prompt_caching is True
 
     def test_prompt_caching_cache_ttl_defaults_without_config(self):
-        """cache_ttl stays 5m when prompt_caching is absent from config."""
+        """cache_ttl defaults to auto (a person-paced CLI session resolves to 1h) when absent from config."""
         with (
             patch("run_agent.get_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
@@ -775,7 +775,7 @@ class TestInit:
                 skip_context_files=True,
                 skip_memory=True,
             )
-            assert a._cache_ttl == "5m"
+            assert a._cache_ttl == "1h"
 
     @pytest.mark.parametrize(
         "falsy_value", [False, None, "off", "false", "disabled", "no", "none"],

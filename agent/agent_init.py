@@ -989,7 +989,8 @@ def init_agent(
         agent._anthropic_prompt_cache_policy()
     )
     agent._cache_disabled = False
-    # Anthropic supports "5m" (default) and "1h" cache TTL tiers. Read from
+    # Anthropic supports "5m" and "1h" cache TTL tiers; the default "auto" picks 1h for
+    # human-paced sessions and 5m for machine-paced ones. Read from
     # config.yaml under prompt_caching.cache_ttl; unknown values keep "5m".
     # 1h tier costs 2x on write vs 1.25x for 5m, but amortizes across long
     # sessions with >5-minute pauses between turns (#14971).
@@ -1006,11 +1007,19 @@ def init_agent(
         from clover_cli.config import load_config_readonly as _load_pc_cfg
 
         from agent.agent_runtime_helpers import cache_ttl_means_disabled
+        from agent.prompt_caching import AUTO_CACHE_TTL, auto_cache_ttl_for_source
 
         _pc_cfg = _load_pc_cfg().get("prompt_caching", {}) or {}
-        _ttl = _pc_cfg.get("cache_ttl", "5m")
-        if _ttl in {"5m", "1h"}:
+        _ttl = _pc_cfg.get("cache_ttl", AUTO_CACHE_TTL)
+        if _ttl in ("5m", "1h"):
             agent._cache_ttl = _ttl
+        elif _ttl == AUTO_CACHE_TTL:
+            # Tier from who paces the session, resolved once at init so the tier (and the
+            # cached prefix) is stable for the conversation. Subagents / side forks: 5m.
+            _src = agent.platform or "cli"
+            if getattr(agent, "_delegate_depth", 0) or getattr(agent, "side_agent", False):
+                _src = "subagent"
+            agent._cache_ttl = auto_cache_ttl_for_source(_src)
         elif cache_ttl_means_disabled(_ttl):
             agent._use_prompt_caching = False
             agent._use_native_cache_layout = False
@@ -2244,16 +2253,18 @@ def init_agent(
     # Opt-in proactive tool-result prune trigger (0 = disabled — the
     # default, so an unset key is behavior-neutral).  Negative values are
     # treated as disabled rather than erroring.
-    compression_proactive_prune_tokens = max(
-        0, _parse_prune_int(_compression_cfg.get("proactive_prune_tokens", 0), 0)
+    # ON by default (64000); 0 / false / negatives disable, other bad values keep the default.
+    compression_proactive_prune_tokens = (
+        0 if _compression_cfg.get("proactive_prune_tokens") is False
+        else max(0, _parse_prune_int(_compression_cfg.get("proactive_prune_tokens", 64000), 64000))
     )
     compression_proactive_prune_min_chars = _parse_prune_int(
-        _compression_cfg.get("proactive_prune_min_result_chars", 8000), 8000
+        _compression_cfg.get("proactive_prune_min_result_chars", 1000), 1000
     )
     compression_proactive_prune_min_reclaim = max(
         0,
         _parse_prune_int(
-            _compression_cfg.get("proactive_prune_min_reclaim_tokens", 4096), 4096
+            _compression_cfg.get("proactive_prune_min_reclaim_tokens", 64000), 64000
         ),
     )
     # protect_first_n is the number of non-system messages to protect at

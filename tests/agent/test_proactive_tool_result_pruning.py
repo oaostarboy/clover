@@ -27,6 +27,9 @@ def _compressor(**kw):
         threshold_percent=0.50,
         protect_first_n=2,
         protect_last_n=4,
+        # Mechanics fixtures reclaim ~5-7K tokens; pin the pre-default gate so the shipped
+        # 64K min_reclaim default does not turn every commit-path test into a no-op.
+        proactive_prune_min_reclaim_tokens=4096,
     )
     defaults.update(kw)
     with patch(
@@ -191,8 +194,8 @@ def test_successful_full_compression_resets_proactive_runway():
 
 
 def test_min_reclaim_gate_default_and_clamp():
-    """Default 4096; negative/None coerce to disabled (0)."""
-    assert _compressor().proactive_prune_min_reclaim_tokens == 4096
+    """Shipped default 64000; negative/None coerce to disabled (0)."""
+    assert ContextCompressor(model="test", quiet_mode=True).proactive_prune_min_reclaim_tokens == 64_000
     assert _compressor(proactive_prune_min_reclaim_tokens=0).proactive_prune_min_reclaim_tokens == 0
     assert _compressor(proactive_prune_min_reclaim_tokens=-5).proactive_prune_min_reclaim_tokens == 0
     assert _compressor(proactive_prune_min_reclaim_tokens=None).proactive_prune_min_reclaim_tokens == 0
@@ -221,11 +224,16 @@ def test_no_orphans_both_directions():
     assert call_ids <= result_ids, "orphan tool calls without a matching result"
 
 
-def test_unset_config_zero_behavior_change():
-    """Pin: with the config knobs unset, the compressor behaves byte-identically
-    to pre-feature main — the prune path is dead code and the full-compression
-    Phase-1 caller keeps its 200-char floor."""
-    c = _compressor()  # nothing configured
+def test_shipped_defaults_are_on_and_episodic():
+    c = ContextCompressor(model="test", quiet_mode=True)
+    assert (c.proactive_prune_tokens, c.proactive_prune_min_result_chars,
+            c.proactive_prune_min_reclaim_tokens) == (64_000, 1_000, 64_000)
+
+
+def test_disabled_prune_is_a_no_op():
+    """proactive_prune_tokens=0: the prune path is dead code, input never mutated, and the
+    full-compression Phase-1 caller keeps its 200-char floor."""
+    c = _compressor(proactive_prune_tokens=0)
     assert c.proactive_prune_tokens == 0
     msgs = _build(8, big_indices={0, 1, 2})
     import copy

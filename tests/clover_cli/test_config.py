@@ -1837,7 +1837,7 @@ class TestDelegationReasoningEffortMigration:
         with patch.dict(os.environ, {"CLOVER_HOME": str(tmp_path)}):
             migrate_config(interactive=False, quiet=True)
             raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        assert raw["_config_version"] == 42
+        assert raw["_config_version"] == 43
         assert raw["delegation"]["reasoning_effort"] == "low"
 
     def test_migrate_sets_low_reasoning_effort_when_unset_in_delegation(self, tmp_path):
@@ -1849,7 +1849,7 @@ class TestDelegationReasoningEffortMigration:
         with patch.dict(os.environ, {"CLOVER_HOME": str(tmp_path)}):
             migrate_config(interactive=False, quiet=True)
             raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        assert raw["_config_version"] == 42
+        assert raw["_config_version"] == 43
         assert raw["delegation"]["max_iterations"] == 100
         assert raw["delegation"]["reasoning_effort"] == "low"
 
@@ -1869,5 +1869,5 @@ class TestDelegationReasoningEffortMigration:
             with patch.dict(os.environ, {"CLOVER_HOME": str(tmp_path)}):
                 migrate_config(interactive=False, quiet=True)
                 raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-            assert raw["_config_version"] == 42
+            assert raw["_config_version"] == 43
             assert raw["delegation"]["reasoning_effort"] == explicit_value

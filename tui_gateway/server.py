@@ -6903,6 +6903,8 @@ def _apply_live_compression_config(agent: Any, cfg: dict | None) -> None:
 
     def _assign_int(key: str, attr: str, default: int, min_value: int = 0) -> None:
         raw = compression.get(key, default)
+        if isinstance(raw, bool):  # a YAML boolean is never a count: false = off, true = default
+            raw = 0 if (raw is False and key == "proactive_prune_tokens") else default
         try:
             value = default if raw is None else int(raw)
         except (TypeError, ValueError):
@@ -6912,17 +6914,17 @@ def _apply_live_compression_config(agent: Any, cfg: dict | None) -> None:
     _assign_int(
         "proactive_prune_tokens",
         "proactive_prune_tokens",
-        int(_compressor_ctor_default("proactive_prune_tokens", 0)),
+        int(_compressor_ctor_default("proactive_prune_tokens", 64000)),
     )
     _assign_int(
         "proactive_prune_min_result_chars",
         "proactive_prune_min_result_chars",
-        int(_compressor_ctor_default("proactive_prune_min_result_chars", 8000)),
+        int(_compressor_ctor_default("proactive_prune_min_result_chars", 1000)),
     )
     _assign_int(
         "proactive_prune_min_reclaim_tokens",
         "proactive_prune_min_reclaim_tokens",
-        int(_compressor_ctor_default("proactive_prune_min_reclaim_tokens", 4096)),
+        int(_compressor_ctor_default("proactive_prune_min_reclaim_tokens", 64000)),
     )
     _assign_int(
         "protect_last_n",

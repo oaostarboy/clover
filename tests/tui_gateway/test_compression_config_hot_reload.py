@@ -203,9 +203,9 @@ def test_removing_proactive_prune_keys_restores_defaults(monkeypatch):
         proactive_prune_min_reclaim_tokens=1,
     )
     _sync_with_cfg(monkeypatch, session, {"compression": {}})
-    assert compressor.proactive_prune_tokens == 0
-    assert compressor.proactive_prune_min_result_chars == 8000
-    assert compressor.proactive_prune_min_reclaim_tokens == 4096
+    assert compressor.proactive_prune_tokens == 64_000
+    assert compressor.proactive_prune_min_result_chars == 1000
+    assert compressor.proactive_prune_min_reclaim_tokens == 64_000
 
 
 def test_removing_min_tail_user_messages_restores_default(monkeypatch):

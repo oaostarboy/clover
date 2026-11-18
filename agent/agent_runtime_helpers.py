@@ -2182,7 +2182,7 @@ def _raw_cache_ttl_from_config() -> Any:
     from clover_cli.config import load_config_readonly
 
     pc_cfg = load_config_readonly().get("prompt_caching", {}) or {}
-    return pc_cfg.get("cache_ttl", "5m")
+    return pc_cfg.get("cache_ttl", "auto")
 
 
 def prompt_caching_disabled_from_config() -> bool:

@@ -11,6 +11,7 @@ Pure functions -- no class state, no AIAgent dependency.
 """
 
 import copy
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
@@ -242,6 +243,20 @@ def is_qwen_model(model: str) -> bool:
     return "qwen" in (model or "").lower()
 
 
+# ``prompt_caching.cache_ttl: auto`` picks the tier by who paces the session. The 1h tier writes
+# at 2x base vs 1.25x for 5m and only pays off when turns are >5 minutes apart (a person stepping
+# away). Machine-paced sessions call every few seconds and never collect the retention: 5m.
+AUTO_CACHE_TTL = "auto"
+MACHINE_PACED_SOURCES = frozenset({
+    "subagent", "cron", "oneshot", "webhook", "kanban", "api", "api_server", "tool", "batch",
+    "curator", "a2a", "msgraph_webhook", "gateway_hygiene"})
+
+
+def auto_cache_ttl_for_source(source: str | None) -> str:
+    """``5m`` for machine-paced sources, ``1h`` for everything a human types into."""
+    return "5m" if (source or "").strip().lower() in MACHINE_PACED_SOURCES else "1h"
+
+
 def effective_cache_ttl(
     ttl: str | None,
     *,
@@ -276,6 +291,41 @@ def effective_cache_ttl(
     if (provider or "").lower() in ALIBABA_FAMILY_PROVIDERS:
         return "5m"
     return "1h"
+
+
+_CACHE_TTL_SECONDS = {"5m": 300, "1h": 3600}
+# Slack past the TTL before calling the cache expired: a prune on a still-warm cache is a paid break.
+_CACHE_EXPIRY_SLACK_SECONDS = 30
+
+
+def _last_response_wall_time(agent: Any, messages: Any) -> float | None:
+    """Wall time of the last provider response: this process's stamp, else (resumed session)
+    the newest persisted assistant row's ``timestamp``."""
+    last = getattr(agent, "_last_api_response_at", None)
+    if isinstance(last, (int, float)) and not isinstance(last, bool):
+        return float(last)
+    for msg in reversed(messages if isinstance(messages, list) else ()):
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            ts = msg.get("timestamp")
+            return float(ts) if isinstance(ts, (int, float)) and not isinstance(ts, bool) else None
+    return None
+
+
+def provider_cache_expired(agent: Any, messages: Any = None, now: float | None = None) -> bool:
+    """True only when this agent's prompt cache has certainly expired: caching is on and more than
+    the route's effective TTL (+ slack) has passed since the last provider response. Caching off,
+    unknown response time, or unknown tier all answer False (callers keep warm behaviour)."""
+    if not getattr(agent, "_use_prompt_caching", False) or getattr(agent, "_cache_disabled", False):
+        return False
+    last = _last_response_wall_time(agent, messages)
+    if last is None:
+        return False
+    ttl = _CACHE_TTL_SECONDS.get(effective_cache_ttl(
+        getattr(agent, "_cache_ttl", None), model=getattr(agent, "model", "") or "",
+        provider=getattr(agent, "provider", "") or ""))
+    if ttl is None:
+        return False
+    return (time.time() if now is None else now) - last > ttl + _CACHE_EXPIRY_SLACK_SECONDS
 
 
 def _apply_system_cache_markers(

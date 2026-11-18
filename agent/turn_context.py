@@ -1357,6 +1357,18 @@ def build_turn_context(
                     if callable(_clear_warn):
                         _clear_warn()
 
+    if not _preflight_compressed and agent.compression_enabled:
+        # Cold-cache prune: the person came back after the provider cache expired, so
+        # shrinking old tool output costs no cache break. Prefix only; never this turn.
+        from agent.turn_proactive_prune import prune_stale_prefix
+
+        _pruned_start = prune_stale_prefix(
+            agent, messages, current_turn_user_idx,
+            _preflight_request_tokens(agent, messages, active_system_prompt or ""),
+        )
+        if _pruned_start is not messages:
+            messages = _pruned_start
+
     if _preflight_compressed:
         # Compression rebuilt the list (tail messages are fresh compaction
         # copies), so the pre-compression index of this turn's user message
