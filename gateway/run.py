@@ -13034,6 +13034,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         """Active work minus wedged turns — what the restart wait waits on."""
         return max(0, self._active_work_count() - self._wedged_agent_count())
 
+    def _background_work_units(self) -> list:
+        """Live background subagents + undelivered completion notices."""
+        try:
+            from gateway.restart_when_idle import background_units
+
+            return background_units(self)
+        except Exception:
+            return []
+
     async def _await_active_work_before_restart(self) -> bool:
         """Wait for in-flight work to finish before entering ``stop()``.
 
@@ -13054,11 +13063,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         (caller proceeds to ``stop()``, which may then interrupt remaining
         runs under ``restart_drain_timeout``).
         """
-        active = self._active_work_count()
+        bg = self._background_work_units()
+        active = self._active_work_count() + len(bg)
         if active <= 0:
             return True
 
-        awaitable = self._awaitable_work_count()
+        awaitable = self._awaitable_work_count() + len(bg)
         if awaitable <= 0:
             logger.warning(
                 "Restart requested with %d active work unit(s), all wedged "
@@ -13092,7 +13102,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         last_status_at = 0.0
-        while self._awaitable_work_count() > 0:
+        while self._awaitable_work_count() + len(self._background_work_units()) > 0:
             now = loop.time()
             if now >= deadline:
                 logger.warning(
@@ -13118,7 +13128,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 last_status_at = now
             await asyncio.sleep(0.1)
 
-        if self._active_work_count() > 0:
+        if self._active_work_count() > 0 and self._awaitable_work_count() <= 0:
             logger.warning(
                 "Restart deferred wait: %d wedged work unit(s) remain; "
                 "proceeding to stop()/drain which will interrupt them",
@@ -13209,13 +13219,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         self._restart_detached = detached
         self._restart_via_service = via_service
         self._restart_task_started = True
-        # Refuse new turns immediately while in-flight work finishes.
+        # Restart-when-idle: keep serving (and let subagents report back)
+        # while work finishes; admission closes only once the wait ends.
         # Keep ``_running`` True so adapters stay connected and the active
         # turn can still deliver its final response (#77184).
-        self._draining = True
 
         async def _run_restart() -> None:
             await self._await_active_work_before_restart()
+            self._draining = True
             # Launch the detached helper only AFTER the after-turn wait.
             # Its deadline is drain_timeout+5 and covers stop() teardown —
             # launching earlier would fire `clover gateway restart` while

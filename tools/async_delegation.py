@@ -3407,6 +3407,13 @@ def interrupt_for_session(
             )
         ]
     for r in targets:
+        # The parent ended/stopped this job: a restart must never resume it.
+        try:
+            from tools import delegation_inflight as _inflight
+
+            _inflight.update_record(r.get("delegation_id"), stopped_by_user=True)
+        except Exception:
+            pass
         fn = r.get("interrupt_fn")
         if callable(fn):
             try:

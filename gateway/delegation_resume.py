@@ -261,6 +261,14 @@ async def resume_one(runner: Any, record: Dict[str, Any]) -> str:
         delegation_inflight.remove_record(did)
         return "dropped"
 
+    if record.get("stopped_by_user") or record.get("resumed_as"):
+        # The parent stopped it (never override), or an earlier pass already
+        # relaunched it and died before cleanup (resume once, report once).
+        async_delegation.close_resumed(did)
+        delegation_inflight.remove_record(did)
+        async_delegation.release_parked_children()
+        return "dropped"
+
     reason = _decide(record, now)
     if not reason:
         stored = record.get("tasks") or []
@@ -292,6 +300,8 @@ async def resume_one(runner: Any, record: Dict[str, Any]) -> str:
                         await publisher.drain()
                     except Exception:
                         pass
+                # Claim first: a crash before cleanup must not relaunch it again.
+                delegation_inflight.update_record(did, resumed_as=payload.get("delegation_id"))
                 async_delegation.close_resumed(did)
                 delegation_inflight.remove_record(did)
                 async_delegation.release_parked_children()
