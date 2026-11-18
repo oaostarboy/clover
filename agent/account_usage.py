@@ -36,6 +36,7 @@ class AccountUsageSnapshot:
     windows: tuple[AccountUsageWindow, ...] = ()
     details: tuple[str, ...] = ()
     unavailable_reason: Optional[str] = None
+    raw: Any = None
 
     @property
     def available(self) -> bool:
@@ -588,6 +589,13 @@ def fetch_account_usage(
             return _fetch_anthropic_account_usage()
         if normalized == "openrouter":
             return _fetch_openrouter_account_usage(base_url, api_key)
+        # Plugin profiles own /usage for providers no built-in fetcher covers.
+        from providers import get_provider_profile
+        from providers.base import ProviderProfile
+
+        profile = get_provider_profile(normalized)
+        if profile is not None and type(profile).fetch_account_usage is not ProviderProfile.fetch_account_usage:
+            return profile.fetch_account_usage(base_url=base_url, api_key=api_key)
     except Exception:
         return None
     return None

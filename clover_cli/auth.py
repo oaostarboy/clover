@@ -558,6 +558,18 @@ try:
     for _pp in _list_providers_for_registry():
         if _pp.name in PROVIDER_REGISTRY:
             continue
+        if _pp.auth_type == "external_process":
+            # Plugin-defined external-process provider (launch details live on the profile).
+            PROVIDER_REGISTRY[_pp.name] = ProviderConfig(
+                id=_pp.name,
+                name=_pp.display_name or _pp.name,
+                auth_type="external_process",
+                inference_base_url=_pp.base_url,
+            )
+            for _alias in _pp.aliases:
+                if _alias not in PROVIDER_REGISTRY:
+                    PROVIDER_REGISTRY[_alias] = PROVIDER_REGISTRY[_pp.name]
+            continue
         if _pp.auth_type != "api_key" or not _pp.env_vars:
             continue
         # Skip providers that need custom token resolution or are special-cased
@@ -5169,18 +5181,29 @@ def get_external_process_provider_status(provider_id: str) -> Dict[str, Any]:
     if not pconfig or pconfig.auth_type != "external_process":
         return {"configured": False}
 
-    command = (
-        os.getenv("CLOVER_COPILOT_ACP_COMMAND", "").strip()
-        or os.getenv("COPILOT_CLI_PATH", "").strip()
-        or "copilot"
+    from clover_cli.auth_external_process import (
+        external_process_args, external_process_command,
+        plugin_process_profile, resolve_external_process_command,
     )
-    raw_args = os.getenv("CLOVER_COPILOT_ACP_ARGS", "").strip()
-    args = shlex.split(raw_args) if raw_args else ["--acp", "--stdio"]
+
+    plugin_profile = plugin_process_profile(provider_id) if provider_id != "copilot-acp" else None
+    if plugin_profile is not None:
+        command = external_process_command(plugin_profile)
+        args = external_process_args(plugin_profile)
+        resolved_command = resolve_external_process_command(command)
+    else:
+        command = (
+            os.getenv("CLOVER_COPILOT_ACP_COMMAND", "").strip()
+            or os.getenv("COPILOT_CLI_PATH", "").strip()
+            or "copilot"
+        )
+        raw_args = os.getenv("CLOVER_COPILOT_ACP_ARGS", "").strip()
+        args = shlex.split(raw_args) if raw_args else ["--acp", "--stdio"]
+        resolved_command = shutil.which(command) if command else None
     base_url = os.getenv(pconfig.base_url_env_var, "").strip() if pconfig.base_url_env_var else ""
     if not base_url:
         base_url = pconfig.inference_base_url
 
-    resolved_command = shutil.which(command) if command else None
     return {
         "configured": bool(resolved_command or base_url.startswith("acp+tcp://")),
         "provider": provider_id,
@@ -5209,6 +5232,9 @@ def get_auth_status(provider_id: Optional[str] = None) -> Dict[str, Any]:
     if target == "minimax-oauth":
         return get_minimax_oauth_auth_status()
     if target == "copilot-acp":
+        return get_external_process_provider_status(target)
+    _pconfig = PROVIDER_REGISTRY.get(target)
+    if _pconfig is not None and _pconfig.auth_type == "external_process":
         return get_external_process_provider_status(target)
     if target == "azure-foundry":
         return _get_azure_foundry_auth_status()
@@ -5414,6 +5440,31 @@ def resolve_external_process_provider_credentials(provider_id: str) -> Dict[str,
     if not base_url:
         base_url = pconfig.inference_base_url
 
+    from clover_cli.auth_external_process import (
+        external_process_args, external_process_command,
+        plugin_process_profile, resolve_external_process_command,
+    )
+
+    plugin_profile = plugin_process_profile(provider_id) if provider_id != "copilot-acp" else None
+    if plugin_profile is not None:
+        command = external_process_command(plugin_profile)
+        args = external_process_args(plugin_profile)
+        resolved_command = resolve_external_process_command(command)
+        if not resolved_command:
+            raise AuthError(
+                f"Could not find the command '{command}' for provider '{provider_id}'. "
+                f"Install it or set one of: {', '.join(plugin_profile.process_command_env_vars) or '(none)'}.",
+                provider=provider_id,
+                code="missing_process_command",
+            )
+        return {
+            "provider": provider_id,
+            "api_key": provider_id,
+            "base_url": base_url.rstrip("/"),
+            "command": resolved_command,
+            "args": args,
+            "source": "process",
+        }
     command = (
         os.getenv("CLOVER_COPILOT_ACP_COMMAND", "").strip()
         or os.getenv("COPILOT_CLI_PATH", "").strip()

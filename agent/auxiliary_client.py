@@ -7183,6 +7183,19 @@ def resolve_provider_client(
             logger.debug("resolve_provider_client: %s (%s)", provider, final_model)
             return (_to_async_client(client, final_model, is_vision=is_vision) if async_mode
                     else (client, final_model))
+        from clover_cli.auth_external_process import plugin_process_profile
+        _proc_profile = plugin_process_profile(provider)
+        if _proc_profile is not None and final_model:
+            client = _proc_profile.create_client(
+                api_key=str(creds.get("api_key", "")).strip(),
+                base_url=str(creds.get("base_url", "")).strip(),
+                command=str(creds.get("command", "")).strip() or None,
+                args=list(creds.get("args") or []),
+            )
+            if client is not None:
+                logger.debug("resolve_provider_client: %s (%s)", provider, final_model)
+                return (_to_async_client(client, final_model, is_vision=is_vision) if async_mode
+                        else (client, final_model))
         if provider not in _LOGGED_UNSUPPORTED_EXTPROC_KEYS:
             _LOGGED_UNSUPPORTED_EXTPROC_KEYS.add(provider)
             logger.debug("resolve_provider_client: external-process provider %s not "

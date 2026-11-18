@@ -251,8 +251,31 @@ def _format_exhausted_status(entry) -> str:
     return f" {label}{reason_text}{code} ({wait} left)"
 
 
+def _dispatch_plugin_auth(action: str, args, provider: str) -> bool:
+    """Offer ``clover auth <action> <provider>`` to a plugin profile's ``auth_handler``.
+
+    True = the plugin owned the action; False = run the built-in path.
+    """
+    try:
+        from providers import get_provider_profile
+
+        handler = getattr(get_provider_profile(provider), "auth_handler", None)
+    except Exception:
+        return False
+    if not callable(handler):
+        return False
+    try:
+        return bool(handler(action, args))
+    except SystemExit:
+        raise
+    except Exception as exc:
+        raise SystemExit(f"{provider} auth handler failed for `{action}`: {type(exc).__name__}: {exc}") from exc
+
+
 def auth_add_command(args) -> None:
     provider = _normalize_provider(getattr(args, "provider", ""))
+    if _dispatch_plugin_auth("add", args, provider):
+        return
     configured_provider = _configured_provider_entry(provider)
     if not _is_known_provider(provider, configured_provider):
         raise SystemExit(f"Unknown provider: {provider}")
@@ -555,6 +578,8 @@ def auth_status_command(args) -> None:
     provider = _normalize_provider(getattr(args, "provider", "") or "")
     if not provider:
         raise SystemExit("Provider is required. Example: `clover auth status spotify`.")
+    if _dispatch_plugin_auth("status", args, provider):
+        return
     status = auth_mod.get_auth_status(provider)
     if not status.get("logged_in"):
         reason = status.get("error")
@@ -572,6 +597,8 @@ def auth_status_command(args) -> None:
 
 
 def auth_logout_command(args) -> None:
+    if _dispatch_plugin_auth("logout", args, _normalize_provider(getattr(args, "provider", "") or "")):
+        return
     auth_mod.logout_command(SimpleNamespace(provider=getattr(args, "provider", None)))
 
 
