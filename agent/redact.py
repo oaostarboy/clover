@@ -21,6 +21,11 @@ from urllib.parse import unquote_plus
 # case-insensitively (``resolved.name.lower()``); the lookup mirrors that.
 from agent.file_safety import _BLOCKED_PROJECT_ENV_BASENAMES as _ENV_FILE_BASENAMES
 
+from agent.redact_credential_stores import aws_credential_process_keys, outside_spans, redact_credential_store_lines
+from agent.redact_command_segments import _command_segments
+from agent.redact_control_split import mask_control_split_tokens, mask_prefix_matches
+from agent.redact_discord import _redact_discord_tokens
+
 logger = logging.getLogger(__name__)
 
 # Sensitive query-string parameter names (case-insensitive exact match).
@@ -78,7 +83,10 @@ _REDACT_ENABLED = os.getenv("CLOVER_REDACT_SECRETS", "true").lower() in {"1", "t
 
 # Known API key prefixes -- match the prefix + contiguous token chars
 _PREFIX_PATTERNS = [
-    r"sk-[A-Za-z0-9_-]{10,}",           # OpenAI / OpenRouter / Anthropic (sk-ant-*)
+    # Provider ``sk-`` keys may carry dot-delimited body segments (Alibaba ``sk-sp-…``); body ends on
+    # its last non-dot char. Adapted from upstream hermes-agent.
+    r"sk-[A-Za-z0-9_-](?:\.?[A-Za-z0-9_-]){9,}",
+    r"ctx7sk-[A-Za-z0-9_-]{10,}",       # Context7 API keys
     r"ghp_[A-Za-z0-9]{10,}",            # GitHub PAT (classic)
     r"github_pat_[A-Za-z0-9_]{10,}",    # GitHub PAT (fine-grained)
     r"gho_[A-Za-z0-9]{10,}",            # GitHub OAuth access token
@@ -88,6 +96,11 @@ _PREFIX_PATTERNS = [
     r"xapp-\d+-[A-Za-z0-9-]{10,}",      # Slack app-Level token
     r"xox[baprs]-[A-Za-z0-9-]{10,}",    # Slack bot/app/user tokens
     r"AIza[A-Za-z0-9_-]{30,}",          # Google API keys
+    r"GOCSPX-[A-Za-z0-9_-]{8,}",        # Google OAuth client secret (upstream hermes-agent)
+    r"ya29\.(?:[a-z]\.)?[A-Za-z0-9_-]{20,}",  # Google OAuth access token
+    r"AQ\.[A-Za-z0-9_-]{40,}",           # Google Gemini authorization keys
+    r"1//0[A-Za-z0-9_-]{20,}",          # Google OAuth refresh token
+    r"glc_eyJ[A-Za-z0-9+/]{29,}={0,3}",  # Grafana Cloud token (base64 JSON, so "eyJ")
     r"pplx-[A-Za-z0-9]{10,}",           # Perplexity
     r"fal_[A-Za-z0-9_-]{10,}",          # Fal.ai
     r"fc-[A-Za-z0-9]{10,}",             # Firecrawl
@@ -397,6 +410,39 @@ _URL_BARE_TOKEN_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Incoming-webhook URLs. The URL IS the credential: anyone holding it can post into the
+# workspace as the app, with no other secret. Web URLs are otherwise passed through on purpose
+# (magic links, OAuth callbacks the agent must follow), so this stays vendor-shaped like
+# _DB_CONNSTR_RE and _URL_BARE_TOKEN_RE: only the fixed host/path forms below match, and
+# only the credential segment is masked, leaving the host and ids readable for diagnosis.
+# Teams "Workflows" webhooks (the Power Automate replacement for Office 365 connectors) are
+# logic.azure.com / api.powerplatform.com trigger URLs whose only secret is the ``sig`` query
+# parameter; Slack workflow triggers live under hooks.slack.com/triggers/.
+# Hermes stores one as ``incoming_webhook_url`` for Teams delivery and ships Slack and Discord
+# adapters, so these land in config dumps, tool output and logs. Telegram's is already covered
+# by _TELEGRAM_RE, which masks the bot token inside its API URL. ``http://`` is matched too: a
+# mistyped scheme still carries the same secret in the path. Slack Workflow Builder URLs carry a
+# numeric id before the secret (workflows/T/A/<id>/<secret>), so that form is tried first; the
+# generic arm skips an all-digit segment followed by ``/`` so a second pass (RedactingFormatter
+# redacts twice) leaves that public id readable.
+# Every repeat in the Teams Workflows arm is capped: it is retried at each URL start, and the
+# uncapped prefix/path runs overlapped, which made repeated URLs cubic (50 KB took ~48 s).
+_WEBHOOK_HOST_END = r"\.?(?::\d+)?/"  # trailing-dot FQDN and explicit port reach the same host
+_WEBHOOK_URL_RE = re.compile(
+    r"(https?://hooks\.slack(?:-gov)?\.com" + _WEBHOOK_HOST_END
+    + r"workflows/[A-Z0-9]+/[A-Z0-9]+/\d+/)([A-Za-z0-9]{8,})"
+    r"|(https?://hooks\.slack(?:-gov)?\.com" + _WEBHOOK_HOST_END
+    + r"(?:services|workflows|triggers)/[A-Z0-9]+/[A-Z0-9]+/)(?!\d+/)([A-Za-z0-9]{8,})"
+    r"|(https?://(?:canary\.|ptb\.|www\.)?discord(?:app)?\.com" + _WEBHOOK_HOST_END
+    + r"api/(?:v\d+/)?webhooks/\d+/)([\w-]{8,})"
+    r"|(https?://[A-Za-z0-9.-]*\.?(?:webhook\.office\.com" + _WEBHOOK_HOST_END
+    + r"webhookb2|outlook\.office\.com" + _WEBHOOK_HOST_END + r"webhook)/)([\w@/%+=-]{8,})"
+    r"|(https?://[A-Za-z0-9.-]+\.(?:logic\.azure\.com|api\.powerplatform\.com)" + _WEBHOOK_HOST_END
+    + r"(?:[^\s?#\"'<>/]{1,128}/){0,8}workflows/[^\s?#\"'<>]{1,512}?\?"
+    r"(?:[^\s#\"'<>]{0,1024}?&)?sig=)([A-Za-z0-9_%-]{8,})",
+    re.IGNORECASE,
+)
+
 # JWT tokens: header.payload[.signature] — always start with "eyJ" (base64 for "{")
 # Matches 1-part (header only), 2-part (header.payload), and full 3-part JWTs.
 _JWT_RE = re.compile(
@@ -482,61 +528,6 @@ _TOKEN_BODY_CHARS = frozenset(
 )
 
 # Compile known prefix patterns into one alternation
-_PREFIX_RE = re.compile(
-    r"(?<![A-Za-z0-9_-])(" + "|".join(_PREFIX_PATTERNS) + r")(?![A-Za-z0-9_-])"
-)
-
-
-def _mask_control_split_tokens(text: str, mask_fn) -> str:
-    """Mask tokens whose body is split by control/zero-width characters.
-
-    A credential like ``sk-abc\\x1bdef456…`` or ``ghp_abc\\n123def…`` has its
-    token body interrupted, so the contiguous _PREFIX_RE cannot match it and
-    the secret leaks verbatim (issue #77484). Strategy: build a copy with all
-    control chars removed (the token is contiguous again, matching even when
-    each fragment alone is too short), match on that, then mask the
-    corresponding span in the *original* — but only when the original span
-    contains solely token-body and control chars (a match that crosses into a
-    different line's unrelated text, e.g. ``EXA_API_KEY=*** is rejected).
-    """
-    stripped = _CONTROL_CHARS_RE.sub("", text)
-    if stripped == text:
-        return text
-    orig_idx = [i for i, c in enumerate(text) if not _CONTROL_CHARS_RE.match(c)]
-    out = list(text)
-    matches = []
-    for m in _PREFIX_RE.finditer(stripped):
-        body = m.group(1)
-        start_orig = orig_idx[m.start(1)]
-        end_orig = orig_idx[m.end(1) - 1] + 1
-        # If a fragment inside the span already matches _PREFIX_RE on its
-        # own AND the span crosses a LINE boundary (\n / \r), do NOT join.
-        # A complete token at end-of-line followed by a word line
-        # (``ghp_<token>\nbutton [ref=e3]``) joins into one stripped-copy
-        # match and the mask eats ``button``. Line structure is legitimate;
-        # the self-matching fragment is handled by the ordinary prefix pass
-        # (any remainder past the newline is left unmasked — accepted
-        # residual to preserve line structure).
-        # For NON-newline controls (ESC, ZWSP, ...) the join proceeds even
-        # when a fragment self-matches: those bytes never legitimately sit
-        # between a token and adjacent prose, and skipping there let the
-        # non-matching remainder of a split token leak
-        # (``sk-<head>\x1b<tail>`` masked only the head).
-        span = text[start_orig:end_orig]
-        if ("\n" in span or "\r" in span) and _PREFIX_RE.search(span):
-            continue
-        # Reject matches whose original span crosses a non-token char
-        # (e.g. ``sk_abc…\nTAVILY_API_KEY=…`` — the ``=`` is not part of a
-        # token body, so the regex matched across unrelated lines). Also
-        # reject when the match runs into a ``KEY=`` name: a real token value
-        # is followed by a newline/space/end, not ``=``.
-        if (all(c in _TOKEN_BODY_CHARS or _CONTROL_CHARS_RE.match(c)
-                for c in span)
-                and (end_orig >= len(text) or text[end_orig] != "=")):
-            matches.append((start_orig, end_orig, mask_fn(body)))
-    for start_orig, end_orig, replacement in reversed(matches):
-        out[start_orig:end_orig] = list(replacement)
-    return "".join(out)
 
 
 # Display-mask strip for mask_secret: EVERY control char incl. \n/\t, C1,
@@ -744,6 +735,9 @@ def _redact_form_body(text: str) -> str:
     return _redact_query_string(text.strip())
 
 
+_SECRET_FILE_USERINFO_RE = re.compile(r"(://)([^/\s:@?#\"']+):([^/\s@?#\"']+)@")
+
+
 def _mask_token_nonreusable(token: str) -> str:
     """Redact a prefix-matched credential to a NON-REUSABLE sentinel.
 
@@ -777,7 +771,9 @@ def redact_sensitive_text(
     force: bool = False,
     code_file: bool = False,
     file_read: bool = False,
+    secret_file: bool = False,
     redact_url_credentials: bool = False,
+    _cp_done: bool = False,
 ) -> str:
     """Apply all redaction patterns to a block of text.
 
@@ -827,8 +823,16 @@ def redact_sensitive_text(
 
     # file_read content shouldn't hit the source-code ENV/JSON false-positive
     # paths either (it's config/data, not log lines).
-    if file_read:
-        code_file = True
+    # ``secret_file`` is authoritative: a source already classified as secret-bearing
+    # (.netrc, .pgpass, ~/.aws/*) must not be treated as source code.
+    code_file = (code_file or file_read) and not secret_file
+    if secret_file and not _cp_done and "credential_process" in text:
+        # AWS ``credential_process`` holds the helper command, not the secret: keep the key readable.
+        spans = aws_credential_process_keys(text)
+        if spans:
+            return outside_spans(text, spans, lambda t: redact_sensitive_text(
+                t, force=force, code_file=code_file, file_read=file_read, secret_file=True,
+                redact_url_credentials=redact_url_credentials, _cp_done=True))
 
     # Known prefixes (sk-, ghp_, etc.) — gate on substring presence
     if _has_known_prefix_substring(text):
@@ -839,8 +843,23 @@ def redact_sensitive_text(
         # first matching on a control-stripped copy, then re-masking the
         # corresponding span in the original (the stripped copy and the
         # original are aligned 1:1 for non-control chars).
-        text = _mask_control_split_tokens(text, _prefix_sub)
-        text = _PREFIX_RE.sub(lambda m: _prefix_sub(m.group(1)), text)
+        text = mask_control_split_tokens(text, _prefix_sub, _PREFIX_RE, _PREFIX_SUB_RE, _is_glued_identifier)
+        text = mask_prefix_matches(text, _prefix_sub, _PREFIX_SUB_RE, _is_glued_identifier)
+
+    if "." in text:
+        text = _redact_discord_tokens(text, _mask_token_nonreusable if file_read else _mask_token)
+
+    # Credential-store lines (.netrc/.pgpass/.npmrc/INI) have no KEY=value shape.
+    if secret_file:
+        _mask = _mask_token_nonreusable if file_read else _mask_token
+        text = redact_credential_store_lines(
+            text, _mask, lambda k, v: not _ENV_LOOKUP_VALUE_RE.match(v)
+        )
+        # ``.git-credentials``: ``https://user:pass@host`` userinfo.
+        text = _SECRET_FILE_USERINFO_RE.sub(
+            lambda m: m.group(0) if m.group(3).startswith(("{", "$", "*", "«")) else f"{m.group(1)}{m.group(2)}:{_mask(m.group(3))}@",
+            text,
+        )
 
     # ENV assignments: OPENAI_API_KEY=***  (skip for code files — false positives)
     if not code_file:
@@ -967,6 +986,14 @@ def redact_sensitive_text(
         # colon-less bare-token form is redacted — ``user:pass@`` and
         # query-string tokens are left to pass through (see the web-URL note
         # below). See _URL_BARE_TOKEN_RE for the false-positive guards.
+        def _redact_webhook(m):
+            _wmask = _mask_token_nonreusable if file_read else _mask_token
+            groups = m.groups()
+            for prefix, secret in zip(groups[::2], groups[1::2]):
+                if prefix:
+                    return f"{prefix}{_wmask(secret)}"
+            return m.group(0)
+        text = _WEBHOOK_URL_RE.sub(_redact_webhook, text)
         text = _URL_BARE_TOKEN_RE.sub(
             lambda m: f"{m.group(1)}{_mask_token(m.group(2))}{m.group(3)}",
             text,
@@ -1031,6 +1058,69 @@ _FILE_READ_COMMANDS = frozenset({
 # Basenames that are treated as ``.env`` files for redaction purposes are
 # imported at module top as ``_ENV_FILE_BASENAMES`` (see the
 # ``agent.file_safety`` import).
+
+
+HOME_CREDENTIAL_FILES = (".netrc", "_netrc", ".pgpass", ".npmrc", ".pypirc", ".git-credentials")
+_SHELL_RC_BASENAMES = frozenset({
+    ".bashrc", ".bash_profile", ".bash_login", ".profile",
+    ".zshrc", ".zprofile", ".zlogin", ".zshenv",
+})
+
+
+def _is_secret_file_arg(arg: str) -> bool:
+    """Credential-store basename (``.netrc``, ``.pgpass``, ``.npmrc``, ...) anywhere, or
+    ``credentials`` / ``config`` only directly under ``.aws`` (bare names are too generic).
+    Adapted from upstream hermes-agent (05348a30)."""
+    path = arg.strip("\"'").replace("\\", "/")
+    if "$" in path.replace("${HOME}/", "").replace("$HOME/", "").replace("$CLOVER_HOME/", "").replace("${CLOVER_HOME}/", ""):
+        return False
+    parts = [part.lower() for part in path.split("/") if part]
+    if not parts:
+        return False
+    if parts[-1] in _SHELL_RC_BASENAMES:
+        return True
+    if parts[-1] == "config.yaml" and (".clover" in parts[:-1] or arg.strip("\"'").startswith(("$CLOVER_HOME/", "${CLOVER_HOME}/"))):
+        return True
+    if parts[-1] in HOME_CREDENTIAL_FILES or parts[-2:] in ([".aws", "credentials"], [".aws", "config"]):
+        return True
+    return False
+
+
+def is_secret_file_path(path) -> bool:
+    """True when a tool-resolved file path is a well-known credential store."""
+    try:
+        return _is_secret_file_arg(str(path))
+    except Exception:
+        return False
+
+
+_SECRET_FILE_READERS = _FILE_READ_COMMANDS | {"grep", "awk", "sed", "get-content", "gc"}
+_PS_COLON_PARAM_RE = re.compile(r"-[A-Za-z]+:(.+)")
+_PATTERN_FIRST_COMMANDS = frozenset({"grep", "awk", "sed"})
+
+
+def _command_reads_secret_file(command: str | None) -> bool:
+    """True if ``command`` reads a credential-store file to stdout (defense-in-depth)."""
+    if not command or not isinstance(command, str):
+        return False
+    for seg in _command_segments(command):
+        tokens = seg.split()
+        if not tokens:
+            continue
+        reader = tokens[0].rsplit("/", 1)[-1].lower()
+        if reader not in _SECRET_FILE_READERS:
+            continue
+        positional = [
+            a if not a.startswith("-") else m.group(1)
+            for a in tokens[1:]
+            if not a.startswith("-")
+            or (reader not in _PATTERN_FIRST_COMMANDS and (m := _PS_COLON_PARAM_RE.fullmatch(a)))
+        ]
+        if reader in _PATTERN_FIRST_COMMANDS:
+            positional = positional[1:]
+        if any(_is_secret_file_arg(a) for a in positional):
+            return True
+    return False
 
 
 def _command_reads_env_file(command: str | None) -> bool:
@@ -1126,8 +1216,98 @@ def redact_terminal_output(
     if not output:
         return output
     cmd = command or ""
-    code_file = not (is_env_dump_command(cmd) or _command_reads_env_file(cmd))
-    return redact_sensitive_text(output, force=force, code_file=code_file)
+    secret_file = _command_reads_secret_file(cmd)
+    code_file = not (secret_file or is_env_dump_command(cmd) or _command_reads_env_file(cmd))
+    return redact_sensitive_text(output, force=force, code_file=code_file, secret_file=secret_file)
+
+
+def _last_char_class(pattern: str) -> "str | None":
+    """Text of the last ``[...]`` class in ``pattern`` (escape-aware), or None.
+
+    For the built-in shape ``<literal prefix><body class><quantifier>`` this is the
+    pattern's body class.
+    """
+    last = None
+    i = 0
+    while i < len(pattern):
+        if pattern[i] == "\\":
+            i += 2
+            continue
+        if pattern[i] == "[":
+            j = i + 1
+            if pattern[j:j + 1] == "^":
+                j += 1
+            if pattern[j:j + 1] == "]":  # a leading "]" is literal
+                j += 1
+            while j < len(pattern) and pattern[j] != "]":
+                j += 2 if pattern[j] == "\\" else 1
+            last = pattern[i:j + 1]
+            i = j + 1
+            continue
+        i += 1
+    return last
+
+
+def _trailing_guard(pattern: str) -> str:
+    """Lookahead ending ``pattern``: reject a following alphanumeric (word boundary), and ``_``/``-``
+    only when the pattern's body class admits them. Never stricter than the shared guard, so a
+    plugin pattern whose last class is a delimiter check (``(?=[\\s.,])``) still matches."""
+    body_class = _last_char_class(pattern)
+    try:  # a "[" inside a (?#...) comment is no class: fall back to the shared guard
+        seps = "".join(c for c in "_-" if re.fullmatch(body_class, c)) if body_class else None
+    except re.error:
+        seps = None
+    return r"(?![A-Za-z0-9_-])" if seps is None else f"(?![A-Za-z0-9{seps}])"
+
+
+def _compile_prefix_matcher(patterns: list) -> re.Pattern[str]:
+    # Each branch gets its own guard (_trailing_guard): a following alphanumeric always
+    # blocks, ``_``/``-`` only when the body class admits them. The old shared
+    # ``(?![A-Za-z0-9_-])`` failed ``ghp_…[A-Za-z0-9]{10,}`` at the body's end and at every
+    # backtrack step, so a token followed by ``_``/``-`` was missed and shipped in cleartext
+    # (#142852). A pattern without a ``[...]`` class falls back to the shared class.
+    return re.compile(r"(?<![A-Za-z0-9_-])(" + "|".join(f"(?:{p}){_trailing_guard(p)}" for p in patterns) + r")")
+
+
+def _compile_prefix_sub_matcher(patterns: list) -> re.Pattern[str]:
+    """_PREFIX_RE for the masking pass, also admitting a key glued to an identifier by ``-``/``_``
+    (``backup-sk-…``, ``x-ghp_…``), which _PREFIX_RE rejects so ``scikit-learn`` stays whole. One
+    fixed-width lookbehind keeps main's single scan; _is_glued_identifier keeps a glued match unless
+    its body is opaque, so ``backup-sk-learn`` stays whole too (#147240)."""
+    # Branches grouped by their literal first char (every pattern opens on one, see
+    # register_redaction_patterns): admitting ``-``/``_`` before a key makes every separator a
+    # candidate, and a flat 60-way alternation per candidate doubled the cost of a ``_ghp_`` flood.
+    # Groups are disjoint by first char, so leftmost-first match order is unchanged.
+    by_first: dict = {}
+    for pattern in patterns:
+        by_first.setdefault(pattern[0], []).append(f"(?:{pattern[1:]}){_trailing_guard(pattern)}")
+    body = "|".join(f"{re.escape(c)}(?:{'|'.join(rest)})" for c, rest in by_first.items())
+    return re.compile(r"(?<![A-Za-z0-9])(" + body + r")")
+
+
+_PREFIX_RE = _compile_prefix_matcher(_PREFIX_PATTERNS)
+_PREFIX_SUB_RE = _compile_prefix_sub_matcher(_PREFIX_PATTERNS)
+# A real key body has a 16+ char run with no separator mixing two of lower/upper/digit;
+# ``sk-prod-deployment-01`` and ``fc-feature-flags-v2`` do not.
+_LONG_ALNUM_RUN_RE = re.compile(r"[A-Za-z0-9]{16,}+")
+
+
+def _is_opaque_prefixed_token(token: str) -> bool:
+    for run in _LONG_ALNUM_RUN_RE.finditer(token):
+        run = run.group(0)
+        if (run.isalpha() and (run.islower() or run.isupper())) or run.isdigit():
+            continue
+        return True
+    return False
+
+
+def _is_glued_identifier(m: "re.Match[str]", token: str | None = None) -> bool:
+    """A _PREFIX_SUB_RE match glued to an identifier by ``-``/``_`` whose body (``token``,
+    default the match's) is not opaque."""
+    token = m.group(1) if token is None else token
+    # Google OAuth prefixes are distinctive even when base64url separators break every long run.
+    return (m.start() > 0 and m.string[m.start() - 1] in "-_"
+            and not token.startswith(("GOCSPX-", "ya29.", "1//0")) and not _is_opaque_prefixed_token(token))
 
 
 # Substrings used to gate ``_PREFIX_RE`` execution. If none of these appear in
@@ -1295,11 +1475,10 @@ def _rebuild_prefix_matcher() -> None:
     globals up at call time, so swapping the module attributes (atomic
     under the GIL) propagates immediately to every caller.
     """
-    global _PREFIX_RE, _PREFIX_SUBSTRINGS
+    global _PREFIX_RE, _PREFIX_SUB_RE, _PREFIX_SUBSTRINGS
     combined = _PREFIX_PATTERNS + _plugin_patterns()
-    _PREFIX_RE = re.compile(
-        r"(?<![A-Za-z0-9_-])(" + "|".join(combined) + r")(?![A-Za-z0-9_-])"
-    )
+    _PREFIX_RE = _compile_prefix_matcher(combined)
+    _PREFIX_SUB_RE = _compile_prefix_sub_matcher(combined)
     _PREFIX_SUBSTRINGS = tuple(_extract_literal_prefix(p) for p in combined)
 
 

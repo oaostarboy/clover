@@ -161,6 +161,13 @@ def _normalize_server_url(raw: str) -> str:
 # Adapter
 # ---------------------------------------------------------------------------
 
+def _safe_error(exc: BaseException) -> str:
+    """Error text with ``?password=`` URL query credentials masked (httpx errors embed the URL).
+    Adapted from upstream hermes-agent plugins/platforms/bluebubbles/adapter.py (c1405617cd)."""
+    from agent.redact import redact_sensitive_text
+    return redact_sensitive_text(str(exc), force=True, redact_url_credentials=True) or type(exc).__name__
+
+
 class BlueBubblesAdapter(BasePlatformAdapter):
     platform = Platform.BLUEBUBBLES
     SUPPORTS_MESSAGE_EDITING = False
@@ -287,7 +294,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
             )
         except Exception as exc:
             logger.error(
-                "[bluebubbles] cannot reach server at %s: %s", self.server_url, exc
+                "[bluebubbles] cannot reach server at %s: %s", self.server_url, _safe_error(exc)
             )
             if self.client:
                 await self.client.aclose()
@@ -423,7 +430,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
         except Exception as exc:
             logger.warning(
                 "[bluebubbles] failed to register webhook with server: %s",
-                exc,
+                _safe_error(exc),
             )
             return False
 
@@ -456,7 +463,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
         except Exception as exc:
             logger.debug(
                 "[bluebubbles] failed to unregister webhook (non-critical): %s",
-                exc,
+                _safe_error(exc),
             )
         return removed
 
@@ -521,7 +528,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
             msg_id = data.get("guid") or data.get("messageGuid") or "ok"
             return SendResult(success=True, message_id=str(msg_id), raw_response=res)
         except Exception as exc:
-            return SendResult(success=False, error=str(exc) or type(exc).__name__)
+            return SendResult(success=False, error=_safe_error(exc))
 
     # ------------------------------------------------------------------
     # Text sending
@@ -584,7 +591,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                     success=True, message_id=str(msg_id), raw_response=res
                 )
             except Exception as exc:
-                return SendResult(success=False, error=str(exc) or type(exc).__name__)
+                return SendResult(success=False, error=_safe_error(exc))
         return last
 
     # ------------------------------------------------------------------
@@ -646,7 +653,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                 error=result.get("message", "Attachment upload failed"),
             )
         except Exception as e:
-            return SendResult(success=False, error=str(e))
+            return SendResult(success=False, error=_safe_error(e))
 
     async def send_image(
         self,
@@ -870,7 +877,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
             logger.warning(
                 "[bluebubbles] failed to download attachment %s: %s",
                 _redact(att_guid),
-                exc,
+                _safe_error(exc),
             )
             return None
 
@@ -928,7 +935,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                 )[0]
                 payload = json.loads(payload_str) if payload_str else {}
         except Exception as exc:
-            logger.error("[bluebubbles] webhook parse error: %s", exc)
+            logger.error("[bluebubbles] webhook parse error: %s", _safe_error(exc))
             return web.json_response({"error": "invalid payload"}, status=400)
 
         event_type = self._value(payload.get("type"), payload.get("event")) or ""

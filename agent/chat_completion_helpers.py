@@ -2128,6 +2128,9 @@ def build_assistant_message(agent, assistant_message, finish_reason: str) -> dic
     _san_content = _sanitize_surrogates(_raw_content)
     if reasoning_text:
         reasoning_text = _sanitize_surrogates(reasoning_text)
+        # Reasoning reaches state.db like content: redact credentials the model quoted in its thinking.
+        from agent.redact import redact_sensitive_text as _redact_reasoning
+        reasoning_text = _redact_reasoning(reasoning_text)
 
     # Strip inline reasoning tags (<think>…</think> etc.) from the stored
     # assistant content.  Reasoning was already captured into
@@ -2178,7 +2181,11 @@ def build_assistant_message(agent, assistant_message, finish_reason: str) -> dic
         if isinstance(model_extra, dict) and "reasoning_content" in model_extra:
             raw_reasoning_content = model_extra["reasoning_content"]
     if raw_reasoning_content is not None:
-        msg["reasoning_content"] = _sanitize_surrogates(raw_reasoning_content)
+        _rc = _sanitize_surrogates(raw_reasoning_content)
+        if isinstance(_rc, str) and _rc:
+            from agent.redact import redact_sensitive_text as _redact_reasoning
+            _rc = _redact_reasoning(_rc)
+        msg["reasoning_content"] = _rc
     elif assistant_tool_calls and agent._needs_thinking_reasoning_pad():
         # DeepSeek v4 thinking mode and Kimi / Moonshot thinking mode
         # both require reasoning_content on every assistant tool-call
@@ -2237,6 +2244,15 @@ def build_assistant_message(agent, assistant_message, finish_reason: str) -> dic
                     preserved.append(d.model_dump(warnings=False))
                 except TypeError:
                     preserved.append(d.model_dump())
+        # Redact unsigned text/summary only; signed (``signature``) and opaque/encrypted
+        # replay material must stay byte-exact.
+        from agent.redact import redact_sensitive_text as _redact_reasoning
+        preserved = [
+            {**d, **{k: _redact_reasoning(d[k]) for k in ("text", "summary") if isinstance(d.get(k), str)}}
+            if isinstance(d, dict) and not d.get("signature") and "encrypted" not in str(d.get("type", ""))
+            else d
+            for d in preserved
+        ]
         if preserved:
             msg["reasoning_details"] = preserved
 
