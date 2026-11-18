@@ -89,6 +89,7 @@ _PATTERNS: List[Tuple[str, str, str]] = [
     # ── Classic prompt injection (applies everywhere) ────────────────
     (rf'ignore\s+{_FILLER}(previous|all|above|prior)\s+{_FILLER}instructions', "prompt_injection", "all"),
     (r'system\s+prompt\s+override', "sys_prompt_override", "all"),
+    (rf'(?<!n\'t )(?<!not )(?<!never )forget\s+(?:about\s+)?(your|all|any|previous|prior|above|earlier)\s+(?:\w+\s+){{0,3}}(instructions|rules|guidelines)(?![^\W_])', "forget_rules", "all"),
     (rf'disregard\s+{_FILLER}(your|all|any)\s+{_FILLER}(instructions|rules|guidelines)', "disregard_rules", "all"),
     (rf'act\s+as\s+(if|though)\s+{_FILLER}you\s+{_FILLER}(have\s+no|don\'t\s+have)\s+{_FILLER}(restrictions|limits|rules)', "bypass_restrictions", "all"),
     (r'<!--[^>]{0,512}(?:ignore|override|system|secret|hidden)[^>]{0,512}-->', "html_comment_injection", "all"),
@@ -194,7 +195,7 @@ INVISIBLE_CHARS = frozenset({
     '\u2067',  # right-to-left isolate
     '\u2068',  # first strong isolate
     '\u2069',  # pop directional isolate
-})
+}) | frozenset(map(chr, range(0xE0000, 0xE0080)))  # Unicode TAG block (ASCII smuggling)
 
 
 # Compiled pattern sets, indexed by scope.  Compiled once at import time;
