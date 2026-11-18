@@ -39,6 +39,31 @@ def test_post_pull_api_proceeds_for_legacy_gateway_and_records_receipt(monkeypat
     assert guard['reasons'] and 'maintenance_required' not in guard
 
 
+def test_legacy_loaded_updater_without_verdict_allows_empty_discovery(monkeypatch, tmp_path):
+    """Post-pull target guard must tolerate an old updater already in memory."""
+    import sys
+    from types import ModuleType
+    from clover_cli import gateway, update_delivery_guard
+
+    monkeypatch.setenv('CLOVER_HOME', str(tmp_path))
+    monkeypatch.setitem(sys.modules, 'clover_cli.update_cmd', ModuleType('clover_cli.update_cmd'))
+    monkeypatch.setattr(gateway, 'find_profile_gateway_processes', lambda **kwargs: [])
+    monkeypatch.setattr(gateway, 'find_gateway_pids', lambda **kwargs: [])
+    assert update_delivery_guard._unsafe_gateways() == []
+
+
+def test_legacy_loaded_updater_without_verdict_does_not_exclude_unknown_pid(monkeypatch, tmp_path):
+    import sys
+    from types import ModuleType
+    from clover_cli import gateway, update_delivery_guard
+
+    monkeypatch.setenv('CLOVER_HOME', str(tmp_path))
+    monkeypatch.setitem(sys.modules, 'clover_cli.update_cmd', ModuleType('clover_cli.update_cmd'))
+    monkeypatch.setattr(gateway, 'find_profile_gateway_processes', lambda **kwargs: [])
+    monkeypatch.setattr(gateway, 'find_gateway_pids', lambda **kwargs: [987654321])
+    assert update_delivery_guard._unsafe_gateways() == ['PID 987654321: no owner-bound gateway status']
+
+
 def test_loaded_runner_advertises_ack_drain(monkeypatch):
     from gateway.run import GatewayRunner
     import gateway.status as status

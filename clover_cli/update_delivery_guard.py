@@ -224,7 +224,12 @@ def _proved_stderr_wrapper(pid: int, admitted: dict[int, tuple[Path, int]]) -> b
 
 def _unsafe_gateways() -> list[str]:
     from clover_cli.gateway import find_gateway_pids, find_profile_gateway_processes
-    from clover_cli.update_cmd import _gateway_pid_install_verdict
+    # A post-pull guard can run inside an older updater whose loaded module
+    # predates this helper. Missing evidence must never identify a PID as foreign.
+    try:
+        from clover_cli.update_cmd import _gateway_pid_install_verdict
+    except ImportError:
+        _gateway_pid_install_verdict = lambda pid: 'unknown'
     from gateway.status import _get_process_start_time, runtime_status_pid_is_live
 
     processes = find_profile_gateway_processes(strict=True)
