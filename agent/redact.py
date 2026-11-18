@@ -200,8 +200,14 @@ _ENV_LOOKUP_VALUE_RE = re.compile(
 # ``(?:[A-Za-z0-9_\-]+\.)+`` (exponential backtracking on long dotted runs).
 # The ``*`` runs bordering {_SECRET_CFG_NAMES} must stay backtrackable
 # (secret words are matchable by the class, e.g. ``app.api.key=…``).
+# The leading lookbehind pins match starts to segment boundaries. Without it
+# every position inside a long run (e.g. a 200k-char exception body in a
+# logged traceback) is a fresh start that rescans the run: quadratic, and a
+# 60s+ log-format hang. A leftmost match never starts right after a
+# [A-Za-z0-9_-] char (starting one char earlier also matches), so results are
+# unchanged.
 _CFG_DOTTED_RE = re.compile(
-    rf"([A-Za-z0-9_\-]++\.[A-Za-z0-9_.\-]*{_SECRET_CFG_NAMES}[A-Za-z0-9_.\-]*+"
+    rf"(?<![A-Za-z0-9_\-])([A-Za-z0-9_\-]++\.[A-Za-z0-9_.\-]*{_SECRET_CFG_NAMES}[A-Za-z0-9_.\-]*+"
     rf"|[A-Za-z0-9_.\-]*{_SECRET_CFG_NAMES}[A-Za-z0-9_.\-]*\.[A-Za-z0-9_.\-]++)"
     rf"={_CFG_VALUE}",
     re.IGNORECASE,
