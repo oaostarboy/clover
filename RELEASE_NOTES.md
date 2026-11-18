@@ -15,6 +15,14 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.0 | Clover C2.1.0 | 2026-11-18
+- Safer by default: Clover blocks downloaded scripts that run right away and commands that would wipe its own data.
+- Secrets such as Discord tokens, webhook links and password files no longer show up in logs.
+- Long tasks are no longer cut off at 7 minutes, and /stop now finishes cleanly.
+- Restarts and updates now wait until Clover is idle, and many libraries got security updates.
+- Long chats cost less: old tool output is trimmed and the chat cache is kept for an hour.
+- Computer use no longer refuses normal password and login tasks that you ask for.
+
 ## 2.0.12 | Clover C2.0.12 | 2026-11-12
 - Audio, documents, web pages and code in Creations now open on your phone instead of being refused.
 
