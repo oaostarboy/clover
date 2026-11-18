@@ -4190,6 +4190,9 @@ def save_config(
         # DEFAULT_CONFIG; using the raw dict preserves which paths the
         # user actually set so _strip_default_values can keep them.
         _raw_for_paths = read_raw_config()
+        from clover_cli.config_credential_values import refuse_redacted_config_credentials
+
+        refuse_redacted_config_credentials(config, lambda: _raw_for_paths or {})
         explicit_raw_paths: Optional[Set[Tuple[str, ...]]] = (
             _explicit_config_paths(_raw_for_paths) if _raw_for_paths else None
         )
@@ -4535,6 +4538,8 @@ def save_env_value(key: str, value: str):
         return
     validate_env_var_name_for_write(key)
     value = value.replace("\n", "").replace("\r", "")
+    from clover_cli.config_credential_values import refuse_redacted_env_value
+    refuse_redacted_env_value(key, value)
     # API keys / tokens must be ASCII — strip non-ASCII with a warning.
     value = _check_non_ascii_credential(key, value)
     ensure_clover_home()
