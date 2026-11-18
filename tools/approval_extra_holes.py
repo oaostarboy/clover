@@ -75,10 +75,22 @@ def _out_paths(toks):
                 paths.append(t.split("=", 1)[1])
             elif t.startswith("-O") and len(t) > 2:
                 paths.append(t[2:])
+    for i, t in enumerate(toks):
+        if t in (">", ">>") and i + 1 < len(toks):
+            paths.append(toks[i + 1])
+        elif re.match(r"^>>?[^>&]", t):
+            paths.append(t.lstrip(">"))
     return [_expand(p) for p in paths if p != "-"]
 
 
+_SUBST_FETCH = re.compile(
+    r"\b(?:sh|bash|zsh|dash|ksh|source|eval|python3?|perl|ruby|node|php)\b[^;&|\n]*?"
+    r"(?:\$\(|`|<\()\s*(?:curl|wget)\b")
+
+
 def fetch_exec(command):
+    if _SUBST_FETCH.search(command):
+        return "execution of fetched content via substitution"
     downloaded = set()
     for toks in _split(command):
         name = os.path.basename(toks[0])
@@ -110,10 +122,17 @@ def _is_clover_path(p):
 
 
 def clover_store(command):
+    cwd = None
     for toks in _split(command):
         name = os.path.basename(toks[0])
         args = [a for a in toks[1:] if not a.startswith("-")]
+        if name in ("cd", "pushd"):
+            cwd = _expand(args[0]) if args else None
+            continue
         paths = [_expand(a) for a in args]
+        if cwd and cwd.startswith("/"):
+            paths = [os.path.normpath(os.path.join(cwd, p)) if not p.startswith("/") else p
+                     for p in paths]
         if name in _DESTRUCTIVE:
             check = paths[:-1] if (name == "mv" and len(paths) > 1) else paths
             if name == "mv" and paths and paths[-1] == "/dev/null":
