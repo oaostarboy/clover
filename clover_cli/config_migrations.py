@@ -1167,6 +1167,51 @@ def _migrate_to_42(results: Dict[str, Any], quiet: bool) -> None:
         print("  ✓ Set delegation.reasoning_effort to 'low' for subagent execution")
 
 
+# Old shipped defaults of the proactive tool-result prune (off / 8000 / 4096).
+_V43_OLD_PRUNE = {
+    "proactive_prune_tokens": (0, 64000),
+    "proactive_prune_min_result_chars": (8000, 1000),
+    "proactive_prune_min_reclaim_tokens": (4096, 64000),
+}
+
+
+def _v43_rewrite_config(config: Dict[str, Any]) -> List[str]:
+    """Move installs still on the old shipped defaults to the new ones.
+
+    Only values EQUAL to the old default are rewritten (a user who chose 48000 or pinned
+    cache_ttl "1h" keeps it); an explicit 0 on the prune trigger is indistinguishable from
+    the old default and is migrated too, ``false`` is the way to keep it off.
+    """
+    notes: List[str] = []
+    comp = config.get("compression")
+    if isinstance(comp, dict):
+        for key, (old, new) in _V43_OLD_PRUNE.items():
+            if key in comp and comp[key] == old and not isinstance(comp[key], bool):
+                del comp[key]  # follow the new schema default (never materialise defaults)
+                notes.append(f"compression.{key} -> {new} (dropped the old default)")
+    pc = config.get("prompt_caching")
+    if isinstance(pc, dict) and pc.get("cache_ttl") == "5m":
+        del pc["cache_ttl"]
+        notes.append('removed prompt_caching.cache_ttl "5m" (old default; now follows auto)')
+    return notes
+
+
+def _migrate_to_43(results: Dict[str, Any], quiet: bool) -> None:
+    # ── Version 42 → 43: proactive prune on by default; cache_ttl auto ──
+    _c = _cfg()
+    config = _c.read_raw_config()
+    notes = _v43_rewrite_config(config)
+    if not notes:
+        return
+    try:
+        _c._persist_migration(config)
+    except TypeError:  # pragma: no cover - older persist signature
+        _c._persist_migration(config)
+    results["config_added"].extend(notes)
+    if not quiet:
+        print("  ✓ Proactive tool-result prune now on by default; prompt cache TTL follows auto")
+
+
 #: Registry of (target_version, migration_fn), strictly ascending. The driver
 #: applies every entry whose target version is greater than the on-disk
 #: observe earlier steps' writes via read_raw_config() (filesystem state).
@@ -1197,6 +1242,7 @@ MIGRATIONS: Tuple[Tuple[int, Callable[[Dict[str, Any], bool], None]], ...] = (
     (40, _migrate_to_40),
     (41, _migrate_to_41),
     (42, _migrate_to_42),
+    (43, _migrate_to_43),
 )
 
 

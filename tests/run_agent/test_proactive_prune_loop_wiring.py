@@ -155,44 +155,41 @@ class TestProactivePruneLoopWiring:
         compress.assert_called_once()
         agent.context_compressor.prune_tool_results_only.assert_not_called()
 
-    def test_prune_consulted_when_compression_stands_down(self, agent):
+    def test_prune_never_consulted_mid_turn_while_cache_is_warm(self, agent):
+        """Prompt caching is sacred: a tool round seconds after the last provider response
+        must not rewrite history (the cache is warm), whatever the engine would do."""
         calls = []
 
-        def _prune(messages, current_tokens=None):
-            calls.append(current_tokens)
-            return messages, 0  # no-op contract: input object back
+        def _prune(messages, current_tokens=None, cold_cache=False):
+            calls.append(cold_cache)
+            return messages, 0
 
+        agent._use_prompt_caching = True
         agent.context_compressor.prune_tool_results_only = _prune
         result = _run_tool_loop(agent, n_tool_iterations=3)
         assert result["completed"] is True
-        assert len(calls) == 3  # one shot per tool iteration
-        assert all(t == 120_000 for t in calls)  # fed the real usage reading
+        assert calls == []
 
-    def test_committed_prune_replaces_messages(self, agent):
+    def test_committed_mid_turn_prune_cannot_rewrite_the_running_turn(self, agent):
         marker = "[old tool output pruned]"
 
-        def _prune(messages, current_tokens=None):
+        def _prune(messages, current_tokens=None, cold_cache=False):
             pruned = [dict(m) for m in messages]
-            changed = 0
             for m in pruned:
-                if m.get("role") == "tool" and m.get("content") != marker:
+                if m.get("role") == "tool":
                     m["content"] = marker
-                    changed += 1
-            if not changed:
-                return messages, 0
-            return pruned, changed
+            return pruned, 1
 
+        agent._use_prompt_caching = True
         agent.context_compressor.prune_tool_results_only = _prune
         result = _run_tool_loop(agent, n_tool_iterations=2)
-        assert result["completed"] is True
         tool_rows = [m for m in result["messages"] if m.get("role") == "tool"]
-        assert tool_rows, "expected tool rows in the final transcript"
-        assert all(m["content"] == marker for m in tool_rows)
+        assert tool_rows and all(marker not in m["content"] for m in tool_rows)
 
     def test_noop_input_object_commits_nothing(self, agent):
         """Engine returns the INPUT object with a (bogus) non-zero count —
         the caller's ``result is not input`` gate must refuse the commit."""
-        def _prune(messages, current_tokens=None):
+        def _prune(messages, current_tokens=None, cold_cache=False):
             return messages, 5  # lies about count but returns input object
 
         agent.context_compressor.prune_tool_results_only = _prune

@@ -853,24 +853,24 @@ DEFAULT_CONFIG = {
                                       # (e.g. 6) for tool-schema-heavy sessions where 3
                                       # rounds cannot clear the request estimate.
                                       # Validated >= 1, hard-capped at 10.
-        "proactive_prune_tokens": 0,  # opt-in trigger (tokens) for the deterministic,
+        "proactive_prune_tokens": 64000,  # trigger (tokens) for the deterministic,
                                       # no-LLM tool-result prune, run independently of
                                       # `threshold` above. On large-window models
                                       # `threshold` (≈50% of the window) rarely fires,
                                       # so old tool output otherwise rides in history
-                                      # and is re-sent every turn; a low value like
-                                      # 48000 reclaims it early. 0 = off. Recent tail
+                                      # and is re-sent every turn; the default
+                                      # 64000 reclaims it early. 0/false = off. Recent tail
                                       # protected by `protect_last_n`. Built-in
                                       # compressor only (other engines inherit a no-op).
                                       # NOTE: each committed prune rewrites already-sent
                                       # history, breaking the provider prompt-cache
                                       # prefix — the min_reclaim gate below keeps those
                                       # breaks episodic rather than per-turn.
-        "proactive_prune_min_result_chars": 8000,  # the prune's summarize pass only
+        "proactive_prune_min_result_chars": 1000,  # the prune's summarize pass only
                                       # touches tool results larger than this (chars);
                                       # clamped to >= 200 so a generated summary can't
                                       # itself be re-summarized.
-        "proactive_prune_min_reclaim_tokens": 4096,  # a proactive prune only commits
+        "proactive_prune_min_reclaim_tokens": 64000,  # a proactive prune only commits
                                       # when it reclaims at least this many tokens
                                       # (measured on the pruned output), then waits
                                       # for a full trigger-sized token runway to
@@ -1034,11 +1034,12 @@ DEFAULT_CONFIG = {
     },
 
     # Anthropic prompt caching (Claude via OpenRouter or native Anthropic API).
-    # cache_ttl: "5m" or "1h" (Anthropic-supported tiers). Other non-falsy
-    # values are silently ignored. Falsy values (false, null, "off",
+    # cache_ttl: "auto" (default: 1h for sessions a person types into, 5m for
+    # machine-paced api_server/cron/curator/subagent runs), "5m" or "1h". Other
+    # non-falsy values are silently ignored. Falsy values (false, null, "off",
     # "disabled", "no", "none") disable prompt caching entirely.
     "prompt_caching": {
-        "cache_ttl": "5m",
+        "cache_ttl": "auto",
     },
 
     # OpenRouter-specific settings.
@@ -4163,7 +4164,7 @@ DEFAULT_CONFIG = {
     },
 
     # Config schema version - bump this when adding new required fields
-    "_config_version": 42,
+    "_config_version": 43,
 }
 
 # Optional environment variables that enhance functionality

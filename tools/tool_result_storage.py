@@ -62,6 +62,8 @@ PERSISTED_OUTPUT_TAG = "<persisted-output>"
 PERSISTED_OUTPUT_CLOSING_TAG = "</persisted-output>"
 STORAGE_DIR = "/tmp/clover-results"
 SPILLOVER_SUBDIR = "cache/spillover"
+PRUNED_SUBDIR = "cache/pruned"  # originals of tool results a prune/compaction shortened
+PRUNED_MAX_AGE_DAYS = 30
 SPILLOVER_MAX_AGE_HOURS = 24
 HEREDOC_MARKER = "CLOVER_PERSIST_EOF"
 _BUDGET_TOOL_NAME = "__budget_enforcement__"
@@ -87,10 +89,20 @@ def cleanup_spillover_cache(max_age_hours: int = SPILLOVER_MAX_AGE_HOURS) -> int
     so the gateway housekeeping loop can prune this dir on the same
     hourly cadence as the media caches.
     """
-    cutoff = time.time() - (max_age_hours * 3600)
+    removed = _sweep_dir(get_spillover_dir(), time.time() - (max_age_hours * 3600))
+    # Archived prune originals back a pointer the model may follow days later: keep them longer.
+    from clover_constants import get_clover_home
+
+    removed += _sweep_dir(
+        get_clover_home() / PRUNED_SUBDIR, time.time() - PRUNED_MAX_AGE_DAYS * 86400
+    )
+    return removed
+
+
+def _sweep_dir(directory, cutoff: float) -> int:
     removed = 0
     try:
-        entries = list(get_spillover_dir().iterdir())
+        entries = list(directory.iterdir())
     except OSError:
         return 0
     for f in entries:
@@ -142,18 +154,32 @@ def _is_host_side_env(env) -> bool:
         return False
 
 
-def _write_to_spillover(content: str, filename: str):
-    """Write content host-side to $CLOVER_HOME/cache/spillover.
+def _write_to_spillover(content: str, filename: str, subdir: str = SPILLOVER_SUBDIR, exclusive: bool = False):
+    """Write content host-side to $CLOVER_HOME/<subdir> (default cache/spillover).
 
+    The write is read back and compared byte-for-byte; a partial/corrupt file is
+    discarded so no pointer ever names an archive that silently lost bytes.
     Returns the absolute path string on success, None on failure.
     """
+    from clover_constants import get_clover_home
+
+    data = content.encode("utf-8", errors="replace")
     try:
-        spill_dir = get_spillover_dir()
+        spill_dir = get_clover_home() / subdir
         spill_dir.mkdir(parents=True, exist_ok=True)
         path = spill_dir / filename
-        path.write_text(content, encoding="utf-8", errors="replace")
+        with open(path, "xb" if exclusive else "wb") as fh:
+            fh.write(data)
+        exact = path.stat().st_size == len(data) and path.read_bytes() == data
     except OSError as exc:
-        logger.warning("Spillover write failed for %s: %s", filename, exc)
+        logger.warning("Archive write to %s failed for %s: %s", subdir, filename, exc)
+        return None
+    if not exact:
+        logger.warning("Archive write for %s is not lossless; discarding", filename)
+        try:
+            path.unlink()
+        except OSError:
+            pass
         return None
     _prune_spillover_once()
     return str(path)
@@ -448,3 +474,63 @@ def enforce_turn_budget(
             )
 
     return tool_messages
+
+
+# ── Archive-before-stub: pruned / compacted tool-result originals under cache/pruned/ ──
+# Every tool result a prune or compaction is about to shorten is first written, byte-verified, to
+# ``$CLOVER_HOME/cache/pruned/`` and its stub names that file, so ``read_file`` gets the exact
+# output back. A result whose write fails keeps its full body.
+
+ARCHIVE_POINTER_SEP = " — full result: "
+_ARCHIVE_POINTER_RE = re.compile(r" — full result: \S*cache/pruned/[A-Za-z0-9_.-]+")
+
+
+def has_archive_pointer(content: str) -> bool:
+    """True for a stub that already names its archived original (never re-archive / re-summarize)."""
+    return (
+        isinstance(content, str)
+        and len(content) < 2_000
+        and ARCHIVE_POINTER_SEP in content
+        and _ARCHIVE_POINTER_RE.search(content) is not None
+    )
+
+
+def _backend_reads_host_files() -> bool:
+    """True only on the ``local`` terminal backend: the one place ``read_file`` opens host paths.
+
+    Any other backend reads its own filesystem, so a pointer would name a file the model
+    cannot open; those keep the plain stubs and write nothing.
+    """
+    return os.getenv("TERMINAL_ENV", "local").strip().lower() in ("local", "")
+
+
+def write_pruned_original(content: str, session_id: str, tool_name: str, tool_call_id: str):
+    """Archive one tool result's full original before it is shortened.
+
+    Returns ``(host path, display path)`` or None (non-local backend or failed write: the
+    caller must keep that result whole).
+    """
+    import json
+    from pathlib import PurePath
+
+    from clover_constants import display_clover_home, get_clover_home
+
+    if not _backend_reads_host_files():
+        return None
+    try:
+        json.loads(content)
+        ext = "json"
+    except ValueError:
+        ext = "txt"
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    short_id = hashlib.sha256(str(tool_call_id or "").encode("utf-8")).hexdigest()[:8]
+    archive_dir = get_clover_home() / PRUNED_SUBDIR
+    stem = f"{session_id}_{stamp}_{tool_name}_{short_id}"
+    for n in range(1_000):  # resumed histories can repeat a tool_call_id
+        name = _UNSAFE_RESULT_FILENAME_CHARS.sub("_", stem + (f"_{n}" if n else ""))[:_MAX_RESULT_FILENAME_STEM] + "." + ext
+        if not (archive_dir / name).exists():
+            break
+    host_path = _write_to_spillover(content, name, PRUNED_SUBDIR, exclusive=True)
+    if host_path is None:
+        return None
+    return host_path, f"{PurePath(display_clover_home()).as_posix()}/{PRUNED_SUBDIR}/{name}"
