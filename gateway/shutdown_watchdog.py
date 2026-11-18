@@ -31,6 +31,7 @@ import os
 import sys
 import threading
 import time
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -132,6 +133,11 @@ def start_loop_liveness_watchdog(
     timeout = probe_timeout
     strikes_limit = max_strikes
     stop_event = threading.Event()
+    # The loop's own thread is the one a post-mortem needs first. BaseEventLoop records it
+    # while running; the starter runs on the loop thread, covering mocked/not-yet-running loops.
+    loop_thread_id = getattr(loop, "_thread_id", None)
+    if not isinstance(loop_thread_id, int):
+        loop_thread_id = threading.get_ident()
 
     def _wait_for_probe(probe_event: threading.Event) -> Optional[bool]:
         deadline = time.monotonic() + timeout
@@ -185,6 +191,9 @@ def start_loop_liveness_watchdog(
                 )
             except Exception:
                 pass
+            # faulthandler's all-threads dump stops at 100 threads, newest first, so it can drop
+            # the loop thread. Write that thread's stack explicitly (file + stderr) first.
+            _write_loop_thread_section(loop_thread_id)
             try:
                 faulthandler.dump_traceback(all_threads=True)
             except Exception:
@@ -213,6 +222,46 @@ def start_loop_liveness_watchdog(
         logger.debug("Failed to start gateway loop liveness watchdog", exc_info=True)
         return None
     return _LoopLivenessWatchdogHandle(stop_event, thread)
+
+
+def _thread_name(ident: Optional[int]) -> Optional[str]:
+    """Name of the live thread with this ident, or None once it has exited."""
+    return next((t.name for t in threading.enumerate() if t.ident == ident), None)
+
+
+def _format_loop_thread_section(loop_thread_id: int) -> str:
+    """The loop thread's stack: file, line, function, source line only (never frame locals).
+    Ported from upstream hermes-agent c8008fb1b0 / 70ea34a496."""
+    try:
+        frame = sys._current_frames().get(loop_thread_id)
+        stack = ("".join(traceback.format_stack(frame)) if frame is not None
+                 else "(monitored loop thread stack unavailable: thread may have exited)\n")
+    except Exception:
+        stack = "(monitored loop thread stack unavailable: could not format it)\n"
+    return (f"--- monitored gateway loop thread stack "
+            f"(id={loop_thread_id}, name={_thread_name(loop_thread_id)}) ---\n" + stack)
+
+
+def _write_loop_thread_section(loop_thread_id: int) -> None:
+    """Best-effort: append the loop-thread section to the watchdog dump file and stderr."""
+    section = _format_loop_thread_section(loop_thread_id)
+    try:
+        path = get_shutdown_watchdog_dump_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"event": "loop_liveness_watchdog_fired", "pid": os.getpid(),
+                                 "fired_at": datetime.now(timezone.utc).isoformat(),
+                                 "monitored_loop_thread_id": loop_thread_id,
+                                 "monitored_loop_thread_name": _thread_name(loop_thread_id)}) + "\n")
+            fh.write(section)
+            fh.flush()
+    except Exception:
+        pass
+    try:
+        sys.stderr.write(section)
+        sys.stderr.flush()
+    except Exception:
+        pass
 
 
 def _process_clover_home() -> Path:
