@@ -90,7 +90,7 @@ _SUBST_FETCH = re.compile(
 
 def fetch_exec(command):
     if _SUBST_FETCH.search(command):
-        return "execution of fetched content via substitution"
+        return "execution of remote content via command or process substitution"
     downloaded = set()
     for toks in _split(command):
         name = os.path.basename(toks[0])
