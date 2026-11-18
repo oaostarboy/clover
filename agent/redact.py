@@ -159,7 +159,7 @@ _ENV_ASSIGN_RE = re.compile(
 # ``FAL_KEY=…``, ``db_pw=…``) — NOT bare ``password=``/``token=``/``secret=``,
 # which appear in prose, URLs, and form bodies (issue #77484).
 _ENV_ASSIGN_LOWER_RE = re.compile(
-    rf"([a-z0-9_]+(?:_|^)(?:key|pass|pw|token|secret|password|passwd|credential|auth)(?=[^a-z0-9_]|$))\s*=\s*(['\"]?)(\S+)\2",
+    rf"([a-z0-9_]{{1,100}}(?:_|^)(?:key|pass|pw|token|secret|password|passwd|credential|auth)(?=[^a-z0-9_]|$))\s*=\s*(['\"]?)(\S+)\2",
     re.IGNORECASE,
 )
 
@@ -867,7 +867,7 @@ def redact_sensitive_text(
             # function; _redact_strict_url_credentials handles the opt-in
             # case). The uppercase regex above is all-caps-only, so it never
             # matches URL params; the lowercase one would (issue #77484).
-            if "://" not in text:
+            if "=" in text and "://" not in text:
                 text = _ENV_ASSIGN_LOWER_RE.sub(_redact_env, text)
             # Lowercase/dotted config keys (issue #16413). Skip URLs entirely —
             # web-URL query params are intentionally passed through (see note
@@ -881,7 +881,7 @@ def redact_sensitive_text(
             # (e.g. base64/hex blobs in compaction payloads); the linear
             # keyword scan prevents that pathological path on secret-free
             # text.
-            if "://" not in text and _CFG_SECRET_WORD_RE.search(text):
+            if "=" in text and "://" not in text and _CFG_SECRET_WORD_RE.search(text):
                 text = _CFG_DOTTED_RE.sub(_redact_env, text)
                 text = _CFG_ANCHORED_RE.sub(_redact_env, text)
 

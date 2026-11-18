@@ -153,3 +153,55 @@ def test_agent_compute_uses_external_budget():
                 base_url="https://chatgpt.com/backend-api/codex",
                 quiet_mode=True, skip_context_files=True, skip_memory=True, platform="cli")
     assert b._compute_non_stream_stale_timeout([{"role": "user", "content": "hi"}]) < 1000
+
+
+# ---- real subprocess: stalled vs producing external-process child --------
+
+_FAKE_ACP = r'''
+import json, sys, time
+mode = sys.argv[1]
+for line in sys.stdin:
+    m = json.loads(line)
+    rid, meth = m.get("id"), m.get("method")
+    def reply(res): print(json.dumps({"jsonrpc": "2.0", "id": rid, "result": res}), flush=True)
+    if meth == "initialize":
+        reply({})
+    elif meth == "session/new":
+        reply({"sessionId": "s1"})
+    elif meth == "session/prompt":
+        if mode == "stall":
+            print(json.dumps({"jsonrpc": "2.0", "method": "session/update", "params": {"update": {
+                "sessionUpdate": "agent_message_chunk", "content": {"text": "partial"}}}}), flush=True)
+            time.sleep(3600)
+        for i in range(8):  # 8 x 0.4s = 3.2s total, each gap < budget
+            print(json.dumps({"jsonrpc": "2.0", "method": "session/update", "params": {"update": {
+                "sessionUpdate": "agent_message_chunk", "content": {"text": "x"}}}}), flush=True)
+            time.sleep(0.4)
+        reply({"stopReason": "end_turn"})
+'''
+
+
+def _acp_client(tmp_path, mode):
+    import sys
+    from agent.copilot_acp_client import CopilotACPClient
+    script = tmp_path / "fake_acp.py"
+    script.write_text(_FAKE_ACP)
+    return CopilotACPClient(acp_command=sys.executable, acp_args=[str(script), mode],
+                            acp_cwd=str(tmp_path))
+
+
+def test_stalled_external_process_is_killed_within_budget(tmp_path):
+    client = _acp_client(tmp_path, "stall")
+    t0 = time.monotonic()
+    with pytest.raises(TimeoutError):
+        client._run_prompt("hi", timeout_seconds=1.0)
+    assert time.monotonic() - t0 < 6.0
+    assert client._active_process is None or client._active_process.poll() is not None
+
+
+def test_producing_external_process_is_not_killed(tmp_path):
+    client = _acp_client(tmp_path, "produce")
+    t0 = time.monotonic()
+    text, _ = client._run_prompt("hi", timeout_seconds=1.5)  # total run (3.2s) > budget
+    assert text == "x" * 8
+    assert time.monotonic() - t0 > 1.5

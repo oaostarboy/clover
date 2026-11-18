@@ -493,6 +493,9 @@ class CopilotACPClient:
                     msg = inbox.get(timeout=0.1)
                 except queue.Empty:
                     continue
+                # Stall budget: any message from the child is progress, so the
+                # window slides; only silence for ``timeout_seconds`` kills it.
+                deadline = time.monotonic() + timeout_seconds
 
                 if self._handle_server_message(
                     msg,
