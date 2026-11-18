@@ -6711,6 +6711,12 @@ class BasePlatformAdapter(ABC):
         command_guard = asyncio.Event()
         self._active_sessions[session_key] = command_guard
         thread_meta = _thread_metadata_for_source(event.source, _reply_anchor_for_event(event))
+        # Hold debounced text while the runner decides; restored if it refuses the interrupt
+        # (upstream hermes-agent 90f17a3541).
+        held = self._text_debounce_store().pop(session_key, None)
+        if held is not None and held.task is not None and not held.task.done():
+            held.task.cancel()
+        cancelled = False
 
         try:
             response = await self._message_handler(event)
@@ -6743,22 +6749,31 @@ class BasePlatformAdapter(ABC):
                     )
             # Old adapter task (if any) is cancelled AFTER the response has
             # been sent — keeps ordering deterministic and avoids the race.
-            await self.cancel_session_processing(
-                session_key,
-                release_guard=False,
-                discard_pending=False,
-            )
-        except Exception:
-            # On failure, restore the original guard if one still exists so
-            # we don't leave the session in a half-reset state.
-            if self._active_sessions.get(session_key) is command_guard:
-                if session_key in self._session_tasks and current_guard is not None:
-                    self._active_sessions[session_key] = current_guard
-                else:
-                    self._release_session_guard(session_key, guard=command_guard)
-            raise
+            # Cancel only if the runner's stop/reset handler ran (past admission and slash
+            # access) and marked the event. No authorization check registered means no runner
+            # verdict is possible: keep the legacy cancel.
+            if self._authorization_check is None or getattr(event, "_interrupt_accepted", False) is True:
+                await self.cancel_session_processing(
+                    session_key,
+                    release_guard=False,
+                    discard_pending=False,
+                )
+                cancelled = True
+        finally:
+            if not cancelled:
+                # Refused or failed: restore the original guard and the held text so the
+                # turn keeps running and the session isn't left half-reset.
+                if self._active_sessions.get(session_key) is command_guard:
+                    if session_key in self._session_tasks and current_guard is not None:
+                        self._active_sessions[session_key] = current_guard
+                    else:
+                        self._release_session_guard(session_key, guard=command_guard)
+                if held is not None:
+                    self._text_debounce_store()[session_key] = held
+                    await self._flush_text_debounce_now(session_key)
 
-        await self._drain_pending_after_session_command(session_key, command_guard)
+        if cancelled:
+            await self._drain_pending_after_session_command(session_key, command_guard)
 
     async def handle_message(self, event: MessageEvent) -> Optional[bool]:
         """
@@ -6840,7 +6855,6 @@ class BasePlatformAdapter(ABC):
                 # cancellation + runner response + pending drain.
                 # (Registry-derived: busy_policy == "interrupt_then_dispatch".)
                 if cmd and is_interrupt_then_dispatch(cmd):
-                    self._discard_text_debounce(session_key)
                     try:
                         await self._dispatch_active_session_command(event, session_key, cmd)
                     except Exception as e:
