@@ -1190,6 +1190,8 @@ def _v43_rewrite_config(config: Dict[str, Any]) -> List[str]:
                 del comp[key]  # follow the new schema default (never materialise defaults)
                 notes.append(f"compression.{key} -> {new} (dropped the old default)")
     pc = config.get("prompt_caching")
+    # An explicit "5m" equals the old seeded default, so it is dropped with it; users who
+    # want 5m can set prompt_caching.cache_ttl: 5m again after the migration.
     if isinstance(pc, dict) and pc.get("cache_ttl") == "5m":
         del pc["cache_ttl"]
         notes.append('removed prompt_caching.cache_ttl "5m" (old default; now follows auto)')

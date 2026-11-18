@@ -305,3 +305,18 @@ def test_pruned_archives_outlive_spillover_sweep(home):
     os.utime(host, (older, older))
     cleanup_spillover_cache()
     assert not Path(host).exists()
+
+
+def test_system_prompt_byte_identical_across_turns_with_prune_enabled():
+    """Prompt caching is sacred: a cold-cache prune rewrites old tool rows, never the system row."""
+    prune, calls = _spy()
+    agent = _agent(last_response_age=4000, prune=prune)
+    system = {"role": "system", "content": "You are Clover.\nstable prefix \u2603 " + "p" * 3000}
+    msgs = [system] + _history()[1:]
+    before = json.dumps(msgs[0], sort_keys=True).encode()
+    turn1 = prune_stale_prefix(agent, msgs, 3, 100_000)
+    turn2 = prune_stale_prefix(agent, turn1, 3, 100_000)
+    assert len(calls) == 2, "prune must run on both turns for this test to mean anything"
+    assert turn1 is not msgs and turn1[2]["content"] == "[pruned]"
+    assert json.dumps(turn1[0], sort_keys=True).encode() == before
+    assert json.dumps(turn2[0], sort_keys=True).encode() == before

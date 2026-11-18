@@ -38,7 +38,6 @@
     "tools": [
       "browser_exec",
       "clarify",
-      "computer_use",
       "delegate_task",
       "execute_code",
       "memory",
@@ -69,7 +68,6 @@
     "tools": [
       "browser_exec",
       "clarify",
-      "computer_use",
       "delegate_task",
       "execute_code",
       "memory",
@@ -100,7 +98,6 @@
     "tools": [
       "browser_exec",
       "clarify",
-      "computer_use",
       "delegate_task",
       "execute_code",
       "memory",

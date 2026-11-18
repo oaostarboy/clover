@@ -80,7 +80,8 @@ def measure() -> dict[str, dict]:
         }
         proc = subprocess.run(
             [sys.executable, str(Path(__file__).resolve()), "_child"], env=env, cwd=tmp,
-            capture_output=True, text=True, encoding="utf-8", timeout=600, check=False,
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", timeout=600,
+            check=False,
         )
     lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("PROMPT_SURFACE_JSON=")]
     if proc.returncode != 0 or not lines:

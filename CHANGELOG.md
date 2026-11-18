@@ -5,6 +5,10 @@ This changelog records the broader scope and limits of the 1.5.6 release.
 
 ## Unreleased
 
+- Config migration 43 drops an explicit `prompt_caching.cache_ttl: 5m` because it
+  matches the old seeded default; the TTL now follows auto. To keep 5m, set
+  `prompt_caching.cache_ttl: 5m` again after updating.
+
 - Keep the default `/proactive` menu phone-sized; put technical diagnostics in
   `/proactive status`. Native controls remain available only to explicitly
   enrolled admins. Read-only replies explain missing enrollment and link to
