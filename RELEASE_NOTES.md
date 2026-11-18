@@ -15,6 +15,10 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.1 | Clover C2.1.1 | 2026-11-18
+
+- Updating no longer restarts other assistants on the same computer that run their own copy.
+
 ## 2.1.0 | Clover C2.1.0 | 2026-11-18
 - Safer by default: Clover blocks downloaded scripts that run right away and commands that would wipe its own data.
 - Secrets such as Discord tokens, webhook links and password files no longer show up in logs.
