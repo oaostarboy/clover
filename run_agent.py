@@ -1548,6 +1548,11 @@ class AIAgent:
         :func:`agent.chat_completion_helpers.estimate_request_context_tokens`.
         """
         stale_base, uses_implicit_default = self._resolved_api_call_stale_timeout_base()
+        from agent.process_transport import implicit_non_stream_stale_timeout
+
+        _ext = implicit_non_stream_stale_timeout(self)
+        if _ext is not None:
+            return _ext
         base_url = getattr(self, "_base_url", None) or self.base_url or ""
         if uses_implicit_default and base_url and is_local_endpoint(base_url):
             return float("inf")

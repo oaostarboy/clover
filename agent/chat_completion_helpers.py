@@ -5394,7 +5394,12 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
     # unless the user explicitly set CLOVER_STREAM_STALE_TIMEOUT; override the
     # local ceiling with CLOVER_LOCAL_STREAM_STALE_TIMEOUT (documented in
     # website/docs/reference/environment-variables.md).
-    if _stream_stale_timeout_base == 180.0 and agent.base_url and is_local_endpoint(agent.base_url):
+    from agent.process_transport import is_external_process_provider as _is_ext_proc
+
+    if _stream_stale_timeout_base == 180.0 and (
+        _is_ext_proc(getattr(agent, "provider", None))
+        or (agent.base_url and is_local_endpoint(agent.base_url))
+    ):
         # Read config.yaml ``agent.local_stream_stale_timeout`` (default 900),
         # env var ``CLOVER_LOCAL_STREAM_STALE_TIMEOUT`` overrides for escape-hatch.
         _local_default = 900.0
