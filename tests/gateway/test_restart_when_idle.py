@@ -65,3 +65,34 @@ def test_background_units_counts_only_live_delegations_and_notices(monkeypatch):
     runner._async_notices_in_delivery = [{"type": "async_delegation", "delegation_id": "c"}]
     units = rwi.background_units(runner)
     assert [u.get("delegation_id") or u.get("id") for u in units] == ["a", "c"]
+
+
+def test_background_units_counts_notify_watched_processes(monkeypatch):
+    from types import SimpleNamespace
+    import threading
+    from tools import async_delegation as ad
+    from tools.process_registry import process_registry as reg
+    monkeypatch.setattr(ad, "list_async_delegations", lambda: [])
+    mk = lambda i, n: SimpleNamespace(id=i, notify_on_complete=n, _completion_event=threading.Event())
+    monkeypatch.setattr(reg, "_running", {"p1": mk("p1", True), "p2": mk("p2", False)})
+    runner, _ = make_restart_runner()
+    runner._async_notices_in_delivery = []
+    assert [u["id"] for u in rwi.background_units(runner)] == ["p1"]
+
+
+@pytest.mark.asyncio
+async def test_restart_announces_waiting_for_idle_to_requesting_chat(monkeypatch):
+    from types import SimpleNamespace
+    from gateway.config import Platform
+    units = [{"kind": "delegation", "delegation_id": "d1"}]
+    runner = _runner(monkeypatch, units)
+    adapter = SimpleNamespace(send=AsyncMock())
+    runner.adapters = {Platform.TELEGRAM: adapter}
+    runner._restart_command_source = SimpleNamespace(
+        platform=Platform.TELEGRAM, chat_id="42", thread_id=None, message_id=None, chat_type="dm")
+    assert runner.request_restart(detached=False, via_service=True)
+    await asyncio.sleep(0.4)
+    units.clear()
+    await asyncio.wait_for(runner._restart_task, 5)
+    adapter.send.assert_awaited_once()
+    assert "Waiting for idle" in adapter.send.await_args.args[1]

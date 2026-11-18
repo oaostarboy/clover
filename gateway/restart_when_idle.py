@@ -46,8 +46,22 @@ def queued_notice_units(runner: Any) -> List[Dict[str, Any]]:
     ]
 
 
+def process_units() -> List[Dict[str, Any]]:
+    """Running background terminal processes whose exit will notify the agent."""
+    from tools.process_registry import process_registry
+
+    with process_registry._lock:
+        sessions = list(process_registry._running.values())
+    return [
+        {"kind": "process", "id": s.id}
+        for s in sessions
+        if getattr(s, "notify_on_complete", False)
+        and not s._completion_event.is_set()
+    ]
+
+
 def background_units(runner: Any) -> List[Dict[str, Any]]:
-    return delegation_units() + queued_notice_units(runner)
+    return delegation_units() + queued_notice_units(runner) + process_units()
 
 
 def describe(units: List[Dict[str, Any]]) -> str:

@@ -13043,6 +13043,37 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         except Exception:
             return []
 
+    async def _announce_waiting_for_idle(self, bg: list) -> None:
+        """Tell the requesting chat the restart is waiting for idle (best-effort)."""
+        src = getattr(self, "_restart_command_source", None)
+        if src is None:
+            return
+        try:
+            from gateway.restart_when_idle import describe
+
+            adapter = self.adapters.get(src.platform)
+            if adapter is None:
+                return
+            parts = []
+            turns = self._awaitable_work_count()
+            if turns:
+                parts.append(f"{turns} running turn(s)")
+            if bg:
+                parts.append(describe(bg))
+            metadata = self._thread_metadata_for_target(
+                src.platform, str(src.chat_id), src.thread_id,
+                chat_type=getattr(src, "chat_type", None),
+                reply_to_message_id=getattr(src, "message_id", None),
+                adapter=adapter,
+            )
+            await adapter.send(
+                str(src.chat_id),
+                "⏳ Waiting for idle before restart: " + "; ".join(parts),
+                metadata=metadata,
+            )
+        except Exception:
+            logger.debug("waiting-for-idle notice failed", exc_info=True)
+
     async def _await_active_work_before_restart(self) -> bool:
         """Wait for in-flight work to finish before entering ``stop()``.
 
@@ -13098,6 +13129,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             self._update_runtime_status("draining")
         except Exception:
             pass
+        await self._announce_waiting_for_idle(bg)
 
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
