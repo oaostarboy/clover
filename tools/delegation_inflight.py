@@ -398,6 +398,8 @@ def is_resumable(record: Optional[Dict[str, Any]], now: Optional[float] = None) 
     """Would a restart resume this record (flag on, not stale, resumes left)?"""
     if not record or not resume_enabled():
         return False
+    if record.get("stopped_by_user") or record.get("resumed_as"):
+        return False
     now = time.time() if now is None else now
     if int(record.get("resumes") or 0) >= MAX_RESUMES:
         return False
