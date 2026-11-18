@@ -11,6 +11,7 @@ CLOVER_HOME root.
 import json
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import stat
@@ -233,6 +234,71 @@ def _backup_operation_lock(clover_home: Path, timeout_seconds: float = 0.25):
             except (OSError, PermissionError):
                 pass
         handle.close()
+
+
+_STAGE_PARTIAL_RES = (
+    # zip output:   .<name>.<pid>-<thread>.partial
+    re.compile(r"^\..+\.(\d+)-\d+\.partial$"),
+    # db temp copy: .clover-backup-dbstage.<pid>.<random>.partial
+    re.compile(r"^\.clover-backup-dbstage\.(\d+)\..*\.partial$"),
+    # quick snapshot staging dir: .<snap_id>.<pid>.partial
+    re.compile(r"^\..+\.(\d+)\.partial$"),
+)
+_STAGE_MAX_AGE_SECONDS = 24 * 3600
+
+
+def _db_stage_prefix() -> str:
+    return f".clover-backup-dbstage.{os.getpid()}."
+
+
+def _staging_owner_alive(pid: int) -> bool:
+    if pid == os.getpid():
+        return True
+    try:
+        from gateway.status import _pid_exists
+
+        return bool(_pid_exists(pid))
+    except Exception:
+        return True  # unknown: do not delete
+
+
+def recover_interrupted_backup_staging(directory: Path) -> list[str]:
+    """Remove half-written backup staging left by a crashed/killed backup.
+
+    A ``.partial`` file or directory is never a valid backup: it is removed
+    when the process that created it is gone (or it is older than 24h).
+    Published backups (no ``.partial`` marker) are never touched. Returns
+    the removed names; never raises.
+    """
+    removed: list[str] = []
+    try:
+        entries = list(Path(directory).iterdir())
+    except OSError:
+        return removed
+    for entry in entries:
+        name = entry.name
+        if not name.startswith(".") or not name.endswith(".partial"):
+            continue
+        match = next((m for r in _STAGE_PARTIAL_RES if (m := r.match(name))), None)
+        if match is None:
+            continue
+        pid = int(match.group(1))
+        try:
+            age = time.time() - entry.stat().st_mtime
+        except OSError:
+            continue
+        if pid == os.getpid() or (_staging_owner_alive(pid) and age < _STAGE_MAX_AGE_SECONDS):
+            continue
+        try:
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                entry.unlink(missing_ok=True)
+            removed.append(name)
+            logger.warning("Removed interrupted backup staging: %s", entry)
+        except OSError:
+            pass
+    return removed
 
 
 @contextmanager
@@ -823,6 +889,8 @@ def _run_backup_locked(args, clover_root: Path) -> None:
         print(f"Error: cannot write backup to {args.output or out_path}: {exc}")
         raise SystemExit(1) from exc
 
+    recover_interrupted_backup_staging(out_path.parent)
+
     # Collect files
     scan_started = time.monotonic()
     logger.info("backup phase=scan status=started")
@@ -913,7 +981,8 @@ def _run_backup_locked(args, clover_root: Path) -> None:
                     # default (/tmp) may be a small tmpfs that cannot hold
                     # large databases, causing silent backup incompleteness.
                     with tempfile.NamedTemporaryFile(
-                        suffix=".db", delete=False, dir=str(out_path.parent)
+                        prefix=_db_stage_prefix(), suffix=".partial",
+                        delete=False, dir=str(out_path.parent)
                     ) as tmp:
                         tmp_db = Path(tmp.name)
                     if _safe_copy_db(abs_path, tmp_db):
@@ -1545,6 +1614,8 @@ def _create_quick_snapshot_locked(
         snap_id = f"{base_snap_id}-{suffix}"
         suffix += 1
     snap_dir = root / snap_id
+    root.mkdir(parents=True, exist_ok=True)
+    recover_interrupted_backup_staging(root)
     staging_dir = root / f".{snap_id}.{os.getpid()}.partial"
     shutil.rmtree(staging_dir, ignore_errors=True)
     staging_dir.mkdir(parents=True, exist_ok=False)
@@ -2095,6 +2166,7 @@ def _write_full_zip_backup_locked(out_path: Path, clover_root: Path) -> Optional
     Returns the output path on success, None on failure (nothing to back up,
     or write error — caller should surface the outcome but not raise).
     """
+    recover_interrupted_backup_staging(out_path.parent)
     scan_started = time.monotonic()
     logger.info("automatic backup phase=scan status=started")
     files_to_add: list[tuple[Path, Path]] = []
@@ -2141,7 +2213,8 @@ def _write_full_zip_backup_locked(out_path: Path, clover_root: Path) -> Optional
                         # default (/tmp) may be a small tmpfs that cannot hold
                         # large databases, causing silent backup incompleteness.
                         with tempfile.NamedTemporaryFile(
-                            suffix=".db", delete=False, dir=str(out_path.parent)
+                            prefix=_db_stage_prefix(), suffix=".partial",
+                            delete=False, dir=str(out_path.parent)
                         ) as tmp:
                             tmp_db = Path(tmp.name)
                         try:
