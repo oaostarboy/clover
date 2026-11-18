@@ -174,3 +174,51 @@ class TestReceiptIntegration:
 
         ur._current = None
         ui.record_plan_in_receipt(ui.collect_runtime_inventory())  # must not raise
+
+
+class TestForeignInstallGateways:
+    """A gateway running another install's interpreter is never touched."""
+
+    def _verdicts(self, monkeypatch, mapping):
+        monkeypatch.setattr(
+            "clover_cli.update_cmd._gateway_pid_install_verdict",
+            lambda pid: mapping.get(pid, "unknown"),
+        )
+        monkeypatch.setattr(
+            ui, "_runtime_interpreter", lambda pid: f"/other/venv/bin/python-{pid}"
+        )
+
+    def test_own_gateway_still_restarted(self, fleet, monkeypatch):
+        self._verdicts(monkeypatch, {100: "own", 200: "own"})
+        plan = ui.collect_runtime_inventory()
+        assert all(r.owned_by_this_install for r in plan.runtimes)
+        assert {r.restart_via for r in plan.runtimes} == {"systemd", "manual"}
+
+    def test_foreign_gateway_skipped_in_plan(self, fleet, monkeypatch, capsys):
+        self._verdicts(monkeypatch, {100: "own", 200: "other"})
+        plan = ui.collect_runtime_inventory()
+        by = {r.profile: r for r in plan.runtimes}
+        assert by["default"].owned_by_this_install
+        assert not by["work"].owned_by_this_install
+        assert by["work"].restart_via == "skip-foreign-install"
+        ui.print_update_plan(plan)
+        out = capsys.readouterr().out
+        assert "Running services to restart (1)" in out
+        assert "runs its own copy at /other/venv/bin/python-200 — not touched" in out
+
+    def test_unknown_stays_restarted(self, fleet, monkeypatch):
+        self._verdicts(monkeypatch, {})
+        plan = ui.collect_runtime_inventory()
+        assert all(r.owned_by_this_install for r in plan.runtimes)
+
+    def test_foreign_reconciles_as_other_install_not_unaccounted(self, fleet, monkeypatch):
+        self._verdicts(monkeypatch, {100: "own", 200: "other"})
+        plan = ui.collect_runtime_inventory()
+        outs = ui.match_runtime_outcomes(
+            plan, restarted_services=["clover-gateway.service"],
+            relaunched_profiles=[], externally_supervised_profiles=[],
+            killed_pids=set(), failed_units=[],
+        )
+        by = {o["profile"]: o["outcome"] for o in outs}
+        assert by == {"default": "restarted", "work": "other_install"}
+        assert not ui.report_unaccounted_runtimes(outs)

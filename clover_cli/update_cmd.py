@@ -8639,11 +8639,10 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
         _pre_update_plan = collect_runtime_inventory()
         record_plan_in_receipt(_pre_update_plan)
-        if _pre_update_plan.runtimes:
-            _n = len(_pre_update_plan.runtimes)
-            _profiles = ", ".join(
-                sorted({r.profile for r in _pre_update_plan.runtimes})
-            )
+        _own_rts = [r for r in _pre_update_plan.runtimes if r.owned_by_this_install]
+        if _own_rts:
+            _n = len(_own_rts)
+            _profiles = ", ".join(sorted({r.profile for r in _own_rts}))
             print(f"→ Fleet: {_n} running service(s) across profiles: {_profiles}")
     except Exception as _plan_exc:
         logger.debug("Update plan phase failed: %s", _plan_exc)
@@ -9528,7 +9527,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 _rollback_services = list((_windows_gateway_resume or {}).get("services") or [])
                 _supervisors = {
                     r.supervisor for r in ((_pre_update_plan.runtimes if _pre_update_plan else []) or [])
-                    if r.kind == "gateway"
+                    if r.kind == "gateway" and r.owned_by_this_install
                 }
                 _rollback_supervisor = next((s for s in ("systemd", "launchd") if s in _supervisors), None)
                 if _rollback_argv or _rollback_services or _rollback_supervisor:

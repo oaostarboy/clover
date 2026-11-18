@@ -51,6 +51,9 @@ class RuntimeRecord:
     code_sha: Optional[str] = None       # stamped running-code sha (#91283)
     code_version: Optional[str] = None
     restart_via: str = ""         # human-readable restart mechanism
+    # False when the process provably runs another install's interpreter; the
+    # update never pauses/stops/restarts it (restart_via == skip-foreign-install).
+    owned_by_this_install: bool = True
     detail: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -126,6 +129,8 @@ def _restart_mechanism(supervisor: str, profile: str) -> str:
 
 def describe_restart_mechanism(mechanism: str, profile: str) -> str:
     """Human-readable description of a restart mechanism id."""
+    if mechanism == "skip-foreign-install":
+        return "not touched (runs from another install)"
     if mechanism == "systemd":
         return "systemctl restart (drain-first SIGUSR1 when supported)"
     if mechanism == "launchd":
@@ -386,7 +391,31 @@ def collect_runtime_inventory() -> UpdatePlan:
     except Exception as exc:
         logger.debug("Serve/dashboard ledger inventory failed: %s", exc)
 
+    _mark_foreign_runtimes(plan)
     return plan
+
+
+def _runtime_interpreter(pid: int) -> str:
+    try:
+        from clover_cli.update_cmd import _gateway_pid_cmdline_path
+
+        arg0 = _gateway_pid_cmdline_path(pid).read_bytes().split(b"\0")[0]
+        return os.fsdecode(arg0)
+    except Exception:
+        return ""
+
+
+def _mark_foreign_runtimes(plan: UpdatePlan) -> None:
+    """Flag gateways running another install's interpreter. Unknown = ours."""
+    for r in plan.runtimes:
+        if not isinstance(r, RuntimeRecord) or r.kind != "gateway" or r.pid is None:
+            continue
+        if _runtime_is_other_install(r.pid):
+            r.owned_by_this_install = False
+            r.restart_via = "skip-foreign-install"
+            exe = _runtime_interpreter(r.pid)
+            if exe:
+                r.detail["runs_from"] = exe
 
 
 def print_update_plan(plan: UpdatePlan) -> None:
@@ -407,8 +436,11 @@ def print_update_plan(plan: UpdatePlan) -> None:
     if not plan.runtimes:
         print("  Running Clover services: none detected — code swap only.")
         return
-    print(f"  Running services to restart ({len(plan.runtimes)}):")
-    for runtime in plan.runtimes:
+    ours = [r for r in plan.runtimes if getattr(r, "owned_by_this_install", True)]
+    foreign = [r for r in plan.runtimes if not getattr(r, "owned_by_this_install", True)]
+    if ours:
+        print(f"  Running services to restart ({len(ours)}):")
+    for runtime in ours:
         sha = f" @ {runtime.code_sha[:8]}" if runtime.code_sha else ""
         print(
             f"    • {runtime.kind} [{runtime.profile}] pid {runtime.pid}"
@@ -417,6 +449,12 @@ def print_update_plan(plan: UpdatePlan) -> None:
         print(
             "      restart: "
             f"{describe_restart_mechanism(runtime.restart_via, runtime.profile)}"
+        )
+    for runtime in foreign:
+        where = runtime.detail.get("runs_from") or "another install"
+        print(
+            f"    • {runtime.kind} [{runtime.profile}] pid {runtime.pid}"
+            f" — runs its own copy at {where} — not touched"
         )
 
 
@@ -470,7 +508,9 @@ def match_runtime_outcomes(
             if r is None:
                 continue
             outcome = "unaccounted"
-            if r.pid is not None and _runtime_is_other_install(r.pid):
+            if not r.owned_by_this_install or (
+                r.pid is not None and _runtime_is_other_install(r.pid)
+            ):
                 # The restart phase is install-scoped: another install's
                 # runtime serving this profile home is never ours to touch.
                 outcome = "other_install"
