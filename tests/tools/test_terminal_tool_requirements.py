@@ -44,9 +44,18 @@ class TestCheckFnTransientFailureSuppression:
     """
 
     @pytest.fixture(autouse=True)
-    def _reset(self):
+    def _reset(self, monkeypatch):
         from tools.registry import invalidate_check_fn_cache
 
+        # A run launched from inside a live browser-control session inherits
+        # these; check_fn_cache_scope() then bypasses the cache and grace
+        # logic under test entirely.
+        for name in (
+            "CLOVER_SESSION_ID",
+            "CLOVER_BROWSER_CONTROL_PRINCIPAL",
+            "CLOVER_BROWSER_CONTROL_TRANSPORT_FAMILY",
+        ):
+            monkeypatch.delenv(name, raising=False)
         invalidate_check_fn_cache()
         yield
         invalidate_check_fn_cache()
