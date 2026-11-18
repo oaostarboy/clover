@@ -32,6 +32,15 @@ def test_real_read_tool_binaries_confirm_option_ownership(
     assert completed.stdout == expected_output
 
 
+def _is_gnu_sort() -> bool:
+    """uutils (Rust coreutils, default on newer Ubuntu) rejects a leading-dash
+    --compress-program value; the behaviour pinned here is GNU-specific."""
+    if shutil.which("sort") is None:
+        return False
+    out = subprocess.run(["sort", "--version"], text=True, capture_output=True).stdout
+    return "GNU coreutils" in out
+
+
 @pytest.mark.parametrize(
     ("tool", "args", "stdin", "needs_tty"),
     [
@@ -49,6 +58,8 @@ def test_real_binaries_execute_leading_dash_program_payload(
     """A PATH marker proves these binaries do not reparse '-program' as an option."""
     if shutil.which(tool) is None or (needs_tty and shutil.which("script") is None):
         pytest.skip(f"{tool} or script is not installed")
+    if tool == "sort" and not _is_gnu_sort():
+        pytest.skip("sort is not GNU coreutils (e.g. uutils)")
 
     marker = tmp_path / "executed"
     payload = tmp_path / "-payload-marker"
