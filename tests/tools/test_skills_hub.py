@@ -579,8 +579,9 @@ class TestHubLockFile:
         lock_file = tmp_path / "lock.json"
         lock_file.write_text("not json{{{")
         lock = HubLockFile(path=lock_file)
-        data = lock.load()
-        assert data == {"version": 1, "installed": {}}
+        # Fails closed (2.1): a damaged lock is never silently reset.
+        with pytest.raises(RuntimeError):
+            lock.load()
 
 
     def test_list_installed(self, tmp_path):
