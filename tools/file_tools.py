@@ -23,7 +23,7 @@ from tools.file_operations import (
     normalize_search_pagination,
 )
 from tools import file_state
-from agent.redact import redact_sensitive_text
+from agent.redact import is_secret_file_path, redact_sensitive_text
 
 logger = logging.getLogger(__name__)
 
@@ -1750,7 +1750,7 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 2000, task_id: str =
                             "retrievable via offset."
                         )
                 if result_dict["content"]:
-                    result_dict["content"] = redact_sensitive_text(result_dict["content"], file_read=True)
+                    result_dict["content"] = redact_sensitive_text(result_dict["content"], file_read=True, secret_file=is_secret_file_path(_resolved))
                 return json.dumps(result_dict, ensure_ascii=False)
 
         # ── Binary file guard ─────────────────────────────────────────
@@ -1906,7 +1906,7 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 2000, task_id: str =
 
         # ── Redact secrets (after guard check to skip oversized content) ──
         if result.content:
-            result.content = redact_sensitive_text(result.content, file_read=True)
+            result.content = redact_sensitive_text(result.content, file_read=True, secret_file=is_secret_file_path(_resolved))
             result_dict["content"] = result.content
 
         # Large-file hint: if the file is big and the caller didn't ask
