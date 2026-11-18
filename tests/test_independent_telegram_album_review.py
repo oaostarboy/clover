@@ -222,6 +222,7 @@ async def test_stop_caption_bypasses_album_queue_policy(replay):
     original=x.adapter._message_handler
     async def handler(event):
         seen.append(event.get_command())
+        if event.get_command()=='stop': event._interrupt_accepted=True  # runner accepted the stop
         return 'Stopped' if event.get_command()=='stop' else await original(event)
     x.adapter._message_handler=handler
     await x.adapter._handle_media_message(photo(x.bot,20,'/stop'),None)
