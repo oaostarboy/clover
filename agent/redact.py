@@ -172,7 +172,7 @@ _ENV_ASSIGN_RE = re.compile(
 # ``FAL_KEY=…``, ``db_pw=…``) — NOT bare ``password=``/``token=``/``secret=``,
 # which appear in prose, URLs, and form bodies (issue #77484).
 _ENV_ASSIGN_LOWER_RE = re.compile(
-    rf"([a-z0-9_]+(?:_|^)(?:key|pass|pw|token|secret|password|passwd|credential|auth)(?=[^a-z0-9_]|$))\s*=\s*(['\"]?)(\S+)\2",
+    rf"([a-z0-9_]{{1,100}}(?:_|^)(?:key|pass|pw|token|secret|password|passwd|credential|auth)(?=[^a-z0-9_]|$))\s*=\s*(['\"]?)(\S+)\2",
     re.IGNORECASE,
 )
 
@@ -213,8 +213,14 @@ _ENV_LOOKUP_VALUE_RE = re.compile(
 # ``(?:[A-Za-z0-9_\-]+\.)+`` (exponential backtracking on long dotted runs).
 # The ``*`` runs bordering {_SECRET_CFG_NAMES} must stay backtrackable
 # (secret words are matchable by the class, e.g. ``app.api.key=…``).
+# The leading lookbehind pins match starts to segment boundaries. Without it
+# every position inside a long run (e.g. a 200k-char exception body in a
+# logged traceback) is a fresh start that rescans the run: quadratic, and a
+# 60s+ log-format hang. A leftmost match never starts right after a
+# [A-Za-z0-9_-] char (starting one char earlier also matches), so results are
+# unchanged.
 _CFG_DOTTED_RE = re.compile(
-    rf"([A-Za-z0-9_\-]++\.[A-Za-z0-9_.\-]*{_SECRET_CFG_NAMES}[A-Za-z0-9_.\-]*+"
+    rf"(?<![A-Za-z0-9_\-])([A-Za-z0-9_\-]++\.[A-Za-z0-9_.\-]*{_SECRET_CFG_NAMES}[A-Za-z0-9_.\-]*+"
     rf"|[A-Za-z0-9_.\-]*{_SECRET_CFG_NAMES}[A-Za-z0-9_.\-]*\.[A-Za-z0-9_.\-]++)"
     rf"={_CFG_VALUE}",
     re.IGNORECASE,
@@ -886,7 +892,7 @@ def redact_sensitive_text(
             # function; _redact_strict_url_credentials handles the opt-in
             # case). The uppercase regex above is all-caps-only, so it never
             # matches URL params; the lowercase one would (issue #77484).
-            if "://" not in text:
+            if "=" in text and "://" not in text:
                 text = _ENV_ASSIGN_LOWER_RE.sub(_redact_env, text)
             # Lowercase/dotted config keys (issue #16413). Skip URLs entirely —
             # web-URL query params are intentionally passed through (see note
@@ -900,7 +906,7 @@ def redact_sensitive_text(
             # (e.g. base64/hex blobs in compaction payloads); the linear
             # keyword scan prevents that pathological path on secret-free
             # text.
-            if "://" not in text and _CFG_SECRET_WORD_RE.search(text):
+            if "=" in text and "://" not in text and _CFG_SECRET_WORD_RE.search(text):
                 text = _CFG_DOTTED_RE.sub(_redact_env, text)
                 text = _CFG_ANCHORED_RE.sub(_redact_env, text)
 

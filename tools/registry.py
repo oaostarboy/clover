@@ -207,12 +207,13 @@ class ToolEntry:
     __slots__ = (
         "name", "toolset", "schema", "handler", "check_fn",
         "requires_env", "is_async", "description", "emoji",
-        "max_result_size_chars", "dynamic_schema_overrides",
+        "max_result_size_chars", "dynamic_schema_overrides", "deadline_floor",
     )
 
     def __init__(self, name, toolset, schema, handler, check_fn,
                  requires_env, is_async, description, emoji,
-                 max_result_size_chars=None, dynamic_schema_overrides=None):
+                 max_result_size_chars=None, dynamic_schema_overrides=None,
+                 deadline_floor=None):
         self.name = name
         self.toolset = toolset
         self.schema = schema
@@ -231,6 +232,11 @@ class ToolEntry:
         # on every get_definitions() call; results are merged shallow on top
         # of the base schema before the {"type": "function", ...} wrap.
         self.dynamic_schema_overrides = dynamic_schema_overrides
+        # ``fn(args) -> seconds | None``: how long ONE call may legitimately
+        # block (from its own args/config). The executor raises its generic
+        # deadline to this so the tool's own timeout fires first and returns
+        # partial output (upstream e1ac37eba1).
+        self.deadline_floor = deadline_floor
 
 
 class _PluginOverridePolicy:
@@ -775,6 +781,7 @@ class ToolRegistry:
         dynamic_schema_overrides: Callable = None,
         override: bool = False,
         scope: Optional[str] = None,
+        deadline_floor: Callable = None,
     ):
         """Register a tool.  Called at module-import time by each tool file.
 
@@ -870,6 +877,7 @@ class ToolRegistry:
                 emoji=emoji,
                 max_result_size_chars=max_result_size_chars,
                 dynamic_schema_overrides=dynamic_schema_overrides,
+                deadline_floor=deadline_floor,
             )
             # Availability is now derived per-tool (_toolset_has_exposable_tools),
             # so this map no longer gates a toolset. It is still consumed by
@@ -1180,6 +1188,32 @@ class ToolRegistry:
             return default
         from tools.budget_config import DEFAULT_RESULT_SIZE_CHARS
         return DEFAULT_RESULT_SIZE_CHARS
+
+    def get_deadline_floor(self, name: str, args: dict) -> Optional[float]:
+        """Seconds this call may legitimately block for, as the tool declares it.
+
+        ``None`` when nothing is declared. Never raises and never returns a
+        non-positive or non-finite value (adapted from upstream e1ac37eba1).
+        """
+        entry = self.get_entry(name)
+        declare = getattr(entry, "deadline_floor", None) if entry else None
+        if declare is None:
+            return None
+        try:
+            value = declare(args if isinstance(args, dict) else {})
+        except Exception:
+            logger.warning("Tool %s: deadline_floor() raised; ignoring", name, exc_info=True)
+            return None
+        if value is None:
+            return None
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            logger.warning("Tool %s: deadline_floor() returned non-numeric %r; ignoring", name, value)
+            return None
+        if value != value or value == float("inf") or value <= 0:
+            return None
+        return value
 
     def get_all_tool_names(self) -> List[str]:
         """Return sorted list of all registered tool names."""

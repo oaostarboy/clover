@@ -4309,6 +4309,29 @@ def _handle_terminal(args, **kw):
     )
 
 
+def _terminal_deadline_floor(args: dict) -> float | None:
+    """How long this call blocks the tool worker (see ToolEntry.deadline_floor).
+
+    Background spawns and over-cap foreground timeouts (promoted to background)
+    return at once and declare nothing. Upstream e1ac37eba1.
+    """
+    if args.get("background"):
+        return None
+    requested = args.get("timeout")
+    try:
+        requested = int(requested) if requested else 0
+    except (TypeError, ValueError):
+        requested = 0
+    if requested > FOREGROUND_MAX_TIMEOUT:
+        return None
+    if requested > 0:
+        return float(requested)
+    try:
+        return float(os.getenv("TERMINAL_TIMEOUT", "180"))
+    except ValueError:
+        return None
+
+
 registry.register(
     name="terminal",
     toolset="terminal",
@@ -4317,4 +4340,5 @@ registry.register(
     check_fn=check_terminal_requirements,
     emoji="💻",
     max_result_size_chars=100_000,
+    deadline_floor=_terminal_deadline_floor,
 )

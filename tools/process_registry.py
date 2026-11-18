@@ -53,6 +53,8 @@ from clover_cli.config import get_clover_home
 
 from agent.redact import redact_sensitive_text
 
+from tools.process_registry_wait import max_wait_timeout, process_deadline_floor
+
 logger = logging.getLogger(__name__)
 
 
@@ -2578,10 +2580,7 @@ class ProcessRegistry:
         from tools.ansi_strip import strip_ansi
         from tools.interrupt import is_interrupted as _is_interrupted
 
-        try:
-            default_timeout = int(os.getenv("TERMINAL_TIMEOUT", "180"))
-        except (ValueError, TypeError):
-            default_timeout = 180
+        default_timeout = max_wait_timeout()
         max_timeout = default_timeout
         requested_timeout = timeout
         timeout_note = None
@@ -3950,4 +3949,5 @@ registry.register(
     schema=PROCESS_SCHEMA,
     handler=_handle_process,
     emoji="⚙️",
+    deadline_floor=process_deadline_floor,
 )
