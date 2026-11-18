@@ -17,6 +17,7 @@ async def _install_running_task(adapter, sk):
 @pytest.mark.asyncio
 async def test_refused_stop_does_not_cancel_running_turn():
     adapter = _make_adapter()
+    adapter.STOP_GRACE_S = 0.05
     adapter.set_authorization_check(lambda *a: True)
     sk = _session_key()
     task = await _install_running_task(adapter, sk)
@@ -33,6 +34,7 @@ async def test_refused_stop_does_not_cancel_running_turn():
 @pytest.mark.asyncio
 async def test_accepted_stop_cancels_turn_after_reply():
     adapter = _make_adapter()
+    adapter.STOP_GRACE_S = 0.05
     adapter.set_authorization_check(lambda *a: True)
 
     async def handler(event):
@@ -51,8 +53,39 @@ async def test_accepted_stop_cancels_turn_after_reply():
 @pytest.mark.asyncio
 async def test_no_authorization_check_keeps_legacy_cancel():
     adapter = _make_adapter()
+    adapter.STOP_GRACE_S = 0.05
     sk = _session_key()
     task = await _install_running_task(adapter, sk)
     await adapter.handle_message(_make_event("/stop"))
     await asyncio.sleep(0)
     assert task.cancelled() or task.done()
+
+
+@pytest.mark.asyncio
+async def test_accepted_stop_gives_grace_then_cancels():
+    adapter = _make_adapter()
+    adapter.STOP_GRACE_S = 0.05
+    adapter.STOP_GRACE_S = 0.3
+    adapter.set_authorization_check(lambda *a: True)
+
+    async def handler(event):
+        event._interrupt_accepted = True
+        return "stopped"
+
+    adapter._message_handler = handler
+    sk = _session_key()
+    done = []
+
+    async def finishing():
+        await asyncio.sleep(0.1)
+        done.append(1)
+
+    adapter._active_sessions[sk] = asyncio.Event()
+    t = asyncio.create_task(finishing())
+    adapter._session_tasks[sk] = t
+    await adapter.handle_message(_make_event("/stop"))
+    assert done == [1] and not t.cancelled()  # finished cleanly within grace
+
+    stuck = await _install_running_task(adapter, sk)
+    await adapter.handle_message(_make_event("/stop"))
+    assert stuck.cancelled() or stuck.done()  # wedged turn cancelled after grace

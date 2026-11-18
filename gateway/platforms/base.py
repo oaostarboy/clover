@@ -6682,6 +6682,9 @@ class BasePlatformAdapter(ABC):
             return
         self._start_session_processing(pending_event, session_key)
 
+    # Seconds /stop,/new,/reset let a running turn unwind before it is cancelled (cf. upstream 4b8c480a4f).
+    STOP_GRACE_S = 3.0
+
     async def _dispatch_active_session_command(
         self,
         event: MessageEvent,
@@ -6753,6 +6756,11 @@ class BasePlatformAdapter(ABC):
             # access) and marked the event. No authorization check registered means no runner
             # verdict is possible: keep the legacy cancel.
             if self._authorization_check is None or getattr(event, "_interrupt_accepted", False) is True:
+                # Short grace: the runner already signalled the agent, so let the task finish
+                # its current tool write and unwind on its own; cancel only if still running.
+                _t = self._session_tasks.get(session_key)
+                if _t is not None and not _t.done() and self.STOP_GRACE_S > 0:
+                    await asyncio.wait({_t}, timeout=self.STOP_GRACE_S)
                 await self.cancel_session_processing(
                     session_key,
                     release_guard=False,
