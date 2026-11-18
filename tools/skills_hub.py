@@ -4005,6 +4005,10 @@ def _skill_meta_to_dict(meta: SkillMeta) -> dict:
 # Lock file management
 # ---------------------------------------------------------------------------
 
+class HubLockFileError(RuntimeError):
+    """Raised when the skills hub lock file is damaged."""
+
+
 class HubLockFile:
     """Manages skills/.hub/lock.json — tracks provenance of installed hub skills."""
 
@@ -4014,10 +4018,21 @@ class HubLockFile:
     def load(self) -> dict:
         if not self.path.exists():
             return {"version": 1, "installed": {}}
+        # Fail closed: a damaged lock must never be treated as empty, or the
+        # next save() would overwrite it and lose all install provenance.
         try:
-            return json.loads(self.path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return {"version": 1, "installed": {}}
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+            raise HubLockFileError(
+                f"Skills hub lock file {self.path} is unreadable or damaged ({exc}). "
+                "Refusing to reset it. Fix or move the file aside, then retry."
+            ) from exc
+        if not isinstance(data, dict) or not isinstance(data.get("installed"), dict):
+            raise HubLockFileError(
+                f"Skills hub lock file {self.path} has an unexpected structure. "
+                "Refusing to reset it. Fix or move the file aside, then retry."
+            )
+        return data
 
     def save(self, data: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
