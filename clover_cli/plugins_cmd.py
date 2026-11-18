@@ -139,10 +139,12 @@ def _scan_plugin_tree(plugin_dir: Path, identifier: str, *, force: bool, scan_de
     return result
 
 
-# Minimum manifest version this installer understands.
-# Plugins may declare ``manifest_version: 1`` in plugin.yaml;
-# future breaking changes to the manifest schema bump this.
-_SUPPORTED_MANIFEST_VERSION = 1
+# Highest manifest version this installer understands. Shared with the
+# loader (``clover_cli.plugins.SUPPORTED_MANIFEST_VERSION``) so the installer
+# can never accept or reject a version the loader treats differently.
+# v1 (or absent) and v2 are supported; v2 adds optional fields parsed by the
+# loader (api_version, requires_plugins, python_dependencies, config_schema...).
+from clover_cli.plugins import SUPPORTED_MANIFEST_VERSION as _SUPPORTED_MANIFEST_VERSION
 
 
 def _plugins_dir() -> Path:
