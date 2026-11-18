@@ -253,6 +253,8 @@ COMPRESSED_SUMMARY_HAS_USER_TURN_KEY = "_compressed_summary_has_user_turn"
 MICRO_COMPACT_MARKER_KEY = "_micro_compact_marker"
 _DB_PERSISTED_MARKER = "_db_persisted"
 PROACTIVE_PRUNE_REARM_MODEL_CONFIG_KEY = "_proactive_prune_rearm_tokens"
+# Reclaim gate for a prune on an already-expired provider cache (no cache break to amortize).
+_COLD_CACHE_MIN_RECLAIM_TOKENS = 16_000
 
 _NO_USER_TASK_SENTINEL = "None. This session contains no user-authored turns."
 COMPRESSION_CONTINUATION_USER_CONTENT = (
@@ -3158,6 +3160,7 @@ class ContextCompressor(ContextEngine):
         # the model_config copy too, so a restart doesn't resurrect a runway
         # this recalibration just voided.
         self._proactive_prune_rearm_tokens = 0
+        self._proactive_prune_cold_credit = 0
         self._clear_durable_proactive_prune_rearm()
 
     # When the MINIMUM_CONTEXT_LENGTH floor meets/exceeds a small context
@@ -3310,9 +3313,9 @@ class ContextCompressor(ContextEngine):
         max_tokens: int | None = None,
         model_thresholds: dict[str, float] | None = None,
         threshold_tokens_cap: Any = None,
-        proactive_prune_tokens: int = 0,
-        proactive_prune_min_result_chars: int = 8000,
-        proactive_prune_min_reclaim_tokens: int = 4096,
+        proactive_prune_tokens: int = 64000,
+        proactive_prune_min_result_chars: int = 1000,
+        proactive_prune_min_reclaim_tokens: int = 64000,
         min_tail_user_messages: int = 1,
         tail_mode: str = "lean",
     ):
@@ -3356,10 +3359,9 @@ class ContextCompressor(ContextEngine):
         # can be longer than the floor it replaces, so Pass 2 would re-summarize
         # its own output every turn (corrupting it and never converging); a
         # negative value would strip every non-tail tool result outright. A
-        # configured 0 keeps the 8000 default via `or`. Keep the floor well above
-        # typical summary length (default 8000) to stay idempotent.
+        # configured 0 keeps the 1000 default via `or`.
         self.proactive_prune_min_result_chars = max(
-            _PRUNE_MIN_CHARS, int(proactive_prune_min_result_chars or 8000)
+            _PRUNE_MIN_CHARS, int(proactive_prune_min_result_chars or 1000)
         )
         # Minimum estimated token reclaim before a proactive prune COMMITS.
         # Every commit rewrites messages the provider has already seen, which
@@ -3376,6 +3378,7 @@ class ContextCompressor(ContextEngine):
         # A committed prune is a prompt-cache boundary. Do not permit the next
         # one until the prompt has regrown the tokens just reclaimed.
         self._proactive_prune_rearm_tokens: int = 0
+        self._proactive_prune_cold_credit: int = 0
         self.min_tail_user_messages = min_tail_user_messages
         self.summary_target_ratio = max(0.10, min(summary_target_ratio, 0.80))
         self.quiet_mode = quiet_mode
@@ -4218,6 +4221,7 @@ class ContextCompressor(ContextEngine):
 
     def prune_tool_results_only(
         self, messages: List[Dict[str, Any]], current_tokens: int | None = None,
+        *, cold_cache: bool = False,
     ) -> tuple[List[Dict[str, Any]], int]:
         """Deterministic, no-LLM tool-result prune for the cost-oriented path.
 
@@ -4268,7 +4272,7 @@ class ContextCompressor(ContextEngine):
         if len(messages) <= self.protect_last_n + self._protect_head_size(messages) + 1:
             return messages, 0
         before = sum(_estimate_msg_budget_tokens(m) for m in messages)
-        if before < self._proactive_prune_rearm_tokens:
+        if not cold_cache and before < self._proactive_prune_rearm_tokens:
             return messages, 0
         # Capability gate BEFORE the expensive multi-pass scan: a bound store that
         # can't persist the prune atomically (duck-typed/plugin session store
@@ -4292,12 +4296,28 @@ class ContextCompressor(ContextEngine):
             # Standard no-op contract: hand back the INPUT object so callers
             # can gate bookkeeping on `result is not input`.
             return messages, 0
+        # Archive-before-stub: each shortened result is saved first and its stub
+        # names the file; a failed write keeps that result whole (reclaim gate
+        # below then sees the true saving).
+        _archived: list[str] = []
+        if session_db and session_id:
+            from agent.context_compressor_prune_archive import archive_compaction_drops
+
+            pruned_msgs, _archived, _kept = archive_compaction_drops(messages, pruned_msgs, session_id)
+            pruned_count -= _kept
         # Measured-savings gate (prompt-cache hysteresis): only commit when
         # the prune reclaims a meaningful batch of tokens. Estimated on the
         # real before/after messages so dedup + arg truncation count too.
         after = sum(_estimate_msg_budget_tokens(m) for m in pruned_msgs)
         reclaimed = max(0, before - after)
-        if reclaimed < self.proactive_prune_min_reclaim_tokens:
+        _gate = self.proactive_prune_min_reclaim_tokens
+        _cold_gate = min(_gate, _COLD_CACHE_MIN_RECLAIM_TOKENS)
+        if pruned_count <= 0 or reclaimed < (
+            _cold_gate if cold_cache else max(_cold_gate, _gate - self._proactive_prune_cold_credit)
+        ):
+            from agent.context_compressor_prune_archive import discard_archives
+
+            discard_archives(_archived)
             return messages, 0
         # ``after`` includes the tool batch appended since the provider's last
         # usage reading, so both the low-water mark and future gate use the
@@ -4309,6 +4329,11 @@ class ContextCompressor(ContextEngine):
             self.proactive_prune_min_reclaim_tokens,
         )
         next_rearm_tokens = after + runway
+        cold_credit = 0
+        if cold_cache:
+            # Nothing warm to protect: keep the warm runway, credit the reclaim to the next warm gate.
+            next_rearm_tokens = self._proactive_prune_rearm_tokens
+            cold_credit = self._proactive_prune_cold_credit + reclaimed
         if session_db and session_id:
             # The capability gate above guarantees archive_and_compact exists.
             try:
@@ -4325,11 +4350,15 @@ class ContextCompressor(ContextEngine):
                     "original transcript: %s",
                     exc,
                 )
+                from agent.context_compressor_prune_archive import discard_archives
+
+                discard_archives(_archived)
                 return messages, 0
             for msg in pruned_msgs:
                 if isinstance(msg, dict):
                     msg[_DB_PERSISTED_MARKER] = True
         self._proactive_prune_rearm_tokens = next_rearm_tokens
+        self._proactive_prune_cold_credit = cold_credit
         return pruned_msgs, pruned_count
 
     # ------------------------------------------------------------------
@@ -4701,6 +4730,11 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
             drop_stale_api_content(replaced)
             result[i] = replaced
             demoted += 1
+        if demoted:
+            from agent.context_compressor_prune_archive import archive_compaction_drops
+
+            result, _, _kept = archive_compaction_drops(messages, result, session_id)
+            demoted -= _kept
         if demoted and not self.quiet_mode:
             logger.info("Lean tail: demoted %d stale tool result(s)", demoted)
         return result
@@ -7575,10 +7609,19 @@ This compaction should PRIORITISE preserving all information related to the focu
         display_tokens = current_tokens if current_tokens else self.last_prompt_tokens or estimate_messages_tokens_rough(messages)
 
         # Phase 1: Prune old tool results (cheap, no LLM call)
+        orig_messages_for_archive = messages
         messages, pruned_count = self._prune_old_tool_results(
             messages, protect_tail_count=self.protect_last_n,
             protect_tail_tokens=self.tail_token_budget,
         )
+        if pruned_count:
+            # Archive-before-stub: the summarizer reads stubs that name the saved originals.
+            from agent.context_compressor_prune_archive import archive_compaction_drops
+
+            messages, _, _kept = archive_compaction_drops(
+                orig_messages_for_archive, messages, getattr(self, "_session_id", "") or ""
+            )
+            pruned_count -= _kept
         if pruned_count and not self.quiet_mode:
             logger.info("Pre-compression: pruned %d old tool result(s)", pruned_count)
 

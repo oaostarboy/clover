@@ -1,0 +1,120 @@
+{
+  "api_server": {
+    "prompt_tokens": {
+      "context": 0,
+      "stable": 1667,
+      "volatile": 70
+    },
+    "stable_prefix_is_byte_stable": true,
+    "tool_tokens": 9221,
+    "tools": [
+      "browser_exec",
+      "delegate_task",
+      "execute_code",
+      "memory",
+      "patch",
+      "process",
+      "read_file",
+      "search_files",
+      "session_search",
+      "skill_manage",
+      "skill_view",
+      "skills_list",
+      "terminal",
+      "todo",
+      "web_extract",
+      "web_search",
+      "write_file"
+    ]
+  },
+  "cli": {
+    "prompt_tokens": {
+      "context": 0,
+      "stable": 1706,
+      "volatile": 68
+    },
+    "stable_prefix_is_byte_stable": true,
+    "tool_tokens": 11629,
+    "tools": [
+      "browser_exec",
+      "clarify",
+      "delegate_task",
+      "execute_code",
+      "memory",
+      "patch",
+      "process",
+      "read_file",
+      "search_files",
+      "session_search",
+      "skill_manage",
+      "skill_view",
+      "skills_list",
+      "terminal",
+      "text_to_speech",
+      "todo",
+      "web_extract",
+      "web_search",
+      "write_file"
+    ]
+  },
+  "cron": {
+    "prompt_tokens": {
+      "context": 0,
+      "stable": 1473,
+      "volatile": 69
+    },
+    "stable_prefix_is_byte_stable": true,
+    "tool_tokens": 11629,
+    "tools": [
+      "browser_exec",
+      "clarify",
+      "delegate_task",
+      "execute_code",
+      "memory",
+      "patch",
+      "process",
+      "read_file",
+      "search_files",
+      "session_search",
+      "skill_manage",
+      "skill_view",
+      "skills_list",
+      "terminal",
+      "text_to_speech",
+      "todo",
+      "web_extract",
+      "web_search",
+      "write_file"
+    ]
+  },
+  "telegram": {
+    "prompt_tokens": {
+      "context": 0,
+      "stable": 1643,
+      "volatile": 70
+    },
+    "stable_prefix_is_byte_stable": true,
+    "tool_tokens": 11629,
+    "tools": [
+      "browser_exec",
+      "clarify",
+      "delegate_task",
+      "execute_code",
+      "memory",
+      "patch",
+      "process",
+      "read_file",
+      "search_files",
+      "session_search",
+      "skill_manage",
+      "skill_view",
+      "skills_list",
+      "terminal",
+      "text_to_speech",
+      "todo",
+      "web_extract",
+      "web_search",
+      "write_file"
+    ]
+  }
+}
