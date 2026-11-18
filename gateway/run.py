@@ -18967,6 +18967,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         return format_status_text()
 
     async def _busy_stop_command(self, event: MessageEvent, quick_key: str, source):
+        event._interrupt_accepted = True  # past admission and slash access: adapter may cancel
         # /stop must hard-kill the session when an agent is running.
         # A soft interrupt (agent.interrupt()) doesn't help when the agent
         # is truly hung — the executor thread is blocked and never checks

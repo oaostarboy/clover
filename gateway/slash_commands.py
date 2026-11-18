@@ -408,6 +408,7 @@ class GatewaySlashCommandsMixin:
 
     async def _handle_reset_command(self, event: MessageEvent) -> Union[str, EphemeralReply]:
         """Handle /new or /reset command."""
+        event._interrupt_accepted = True  # past admission and slash access: adapter may cancel
         source = event.source
         
         # Get existing session key
@@ -1783,6 +1784,7 @@ class GatewaySlashCommandsMixin:
 
         The session is preserved so the user can continue the conversation.
         """
+        event._interrupt_accepted = True  # past admission and slash access: adapter may cancel
         from gateway.clover_acks import stop_ack
         from gateway.run import _AGENT_PENDING_SENTINEL, _INTERRUPT_REASON_STOP
         source = event.source
