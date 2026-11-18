@@ -969,6 +969,38 @@ def _resolve_sequential_tool_timeout() -> float | None:
     )
 
 
+# A tool that declares a per-call budget (ToolEntry.deadline_floor) gets the generic deadline
+# raised to it plus this grace, so the tool's OWN timeout fires first and returns the partial
+# output it collected (upstream e1ac37eba1).
+_DECLARED_DEADLINE_GRACE_S = 5.0
+# Config ceiling (``timeouts.tools.declared_floor_max`` in config.yaml) on how far a
+# tool-declared budget may raise the generic deadline.
+_DEFAULT_DECLARED_FLOOR_MAX_S = 3600.0
+
+
+def _declared_deadline_floor(name: str, args: dict) -> float | None:
+    """Lower bound this call's deadline must clear, from the tool's own declaration."""
+    from agent.deadline import resolve_timeout
+    from tools.registry import registry
+
+    floor = registry.get_deadline_floor(name, args)
+    if floor is None:
+        return None
+    ceiling = resolve_timeout(
+        "tools.declared_floor_max", default=_DEFAULT_DECLARED_FLOOR_MAX_S
+    )
+    if ceiling is not None:
+        floor = min(floor, ceiling)
+    return floor + _DECLARED_DEADLINE_GRACE_S
+
+
+def _deadline_with_floor(generic: float | None, floor: float | None) -> float | None:
+    """Raise *generic* to *floor*. A disabled generic deadline (``None``) stays unbounded."""
+    if generic is None or floor is None:
+        return generic
+    return max(generic, floor)
+
+
 def _run_sequential_tool_execution_middleware(
     agent,
     *,
@@ -989,7 +1021,10 @@ def _run_sequential_tool_execution_middleware(
     ``<= 0``) owns that wait. Applying the generic tool deadline here would
     return ``tool_timeout`` while the prompt and worker stay active.
     """
-    timeout_s = _resolve_sequential_tool_timeout()
+    timeout_s = _deadline_with_floor(
+        _resolve_sequential_tool_timeout(),
+        _declared_deadline_floor(function_name, function_args),
+    )
     kwargs = {
         "function_name": function_name,
         "function_args": function_args,
@@ -1523,6 +1558,12 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
     # Resolved before the workers are defined so the start-order gate can clamp
     # its own bound against the batch deadline it must stay under.
     timeout_s = _resolve_concurrent_tool_timeout()
+    # One deadline covers the whole batch: clear the longest declared budget.
+    for _pc in parsed_calls:
+        if _pc[4] is None:
+            timeout_s = _deadline_with_floor(
+                timeout_s, _declared_deadline_floor(_pc[1], _pc[2])
+            )
     gate_timeout_s = _start_order_gate_timeout(timeout_s)
 
     # Touch activity before launching workers so the gateway knows
