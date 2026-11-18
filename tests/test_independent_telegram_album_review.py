@@ -222,9 +222,10 @@ async def test_stop_caption_bypasses_album_queue_policy(replay):
     original=x.adapter._message_handler
     async def handler(event):
         seen.append(event.get_command())
-        if event.get_command()=='stop': event._interrupt_accepted=True  # runner accepted the stop
+        if event.get_command()=='stop': event._interrupt_accepted=True  # runner accepted the stop; stub task never unwinds
         return 'Stopped' if event.get_command()=='stop' else await original(event)
     x.adapter._message_handler=handler
+    x.adapter.STOP_GRACE_S=0  # stub active task never unwinds; skip the grace wait
     await x.adapter._handle_media_message(photo(x.bot,20,'/stop'),None)
     await finish_timers(x.adapter)
     assert seen==['stop']
