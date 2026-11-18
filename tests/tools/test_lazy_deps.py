@@ -263,7 +263,7 @@ class TestIsSatisfiedVersionAware:
                 (
                     "google-auth==2.55.1",
                     "httplib2==0.32.0",
-                    "pyasn1==0.6.4",
+                    "pyasn1==0.6.5",
                 ),
             ),
             (
@@ -272,7 +272,7 @@ class TestIsSatisfiedVersionAware:
                     "google-auth": "2.55.1",
                     "pyasn1": "0.6.3",
                 },
-                ("pyasn1==0.6.4",),
+                ("pyasn1==0.6.5",),
             ),
         ],
     )

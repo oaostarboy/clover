@@ -106,7 +106,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     # google-auth is NOT in [all] so plain installs don't carry it.
     "provider.vertex": (
         "google-auth==2.55.1",
-        "pyasn1==0.6.4",
+        "pyasn1==0.6.5",
     ),
     # Microsoft Foundry — Entra ID auth (managed identity, workload identity,
     # service principal, az login, VS Code, azd, PowerShell). Only loaded
@@ -128,8 +128,8 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     # monitoring.gateway_health_export / monitoring.export.otlp. Tracks the
     # `otlp` extra in pyproject.toml — bump both together.
     "export.otlp": (
-        "opentelemetry-sdk==1.39.1",
-        "opentelemetry-exporter-otlp-proto-http==1.39.1",
+        "opentelemetry-sdk==1.45.2",
+        "opentelemetry-exporter-otlp-proto-http==1.45.2",
     ),
 
     # ─── TTS providers ─────────────────────────────────────────────────────
@@ -141,12 +141,12 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     # quarantined the project 2026-05-12 (malicious 2.4.6, Mini Shai-Hulud);
     # 2.4.6 was removed and clean releases resumed (2.4.7, 2.4.8). Voxtral
     # STT + TTS share the same SDK.
-    "tts.mistral": ("mistralai==2.4.8",),
+    "tts.mistral": ("mistralai==2.10.1",),
     "tts.edge": ("edge-tts==7.3.1",),
     "tts.elevenlabs": ("elevenlabs==1.59.0",),
 
     # ─── Speech-to-text providers ──────────────────────────────────────────
-    "stt.mistral": ("mistralai==2.4.8",),
+    "stt.mistral": ("mistralai==2.10.1",),
     "stt.faster_whisper": (
         "faster-whisper==1.2.1",
         "av>=17.0.0,<18",
@@ -216,17 +216,17 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     # "Can not decode content-encoding: br" — see #12511 / #15744.
     "platform.discord": (
         "discord.py[voice]==2.7.1",
-        "brotlicffi==1.2.0.1",
+        "brotlicffi==1.2.1.0",
         # discord.py pulls aiohttp transitively (>=3.7.4,<4) as its HTTP
         # backbone. Pin the patched floor here too so the lazy Discord path
         # can't keep an already-installed vulnerable aiohttp satisfying that
         # range — mirrors the messaging extra and platform.slack.
-        "aiohttp==3.14.3",  # prior CVEs + GHSA-cq5v-8q36-5273/GHSA-mfx4-hv73-q22v/GHSA-mq44-7p77-q5h7
+        "aiohttp==3.14.5",  # prior CVEs + GHSA-cq5v-8q36-5273/GHSA-mfx4-hv73-q22v/GHSA-mq44-7p77-q5h7
     ),
     "platform.slack": (
         "slack-bolt==1.30.0",
         "slack-sdk==3.43.0",
-        "aiohttp==3.14.3",  # prior CVEs + GHSA-cq5v-8q36-5273/GHSA-mfx4-hv73-q22v/GHSA-mq44-7p77-q5h7
+        "aiohttp==3.14.5",  # prior CVEs + GHSA-cq5v-8q36-5273/GHSA-mfx4-hv73-q22v/GHSA-mq44-7p77-q5h7
     ),
     "platform.matrix": (
         "mautrix[encryption]==0.21.1",
@@ -236,7 +236,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
         # mautrix (aiohttp>=3,<4) and aiohttp-socks (aiohttp>=3.10.0) only cap
         # aiohttp transitively, so a vulnerable already-installed aiohttp still
         # satisfies both — pin the patched floor here too, like platform.discord.
-        "aiohttp==3.14.3",  # prior CVEs + GHSA-cq5v-8q36-5273/GHSA-mfx4-hv73-q22v/GHSA-mq44-7p77-q5h7
+        "aiohttp==3.14.5",  # prior CVEs + GHSA-cq5v-8q36-5273/GHSA-mfx4-hv73-q22v/GHSA-mq44-7p77-q5h7
     ),
     "platform.dingtalk": (
         "dingtalk-stream==0.24.3",
@@ -255,7 +255,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     # (microsoft-teams-api/cards/common, dependency-injector, msal). Lazy-
     # installed on demand like every other messaging platform; also exposed
     # as the `teams` extra in pyproject for packagers / explicit installs.
-    "platform.teams": ("microsoft-teams-apps==2.0.13.4", "aiohttp==3.14.3"),  # aiohttp 3.14.3: prior CVEs + GHSA-cq5v-8q36-5273/GHSA-mfx4-hv73-q22v/GHSA-mq44-7p77-q5h7
+    "platform.teams": ("microsoft-teams-apps==2.0.13.4", "aiohttp==3.14.5"),  # aiohttp 3.14.5: prior CVEs + GHSA-cq5v-8q36-5273/GHSA-mfx4-hv73-q22v/GHSA-mq44-7p77-q5h7
 
     # ─── Terminal backends ─────────────────────────────────────────────────
     "terminal.modal": ("modal==1.3.4",),
@@ -272,7 +272,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
         # so lazy installs do not resolve vulnerable transitives: httplib2 0.31.2
         # (GHSA-j5g9-f88f-gfj3 decompression bomb DoS), stale pyasn1/google-auth.
         "httplib2==0.32.0",
-        "pyasn1==0.6.4",
+        "pyasn1==0.6.5",
     ),
     "skill.youtube": ("youtube-transcript-api==1.2.4",),
 
@@ -283,7 +283,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     "tool.dashboard": (
         "fastapi==0.133.1",
         "uvicorn[standard]==0.41.0",
-        "starlette==1.3.1",  # CVE-2026-48710 (BadHost) — keep lazy-install in sync with pyproject [web]
+        "starlette==1.9.0",  # CVE-2026-48710 (BadHost) — keep lazy-install in sync with pyproject [web]
         "python-multipart==0.0.32",  # FastAPI UploadFile/Form for streaming uploads (NS-501)
     ),
     # Vision image-resize recovery (Pillow). Pillow is now a CORE dependency
@@ -291,7 +291,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     # for stripped/source-build installs that somehow dropped it. The vision
     # call site uses prompt=False so it can never raise a blocking input()
     # prompt mid-session (#40490).
-    "tool.vision": ("Pillow==12.3.0",),
+    "tool.vision": ("Pillow==13.0.0",),
     # Document-to-Markdown extraction for read_file (firecrawl-anydoc, Rust
     # core, imports as `anydoc`). Widens read_file's auto-extraction beyond
     # the stdlib .ipynb/.docx/.xlsx to PDF, legacy Office (.doc/.ppt/.xls),
@@ -307,9 +307,9 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     # `[all]`; lazy-installing here covers lean / partial / broken-extra
     # installs so computer_use never dead-ends on `No module named 'mcp'`.
     "tool.computer_use": (
-        "mcp==2.0.0",
-        "httpx2==2.7.0",  # mcp 2.x HTTP stack — keep in sync with pyproject [computer-use]
-        "starlette==1.3.1",  # CVE-2026-48710 — keep in sync with pyproject [computer-use]
+        "mcp==2.3.0",
+        "httpx2==2.15.1",  # mcp 2.x HTTP stack — keep in sync with pyproject [computer-use]
+        "starlette==1.9.0",  # CVE-2026-48710 — keep in sync with pyproject [computer-use]
     ),
     # HF Agent Trace Viewer upload (clover trace upload / /upload-trace).
     #
