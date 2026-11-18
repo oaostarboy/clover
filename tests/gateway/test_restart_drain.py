@@ -102,9 +102,9 @@ async def test_request_restart_is_idempotent():
     assert runner._restart_task is not None
     assert runner._restart_task not in runner._background_tasks
     assert runner.request_restart(detached=True, via_service=False) is False
-    # In-band restart marks draining immediately so new turns are refused
-    # while any after-turn wait runs (#77184).
-    assert runner._draining is True
+    # Restart-when-idle (2.1): admission stays open during the wait;
+    # draining starts only once the gateway is idle.
+    assert runner._draining is False
 
     await runner._restart_task
 
@@ -125,7 +125,7 @@ async def test_request_restart_defers_stop_until_active_turn_finishes():
     runner._running_agents[session_key] = MagicMock()
 
     assert runner.request_restart(detached=False, via_service=True) is True
-    assert runner._draining is True
+    assert runner._draining is False  # 2.1: still serving while waiting for idle
 
     # While the requesting turn is still active, stop() must not run.
     await asyncio.sleep(0.25)

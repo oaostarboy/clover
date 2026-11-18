@@ -588,3 +588,44 @@ def test_source_is_rebuilt_from_the_stored_route_for_a_raw_session_key():
     assert src.chat_id == "vegas-resume-1" and src.user_id == "u9"
     assert dr._source_from_origin({"origin_platform": "nonsense", "origin_chat_id": "1"}, {}) is None
     assert dr._source_from_origin({"origin_platform": "telegram"}, {}) is None
+
+
+# ── 2.1: /stop is never overridden; a child is reported exactly once ────────
+
+
+@pytest.mark.asyncio
+async def test_a_stopped_job_is_not_resumed_by_a_restart(harness):
+    _live_session()
+    _dispatch_record()
+    _ledger_row()
+    inflight.update_record(DID, stopped_by_user=True)  # what /stop leaves behind
+    counts = await _pass(harness)
+    assert counts["resumed"] == 0 and harness.calls == []
+    assert inflight.read_record(DID) is None
+    assert [e for e in _drain_queue() if e.get("delegation_id") == DID] == []
+
+
+def test_interrupt_for_session_marks_the_record_stopped():
+    gate = threading.Event()
+    ad.dispatch_async_delegation_batch(
+        goals=[GOAL], context=None, toolsets=None, role="leaf", model="m",
+        session_key="agent:main:telegram:dm:100", parent_session_id="sess-parent",
+        runner=lambda: (gate.wait(10) and {"results": [{"task_index": 0, "status": "interrupted"}]}),
+        interrupt_fn=gate.set, delegation_id=DID, fanout_delivery="each",
+    )
+    _dispatch_record(DID)
+    inflight.begin_shutdown_hold()
+    ad.interrupt_for_session(session_key="agent:main:telegram:dm:100", reason="stop_command")
+    assert inflight.read_record(DID).get("stopped_by_user") is True
+    assert inflight.hold_for_resume(DID) is False
+
+
+@pytest.mark.asyncio
+async def test_a_crash_after_relaunch_does_not_relaunch_twice(harness):
+    _live_session()
+    _dispatch_record()
+    _ledger_row()
+    inflight.update_record(DID, resumed_as="deleg_beef0001")  # relaunched, died before cleanup
+    counts = await _pass(harness)
+    assert counts["resumed"] == 0 and harness.calls == []
+    assert [e for e in _drain_queue() if e.get("delegation_id") == DID] == []
