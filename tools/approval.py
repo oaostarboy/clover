@@ -2564,6 +2564,9 @@ def _is_shell_token_spliced_gateway_lifecycle(command: str) -> bool:
     return contains_gateway_lifecycle_command(command)
 
 
+from tools.approval_extra_holes import detect_extra as _detect_extra_holes  # noqa: E402
+
+
 def detect_dangerous_command(command: str) -> tuple:
     """Check if a command matches any dangerous patterns.
 
@@ -2574,6 +2577,9 @@ def detect_dangerous_command(command: str) -> tuple:
         return (True, _PARSER_LIMIT_DESCRIPTION, _PARSER_LIMIT_DESCRIPTION)
     if _is_verification_artifact_cleanup(command):
         return (False, None, None)
+    _extra = _detect_extra_holes(command)
+    if _extra:
+        return (True, _extra, _extra)
 
     for command_variant in _command_detection_variants(command):
         command_lower = command_variant.lower()
