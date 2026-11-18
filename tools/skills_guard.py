@@ -311,6 +311,9 @@ THREAT_PATTERNS = [
     (r'pretend\s+(?:\w+\s+)*(you\s+are|to\s+be)\s+',
      "role_pretend", "high", "injection",
      "attempts to make the agent assume a different identity"),
+    (r"(?<!n't )(?<!not )(?<!never )forget\s+(?:about\s+)?(your|all|any|previous|prior|above|earlier)\s+(?:\w+\s+){0,3}(instructions|rules|guidelines)(?![^\W_])",
+     "forget_rules", "critical", "injection",
+     "instructs agent to forget its rules"),
     (r'disregard\s+(?:\w+\s+)*(your|all|any)\s+(?:\w+\s+)*(instructions|rules|guidelines)',
      "disregard_rules", "critical", "injection",
      "instructs agent to disregard its rules"),
@@ -707,7 +710,7 @@ INVISIBLE_CHARS = {
     '\u2067',  # right-to-left isolate
     '\u2068',  # first strong isolate
     '\u2069',  # pop directional isolate
-}
+} | set(map(chr, range(0xE0000, 0xE0080)))  # Unicode TAG block
 
 
 def _compute_docstring_lines(lines: list) -> set:
