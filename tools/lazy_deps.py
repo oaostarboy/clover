@@ -121,7 +121,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
 
     # ─── Push notifications ────────────────────────────────────────────────
     # APNs needs HTTP/2; httpx[http2] pulls h2. Versions match uv.lock.
-    "push.apns": ("h2==4.3.0", "hpack==4.1.0", "hyperframe==6.1.0"),
+    "push.apns": ("h2==4.4.1", "hpack==4.2.0", "hyperframe==6.1.0"),
 
     # ─── Monitoring ─────────────────────────────────────────────────────────
     # OTLP gateway monitoring export. Lazily installed on first use of
