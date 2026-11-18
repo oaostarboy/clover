@@ -239,7 +239,11 @@ def _report_database_journal_modes(
     version_info: tuple[int, ...] | None = None,
 ) -> None:
     """List each database's journal mode; warn on WAL under a vulnerable SQLite."""
-    from clover_state import _wal_reset_repair_hint, is_sqlite_wal_reset_vulnerable
+    from clover_state import (
+        _path_on_network_fs,
+        _wal_reset_repair_hint,
+        is_sqlite_wal_reset_vulnerable,
+    )
 
     vulnerable = is_sqlite_wal_reset_vulnerable(version_info)
     home = clover_home if clover_home is not None else CLOVER_HOME
@@ -262,6 +266,13 @@ def _report_database_journal_modes(
                 )
             else:
                 check_info(f"{name}: journal mode could not be read ({error})")
+        elif _path_on_network_fs(str(path)):
+            check_warn(
+                f"{name} is on a network filesystem (nfs/cifs/smb/sshfs, {size})",
+                "(SQLite locking is unreliable across network filesystems with "
+                "concurrent writers; move CLOVER_HOME to local disk, or run a "
+                "single Clover process with `database.journal_mode: delete`)",
+            )
         elif mode == "wal":
             if vulnerable:
                 exposed.append(name)
