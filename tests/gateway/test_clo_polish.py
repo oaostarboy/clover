@@ -29,6 +29,14 @@ def _set_skin(monkeypatch, name):
 def clover_active(monkeypatch):
     _set_skin(monkeypatch, "default")
     monkeypatch.setenv("CLOVER_LANGUAGE", "en")
+    # begin_turn() rolls a 1-in-LUCKY_ODDS lucky die (🍀 instead of ☘️). Pin the
+    # default rng to "never lucky" so real-agent turns are deterministic; tests
+    # that want a lucky turn pass their own rng.
+    _begin = clover_flavor.begin_turn
+    _never_lucky = SimpleNamespace(randrange=lambda n: 1, choice=random.choice, random=random.random)
+    monkeypatch.setattr(
+        clover_flavor, "begin_turn", lambda **kw: _begin(**{"rng": _never_lucky, **kw})
+    )
     clover_flavor.reset()
     getattr(clover_flavor, "reset_status_lines", lambda: None)()
     clover_acks.reset()
