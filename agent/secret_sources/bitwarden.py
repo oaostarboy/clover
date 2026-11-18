@@ -42,6 +42,7 @@ import subprocess
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -540,6 +541,11 @@ def fetch_bitwarden_secrets(
     if not project_id:
         raise RuntimeError("Bitwarden project_id is empty")
 
+    try:
+        server_url = validate_server_url(server_url)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+
     cache_key = (_token_fingerprint(access_token), project_id, server_url or "")
     if use_cache and cache_ttl_seconds > 0:
         cached = _CACHE.get(cache_key)
@@ -671,10 +677,83 @@ def _summarize_bws_stderr(raw: str) -> str:
     return "; ".join(causes) if causes else text
 
 
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
+
+
+def validate_server_url(server_url: str) -> str:
+    """Return ``server_url`` stripped, or raise ``ValueError``.
+
+    The access token is sent to whatever endpoint this names, so a bad value is an
+    exfiltration channel rather than a typo: a phished setup answer or a committed config
+    pointing at ``http://attacker.example`` ships the token off in cleartext. Empty is valid
+    (``bws`` default, US Cloud). Rules: HTTPS, a real host, no embedded credentials;
+    plaintext HTTP only for loopback (self-hosted users tunnelling to a local port)."""
+    candidate = (server_url or "").strip()
+    if not candidate:
+        return ""
+    try:
+        parts = urllib.parse.urlsplit(candidate)
+    except ValueError as exc:  # malformed IPv6 literal, bad port, …
+        raise ValueError(f"secrets.bitwarden.server_url {candidate!r} is not a valid URL: {exc}") from exc
+    if parts.scheme not in ("https", "http"):
+        raise ValueError(f"secrets.bitwarden.server_url {candidate!r} must be an https:// URL")
+    if not parts.hostname:
+        raise ValueError(f"secrets.bitwarden.server_url {candidate!r} has no host")
+    # `user:pass@host` lets a hostile value read as the real vault while pointing
+    # somewhere else — and it would put credentials in the env var.
+    if parts.username or parts.password:
+        raise ValueError("secrets.bitwarden.server_url must not embed credentials (user:pass@host)")
+    if parts.scheme == "http" and parts.hostname.lower() not in _LOOPBACK_HOSTS:
+        raise ValueError(f"secrets.bitwarden.server_url {candidate!r} uses plaintext http:// "
+                         "— the access token would cross the network unencrypted.  Use "
+                         "https:// (http:// is accepted only for localhost).")
+    return candidate
+
+
+def apply_server_url_to_env(env: dict[str, str], server_url: str) -> Optional[str]:
+    """Set ``BWS_SERVER_URL`` on ``env`` for a bws child. Returns a warning.
+
+    Every value that reaches ``BWS_SERVER_URL`` passes :func:`validate_server_url` here,
+    whichever way it arrived, because this is the one place that writes the variable. The
+    endpoint it names receives ``BWS_ACCESS_TOKEN``, so an unchecked value is an exfiltration
+    channel, and a caller that forgets to validate must not be able to open one.
+
+    ``server_url`` is the configured value and wins when set. When it is empty, ``bws``
+    would otherwise inherit whatever ``BWS_SERVER_URL`` the parent shell happened to carry —
+    an ambient value nothing validated.
+
+    A value that fails validation is dropped rather than raised on: callers here are status
+    and verification paths that should still report on the rest of the setup. Dropping falls
+    back to the ``bws`` default (US Cloud), Bitwarden's own endpoint, so the fallback cannot
+    leak the token either. Fetch callers validate ahead of this (see
+    :func:`fetch_bitwarden_secrets`) and fail loudly instead.
+
+    Returns a human-readable warning when a value was dropped, else ``None``."""
+    if server_url:
+        try:
+            env["BWS_SERVER_URL"] = validate_server_url(server_url)
+        except ValueError as exc:
+            env.pop("BWS_SERVER_URL", None)
+            return (f"Ignoring the configured Bitwarden server_url: {exc}.  "
+                    "Falling back to the bws default (US Cloud).")
+        return None
+    inherited = (env.get("BWS_SERVER_URL") or "").strip()
+    if not inherited:
+        return None
+    try:
+        validate_server_url(inherited)
+    except ValueError as exc:
+        env.pop("BWS_SERVER_URL", None)
+        return (f"Ignoring BWS_SERVER_URL from the environment: {exc}.  "
+                "Falling back to the bws default (US Cloud).")
+    env["BWS_SERVER_URL"] = inherited
+    return None
+
+
 def _run_bws_list(
     bws: Path, access_token: str, project_id: str, server_url: str = ""
 ) -> Tuple[Dict[str, str], List[str]]:
-    cmd = [str(bws), "secret", "list", project_id, "--output", "json"]
+    cmd = [str(bws), "secret", "list", "--output", "json", "--", project_id]
     # bws child intentionally receives the access token.  Under a profile-local
     # fetch it must not inherit sibling credentials from process-global env.
     source_env = get_source_environment()
@@ -692,8 +771,9 @@ def _run_bws_list(
     # self-hosted users need their own URL.  When unset, fall back to whatever
     # BWS_SERVER_URL the caller already had in their shell env (preserved by
     # the copy above) so manual overrides keep working too.
-    if server_url:
-        env["BWS_SERVER_URL"] = server_url
+    server_warning = apply_server_url_to_env(env, server_url)
+    if server_warning:
+        logger.warning("%s", server_warning)
 
     try:
         proc = subprocess.run(  # noqa: S603 — bws path is trusted
