@@ -25,6 +25,55 @@ def _m():
     return main
 
 
+_GLOBAL_VALUE_FLAGS = ("--profile", "-p")
+
+
+def _cmd_tokens(command: str) -> list[str]:
+    import shlex
+
+    try:
+        return shlex.split(command, posix=(sys.platform != "win32"))
+    except ValueError:
+        return command.split()
+
+
+def _dashboard_mode_from_tokens(command: str) -> str | None:
+    """``"serve"`` / ``"dashboard"`` when *command* launches that subcommand.
+
+    The old scan only matched the substrings ``clover serve`` and
+    ``clover_cli.main serve``. A launch with global flags between the program
+    and the subcommand, like the one the desktop app uses for every pooled
+    backend (``... clover_cli.main --profile default serve --host 127.0.0.1
+    --port 0``, or ``clover -p work serve --isolated``), contains neither, so
+    ``clover update`` never saw those processes and left them running old code
+    (2026-11-19 incident). This reads the argv: find the Clover entry point,
+    skip the global ``--profile/-p`` flags, and check the next word.
+    """
+    toks = _cmd_tokens(command)
+    for i, tok in enumerate(toks):
+        norm = tok.replace("\\", "/")
+        base = norm.rsplit("/", 1)[-1].lower()
+        is_entry = (
+            base in ("clover", "clover.exe", "clover.cmd")
+            or tok == "clover_cli.main"
+            or (base == "main.py" and "clover_cli" in norm)
+        )
+        if not is_entry:
+            continue
+        j = i + 1
+        while j < len(toks):
+            t = toks[j]
+            if t in _GLOBAL_VALUE_FLAGS:
+                j += 2
+            elif t.startswith("--profile=") or t in ("-w", "--worktree", "--yolo"):
+                j += 1
+            else:
+                break
+        if j < len(toks) and toks[j] in ("serve", "dashboard"):
+            return toks[j]
+    return None
+
+
 def _scan_dashboard_processes(
     *,
     exclude_pids: set[int] | None = None,
@@ -102,7 +151,8 @@ def _scan_dashboard_processes(
                 elif line.startswith("ProcessId="):
                     pid_str = line[len("ProcessId=") :]
                     if (
-                        any(p in current_cmd for p in patterns)
+                        (any(p in current_cmd for p in patterns)
+                         or _dashboard_mode_from_tokens(current_cmd))
                         and int(pid_str) != self_pid
                     ):
                         try:
@@ -117,7 +167,7 @@ def _scan_dashboard_processes(
             # greedy regex matching unrelated cmdlines that merely contain
             # both words (e.g. a chat session discussing "dashboard").
             result = subprocess.run(
-                ["ps", "-A", "-o", "pid=,command="],
+                ["ps", "-A", "-ww", "-o", "pid=,command="],
                 capture_output=True,
                 text=True, encoding="utf-8", errors="replace",
                 timeout=10,
@@ -136,7 +186,10 @@ def _scan_dashboard_processes(
                     except ValueError:
                         continue
                     command = parts[1]
-                    if any(p in command for p in patterns) and pid != self_pid:
+                    if (
+                        any(p in command for p in patterns)
+                        or _dashboard_mode_from_tokens(command)
+                    ) and pid != self_pid:
                         dashboard_processes.append((pid, command))
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return []

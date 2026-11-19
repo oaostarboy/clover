@@ -192,6 +192,37 @@ def _failure_streak_nudge(job: dict) -> str:
     )
 
 
+STALE_CODE_NOTICE = (
+    "Clover was updated while running; restart it (RESTART_CMD, "
+    "or quit and reopen the desktop app)."
+).replace("RESTART_CMD", "`clover " + "gateway " + "restart`")
+_STALE_CODE_WARNED = False
+
+
+def _code_updated_since_start() -> bool:
+    """True when this process started on older code than what is on disk now."""
+    try:
+        from gateway.code_skew import code_updated_since_start
+
+        return code_updated_since_start()
+    except Exception:
+        return False  # a probe failure never blocks scheduling
+
+
+def _stale_code_blocks_cron() -> bool:
+    """Guard for the tick and agent paths; logs one WARNING per process."""
+    global _STALE_CODE_WARNED
+    if not _code_updated_since_start():
+        return False
+    if not _STALE_CODE_WARNED:
+        _STALE_CODE_WARNED = True
+        logger.warning(
+            "code updated on disk since this process started; leaving cron to "
+            "an up-to-date process"
+        )
+    return True
+
+
 def _detect_gateway_code_skew() -> tuple[str, str] | None:
     """Boot-vs-disk revision skew for THIS process, or None.
 
@@ -377,7 +408,8 @@ def _summarize_cron_failure_for_delivery(job: dict, error: str | None) -> str:
     # own problem, and blaming gateway skew would send the reader to the
     # wrong place).
     if provider_reachable and re.search(
-        r"cannot import name|modulenotfounderror|importerror", lower
+        r"cannot import name|modulenotfounderror|importerror|"
+        r"unexpected keyword argument|has no attribute", lower
     ):
         try:
             skew = _detect_gateway_code_skew()
@@ -386,6 +418,7 @@ def _summarize_cron_failure_for_delivery(job: dict, error: str | None) -> str:
         if skew is not None:
             boot_rev, disk_rev = skew
             message += (
+                " Clover was updated while running; restart it."
                 f" Likely cause: the gateway is running stale code (booted "
                 f"on {boot_rev}, disk is at {disk_rev}) — run "
                 "`clover gateway restart` to fix it."
@@ -5918,6 +5951,12 @@ def run_job(
     # at module top keeps no_agent ticks from paying for AIAgent / SessionDB
     # construction costs.
     # ---------------------------------------------------------------
+    # A process that started before an update holds old modules; importing the
+    # agent now would mix them with new files on disk. Refuse with a plain
+    # message instead of crashing on a cryptic TypeError/ImportError.
+    if _stale_code_blocks_cron():
+        return False, "", "", STALE_CODE_NOTICE
+
     from run_agent import AIAgent
 
     # NOTE: the SQLite session store used to be initialized here, BEFORE the
@@ -8031,6 +8070,12 @@ def tick(
     Returns:
         Number of jobs executed (0 if another tick is already running)
     """
+    # Old modules in memory + new files on disk = mixed-version crashes (the
+    # 2026-11-19 check-in failure). Leave the tick, and the lock, to a process
+    # that started on the current code.
+    if _stale_code_blocks_cron():
+        return 0
+
     lock_dir, lock_file = _get_lock_paths()
     _ensure_cron_dir(lock_dir)
 
