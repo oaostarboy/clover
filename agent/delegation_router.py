@@ -301,6 +301,8 @@ class Verdict:
     source: str = "router"      # "router" | "override"
     latency_ms: int = 0
     attempts: int = 0
+    # The user explicitly asked for helpers: the root splits the work itself.
+    asked_for_helpers: bool = False
 
     def stages(self) -> List[List[int]]:
         """Task indices in dispatch order: independent first, dependents after
@@ -493,7 +495,8 @@ _SELF_PATTERNS_V2 = tuple(re.compile(p) for p in (
     r"(?:here|directly|in (?:this|the) chat)\b",
 ))
 _HELPER_PATTERNS = tuple(re.compile(p) for p in (
-    r"\buse\s+(?:a\s+|an\s+|some\s+|the\s+|your\s+|several\s+|multiple\s+)?"
+    r"\buse\s+(?:a\s+|an\s+|some\s+|the\s+|your\s+|several\s+|multiple\s+"
+    r"|(?:\d{1,2}|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
     r"(?:helpers?|sub-?agents?|workers?|background (?:helpers?|agents?))\b",
     # An instruction about the work ("run this in the background", "in the
     # background, check ..."), not a description of a scene ("playing in the
@@ -549,9 +552,19 @@ _QUOTED_SPANS = (
 )
 
 
+# The gateway prefixes a reply with ``[Replying to: "<the earlier message>"]``
+# (gateway/run.py). That quote is somebody else's text, often the agent's own
+# earlier reply, and must never count as the user asking for anything.
+_REPLY_QUOTE = re.compile(
+    r'\A\s*\[Replying to(?: your previous message)?:\s*".*?"\][ \t]*(?:\n\s*\n|\n|\Z)',
+    re.DOTALL,
+)
+
+
 def authentic_text(message: str) -> str:
-    """``message`` without quoted / fenced / blockquoted source text."""
-    text = message or ""
+    """``message`` without quoted / fenced / blockquoted source text, and
+    without the gateway's ``[Replying to: "..."]`` quote block."""
+    text = _REPLY_QUOTE.sub(" ", message or "", count=1)
     text = _FENCE_CLOSED.sub(" ", text)
     text = _FENCE_OPEN.sub(" ", text)
     text = _INLINE_CODE.sub(" ", text)
@@ -927,6 +940,8 @@ def _route_detail(
             mode="single", source="override", reason="you asked for helpers",
             tasks=(PlanTask(goal=goal, acceptance="the request is fully done and checked"),),
         )
+    if override == "helpers" and verdict is not None and verdict.mode in ("single", "parallel"):
+        verdict = replace(verdict, asked_for_helpers=True)
     return _finish(verdict)
 
 
@@ -1020,6 +1035,17 @@ def work_plan_note(verdict: Verdict) -> str:
         "user's message that the helpers are not doing, then one short line "
         "on what is running"
     )
+    split = (
+        "The user asked for helpers: split the work yourself, one helper per "
+        "independent part or per named item, and honor any number they gave. "
+        "Send them all in one delegate_task call (one task each); use one "
+        "helper only when the work is truly a single indivisible part."
+    )
+    if verdict.asked_for_helpers and verdict.mode in ("single", "parallel"):
+        lines = [f"{head} {verdict.mode}{because}.", split, "Suggested starting point:"]
+        lines += [_task_line(i, t) for i, t in enumerate(verdict.tasks)]
+        lines.append(f"Then {close}.")
+        return "\n".join(lines)
     if verdict.mode == "single":
         return "\n".join([
             f"{head} single helper{because}.",

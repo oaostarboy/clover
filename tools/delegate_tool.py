@@ -6487,6 +6487,8 @@ def _build_top_level_description(
         "terminal session, and toolset, and only its final summary returns to "
         "you. Pass every task in `tasks` — one entry spawns one subagent, "
         "several run in parallel (limit in the tasks description).\n\n"
+        "A user request for helpers is binding: one task per part or named "
+        "item, in ONE call, honoring any number given (up to the limit).\n\n"
         "Runs in the background: dispatch returns immediately with live "
         "transcript paths. Several tasks in one call report back together "
         "by default (the dispatch note says how each call reports). "
