@@ -30,8 +30,8 @@ def cfg(**kw):
 
 # ── gate ────────────────────────────────────────────────────────────────
 
-def test_gate_disabled_by_default():
-    assert gate.evaluate({}, at(12), [])[0] is False
+def test_gate_enabled_by_default_and_explicit_off_wins():
+    assert gate.evaluate({}, at(12), [])[0] is True
     assert gate.evaluate({"enabled": False}, at(12), [])[1] == "disabled"
 
 
@@ -96,6 +96,7 @@ def test_sends_file_counts_only_recorded_sends(tmp_path):
 
 def test_gate_script_runs_as_scheduler_precheck_and_skips_when_off():
     """The real script, run the way the scheduler runs it, says do not wake."""
+    run("off")
     checkin_jobs._write_gate_script()
     ok, out = s._run_job_script(checkin_jobs.GATE_SCRIPT)
     assert ok, out
@@ -117,12 +118,103 @@ def saved():
     return config_api.require_readable_config_before_write().get("proactive", {}).get("checkin", {})
 
 
-def test_fresh_home_has_no_jobs_and_defaults_off():
+@pytest.fixture
+def home(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_HOME_CHANNEL", "12345")
+
+
+def marker():
+    from clover_constants import get_clover_home
+    return (get_clover_home() / checkin_jobs.SEEDED_MARKER).exists()
+
+
+def test_fresh_home_defaults_on_and_only_seeding_creates_jobs(home):
     assert roles() == []
-    assert config_api.load_config(migrate=False)["proactive"]["checkin"]["enabled"] is False
-    # config load/migration and gateway-side helpers never create jobs
+    assert config_api.load_config(migrate=False)["proactive"]["checkin"]["enabled"] is True
+    config_api.load_config()  # config load/migration never creates jobs
+    assert roles() == []
+    assert checkin_jobs.seed_default_jobs() is True
+    assert roles() == ["brief", "check"]
+    assert marker()
+    assert checkin_jobs.seed_default_jobs() is False
+    assert roles() == ["brief", "check"]
+    assert {j["deliver"] for j in list_jobs() if j.get("checkin_role")} == {"telegram"}
+
+
+def test_migration_does_not_write_enabled_false():
     config_api.load_config()
+    config_api.migrate_config(interactive=False, quiet=True)
+    raw = config_api.require_readable_config_before_write()
+    assert raw.get("proactive", {}).get("checkin", {}).get("enabled", True) is True
+
+
+def test_old_config_without_checkin_block_is_seeded(home):
+    assert checkin_jobs.seed_default_jobs() is True
+    assert roles() == ["brief", "check"]
+
+
+def test_seeding_respects_explicit_off(home):
+    run("off")
+    assert saved()["enabled"] is False
+    assert checkin_jobs.seed_default_jobs() is False
+    assert roles() == [] and not marker()
+
+
+def test_off_then_on_round_trip(home):
+    checkin_jobs.seed_default_jobs()
+    run("off")
+    assert roles() == [] and saved()["enabled"] is False
+    run("on")
+    assert roles() == ["brief", "check"] and saved()["enabled"] is True
+
+
+def test_no_home_channel_creates_nothing_then_seeds_once_set(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_HOME_CHANNEL", raising=False)
+    assert checkin_jobs.seed_default_jobs() is False
+    assert roles() == [] and not marker()
+    assert "No check-in jobs yet" in run("status")
+    monkeypatch.setenv("TELEGRAM_HOME_CHANNEL", "1")
+    assert checkin_jobs.seed_default_jobs() is True
+    assert roles() == ["brief", "check"]
+
+
+def test_seeding_no_duplicates_when_user_already_ran_on(home):
+    run("on")
+    assert roles() == ["brief", "check"]
+    assert checkin_jobs.seed_default_jobs() is False
+    assert roles() == ["brief", "check"] and marker()
+
+
+def test_seeding_skips_when_user_has_own_morning_brief_job(home):
+    from cron.jobs import create_job
+    create_job(prompt="x", schedule="0 7 * * *", name="My morning brief")
+    assert checkin_jobs.seed_default_jobs() is False
+    assert roles() == [] and marker()
+
+
+def test_seeding_runs_once_so_deleted_jobs_stay_deleted(home):
+    assert checkin_jobs.seed_default_jobs() is True
+    checkin_jobs.disable()
+    assert checkin_jobs.seed_default_jobs() is False
     assert roles() == []
+
+
+def test_seeding_is_per_clover_home(home, tmp_path, monkeypatch):
+    assert checkin_jobs.seed_default_jobs() is True
+    other = tmp_path / "other_home"
+    other.mkdir()
+    monkeypatch.setenv("CLOVER_HOME", str(other))
+    assert not marker()
+
+
+def test_only_gateway_startup_calls_seeding():
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[2]
+    hits = [str(p.relative_to(root)) for p in root.rglob("*.py")
+            if not {"tests", ".worktrees", ".venv", "node_modules"} & set(p.relative_to(root).parts)
+            and "seed_default_jobs()" in p.read_text(encoding="utf-8", errors="ignore")
+            and p.name != "checkin_jobs.py"]
+    assert hits == ["gateway/run.py"]
 
 
 def test_on_creates_exactly_two_jobs_and_is_idempotent():
@@ -169,6 +261,7 @@ def test_changes_update_existing_jobs_without_duplicates():
 
 
 def test_settings_saved_while_off_create_no_jobs():
+    run("off")
     assert run("every 4").startswith("Saved.")
     assert roles() == []
     assert saved()["checks_every_hours"] == 4

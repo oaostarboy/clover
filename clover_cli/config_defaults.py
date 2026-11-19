@@ -2996,12 +2996,13 @@ DEFAULT_CONFIG = {
             "max_calls_per_day": 4,
             "max_output_tokens": 512,
         },
-        # Opt-in check-ins: a morning brief plus capped checks that only message
-        # when something needs you. Off by default; ``/proactive checkin on``
-        # creates the two cron jobs, ``off`` deletes them. See
+        # Check-ins: a morning brief plus capped checks that only message
+        # when something needs you. On by default; the gateway creates the two
+        # cron jobs once at startup, ``/proactive checkin off`` deletes them
+        # and keeps them off. See
         # docs/user/proactive-checkins.md.
         "checkin": {
-            "enabled": False,
+            "enabled": True,
             "timezone": "",            # empty = Clover's timezone
             "morning_brief": "08:00",  # "" disables the brief
             "checks_every_hours": 3,

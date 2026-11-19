@@ -26,7 +26,7 @@ ROLE_BRIEF = "brief"
 ROLE_CHECK = "check"
 
 DEFAULTS: dict[str, Any] = {
-    "enabled": False,
+    "enabled": True,
     "timezone": "",
     "morning_brief": "08:00",
     "checks_every_hours": 3,

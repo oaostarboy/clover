@@ -263,7 +263,7 @@
       ],
       "menu": "Text only: /proactive checkin on|off|status|brief|hours|every|max|pause",
       "text_command": "/proactive checkin on",
-      "status": "opt-in; off by default; on creates two cron jobs, off deletes them; Main Off does not stop them",
+      "status": "on by default; the gateway creates two cron jobs once at startup (needs a home channel); off saves enabled:false and deletes them; Main Off does not stop them",
       "consumer": "clover_cli/proactive_checkin.py; cron/checkin_gate.py; cron/checkin_jobs.py",
       "tests": [
         "tests/cron/test_proactive_checkin.py"

@@ -1,7 +1,8 @@
 """Create, update and remove the two ordinary cron jobs behind proactive check-ins.
 
-Only an explicit ``/proactive checkin on`` calls ``enable``. Nothing in install,
-update, config migration or gateway startup imports this to create jobs.
+``/proactive checkin on`` calls ``enable``. Check-ins are on by default, so
+gateway startup calls ``seed_default_jobs`` once per profile; an explicit
+``off`` (saved ``enabled: false``) is never overridden.
 Jobs are tagged ``checkin_role`` (``brief`` or ``check``) so they can be found.
 """
 from __future__ import annotations
@@ -104,7 +105,15 @@ def schedules(cfg: Mapping[str, Any]) -> dict[str, Optional[str]]:
 
 def _deliver(cfg: Mapping[str, Any]) -> str:
     value = str(cfg.get("deliver") or "home").strip()
-    return "all" if value == "home" else value
+    if value != "home":
+        return value
+    # One chat app only: "all" would send the same message to every connected one.
+    try:
+        from cron.scheduler import _expand_routing_tokens
+        homes = _expand_routing_tokens("all")
+    except Exception:
+        homes = []
+    return homes[0] if homes else "all"
 
 
 def _upsert(role: str, existing: Optional[dict], schedule: Optional[str], spec: dict) -> Optional[dict]:
@@ -164,3 +173,41 @@ def existing_overlap() -> list[str]:
                 or "important mail" in text:
             names.append(job.get("name") or job["id"])
     return names
+
+
+SEEDED_MARKER = ".proactive_checkin_seeded"
+
+
+def seed_default_jobs() -> bool:
+    """Create the jobs once for a profile where check-ins are on by default.
+
+    Gateway startup only. Skips (creating nothing) when the user turned
+    check-ins off, when no chat app has a home channel yet (retried at the next
+    start, no marker), when a marker shows seeding already ran (so jobs the
+    user deleted via /cron stay deleted), or when check-in jobs, or a similar
+    morning-brief job the user made themselves, already exist.
+    Returns True when jobs were created.
+    """
+    try:
+        from clover_cli import config as config_api
+        from clover_constants import get_clover_home
+        marker = Path(get_clover_home()) / SEEDED_MARKER
+        if marker.exists():
+            return False
+        raw = (config_api.load_config(migrate=False).get("proactive") or {}).get("checkin") or {}
+        cfg = gate.merged_settings(raw)
+        if not cfg["enabled"]:
+            return False
+        if str(cfg.get("deliver") or "home").strip() == "home":
+            from cron.scheduler import _expand_routing_tokens
+            if not _expand_routing_tokens("all"):
+                return False
+        created = False
+        if not find_jobs() and not existing_overlap():
+            enable(raw)
+            created = True
+        marker.write_text("1", encoding="utf-8")
+        return created
+    except Exception:
+        logger.debug("check-in seeding skipped", exc_info=True)
+        return False

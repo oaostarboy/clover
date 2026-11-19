@@ -1,8 +1,9 @@
-"""``/proactive checkin ...`` — opt-in morning brief and capped check-ins.
+"""``/proactive checkin ...`` — morning brief and capped check-ins (on by default).
 
 Parsing and persistence reuse clover_cli.proactive (strict raw read, managed
 policy pins, readback). Only ``on`` and later setting changes touch cron jobs,
-and only through cron.jobs. Nothing here runs at install, update or startup.
+and only through cron.jobs. Nothing here runs at install or update; the gateway
+seeds the jobs once at startup (cron.checkin_jobs.seed_default_jobs).
 """
 from __future__ import annotations
 
@@ -155,6 +156,8 @@ def status_text() -> str:
     lines.append(f"Sent today: {gate.sends_today(gate.load_sends(), now)} of {cfg['max_per_day']}")
     if not _home_channel_ok():
         lines.append("Warning: no home channel is set, so nothing can be delivered. Use /sethome in your chat.")
+        if not jobs:
+            lines.append("No check-in jobs yet: they are created when the gateway starts with a home channel set.")
     if not _gateway_running():
         lines.append("Warning: the gateway is not running, so nothing will run. Start it with: clover gateway start")
     lines.append("Turn off: /proactive checkin off")

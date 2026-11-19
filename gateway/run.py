@@ -35454,6 +35454,13 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
                 getattr(cron_provider, "name", "external"),
             )
 
+    # Proactive check-ins are on by default: create their two jobs once.
+    try:
+        from cron.checkin_jobs import seed_default_jobs
+        seed_default_jobs()
+    except Exception:
+        logger.debug("check-in seeding failed", exc_info=True)
+
     # Gateway-only periodic housekeeping (channel dir, cache cleanup, paste
     # sweep, curator) — runs independently of which cron provider is active.
     # Shares cron_stop as the shutdown signal.
