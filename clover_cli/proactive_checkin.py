@@ -16,7 +16,7 @@ from clover_cli import managed_scope
 
 HELP = (
     "/proactive checkin on|off|status — morning brief and quiet check-ins\n"
-    "/proactive checkin brief 07:30|off; hours 9-20; every 3; max 2; "
+    "/proactive checkin brief 07:30|off; hours 9-20; every 30m|1h|3h; max 2; "
     "pause 24h|resume"
 )
 LOCKED = "Controls locked by command policy: admin access required."
@@ -62,6 +62,25 @@ def _parse_pause(text: str) -> timedelta:
     return delta
 
 
+def _parse_every(text: str) -> int:
+    from cron.checkin_jobs import valid_interval
+    from cron.checkin_gate import MIN_INTERVAL_MIN
+    msg = "Interval looks like 30m, 1h or 3h (15 minutes to 24 hours; minutes: 15, 20 or 30)."
+    m = re.fullmatch(r"(\d{1,4})\s*([mh]?)", text.strip().lower())
+    if not m:
+        raise ValueError(msg)
+    n = int(m.group(1))
+    minutes = n if m.group(2) == "m" else n * 60  # a bare number means hours, as before
+    if minutes < MIN_INTERVAL_MIN or not valid_interval(minutes):
+        raise ValueError(msg)
+    return minutes
+
+
+def gate_interval_label(cfg: dict) -> str:
+    from cron import checkin_gate as gate
+    return gate.interval_label(gate.interval_minutes(cfg))
+
+
 def _int_in(text: str, lo: int, hi: int, label: str) -> int:
     if not re.fullmatch(r"\d{1,3}", text.strip()):
         raise ValueError(f"{label} must be a whole number from {lo} to {hi}.")
@@ -91,7 +110,7 @@ def _apply(parts: list[str], cfg: dict) -> str:
         start, end = _parse_hours(rest)
         cfg["active_hours"] = {"start": start, "end": end}
     elif action == "every":
-        cfg["checks_every_hours"] = _int_in(rest, 1, 24, "Hours between checks")
+        cfg["checks_every_minutes"] = _parse_every(rest)
     elif action == "max":
         cfg["max_per_day"] = _int_in(rest, 1, 20, "Daily limit")
     elif action == "pause":
@@ -110,7 +129,7 @@ def _short(hhmm: str) -> str:
 def _summary(cfg: dict) -> str:
     h = cfg["active_hours"]
     brief = f"Morning brief {_short(cfg['morning_brief'])}" if cfg["morning_brief"] else "No morning brief"
-    return (f"{brief}, checks every {cfg['checks_every_hours']}h from "
+    return (f"{brief}, checks every {gate_interval_label(cfg)} from "
             f"{_short(h['start'])} to {_short(h['end'])}, "
             f"at most {cfg['max_per_day']} a day.")
 

@@ -1926,9 +1926,9 @@ def _maybe_mirror_cron_delivery(
             (
                 (
                     "[Proactive check-in already sent to the user; if they say yes "
-                    "to an offer in it, do it now. If they decline an offer to "
-                    "connect mail or calendar, run: python -m cron.checkin_sources "
-                    "decline <mail|calendar> (add 'stop' if they want no more)]\n"
+                    "to an offer in it, do it now. If they decline a setup suggestion in "
+                    "it, run: python -m cron.checkin_sources decline <mail|calendar|"
+                    "tasks|voice_replies|iphone> (add 'stop' if they want no more)]\n"
                     f"{text}"
                 )
                 if job.get("checkin_role")
@@ -5649,6 +5649,40 @@ def _pending_linked_monitor_occurrence(job: dict) -> Optional[dict]:
         return None
 
 
+def _checkin_voice_prompt(job: dict, cfg: Optional[dict]) -> Optional[str]:
+    """System overlay that makes a check-in speak like the profile's normal chat.
+
+    A plain cron agent already loads SOUL.md and MEMORY.md/USER.md, but not the
+    selected personality overlay (``display.personality`` / ``agent.system_prompt``)
+    nor the formatting hint of the chat app the message is delivered to (it
+    gets the generic "cron" hint). Both are added here, for proactive check-in
+    jobs only; every other cron job returns ``None`` and behaves as before.
+    It is an ephemeral overlay on a fresh isolated session, so no running
+    conversation's cached prompt changes.
+    """
+    if not job.get("checkin_role"):
+        return None
+    parts: list[str] = []
+    try:
+        overlay = os.getenv("CLOVER_EPHEMERAL_SYSTEM_PROMPT", "")
+        if not overlay:
+            from clover_cli.config import resolve_ephemeral_system_prompt_from_config
+            overlay = resolve_ephemeral_system_prompt_from_config(cfg or {})
+        if overlay:
+            parts.append(overlay)
+    except Exception:
+        logger.debug("check-in personality overlay unavailable", exc_info=True)
+    try:
+        from agent.prompt_builder import PLATFORM_HINTS
+        target = str(job.get("deliver") or "").split(":", 1)[0].strip().lower()
+        hint = PLATFORM_HINTS.get(target) if target not in ("", "cron", "cli", "local", "origin", "all") else None
+        if hint:
+            parts.append(f"The message you write is delivered to {target}. {hint}")
+    except Exception:
+        logger.debug("check-in platform hint unavailable", exc_info=True)
+    return "\n\n".join(parts) or None
+
+
 def run_job(
     job: dict,
     *,
@@ -6699,6 +6733,7 @@ def run_job(
             # (and can update) the user's persistent memory.
             skip_memory=False,
             skip_background_review=True,  # Cron has no human-in-the-loop need for skill/memory review forks (~30K tok/event)
+            ephemeral_system_prompt=_checkin_voice_prompt(job, _cfg),
             platform="cron",
             session_id=_cron_session_id,
             session_db=_session_db,

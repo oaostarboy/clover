@@ -20,6 +20,11 @@ BRIEF_NAME = "Proactive morning brief"
 CHECK_NAME = "Proactive check-in"
 GATE_SCRIPT = "proactive_checkin_gate.py"
 
+VOICE_LINE = (
+    "Write the message as yourself, in your usual voice, the way you talk in "
+    "the normal chat with this user, and use what you know about them."
+)
+
 BRIEF_PROMPT = (
     "Write a short morning brief for the user. Use whichever of these this "
     "profile actually has connected, and silently skip any that are missing: "
@@ -34,9 +39,11 @@ BRIEF_PROMPT = (
     "Want me to?\" The user's yes arrives in the normal chat, where you then do it. "
     "Use the 'Connected sources' facts below as the truth about what is connected. "
     "If one setup suggestion is allowed, you may add ONE short line offering to "
-    "help connect that source right here in the chat, naming the real setup it "
-    "uses; never suggest anything else. If nothing is connected, give a one-line "
-    "good-morning with the date plus the allowed setup suggestion if any."
+    "help with that setup right here in the chat, naming the real setup it "
+    "uses (if the facts say it cannot be done from chat, tell the user how "
+    "instead of offering); never suggest anything else. If nothing is connected, give a one-line "
+    "good-morning with the date plus the allowed setup suggestion if any. "
+    + VOICE_LINE
 )
 
 CHECK_PROMPT = (
@@ -56,7 +63,7 @@ CHECK_PROMPT = (
     "to help you connect Google Calendar? Takes about 2 minutes.\"). Never "
     "suggest anything not marked allowed. Do not repeat anything your notepad "
     "says was already sent. If nothing is pressing and no setup suggestion is "
-    "allowed, reply with exactly [SILENT]."
+    "allowed, reply with exactly [SILENT]. If you do message, " + VOICE_LINE[0].lower() + VOICE_LINE[1:]
 )
 
 
@@ -64,6 +71,8 @@ CHECK_PROMPT = (
 # holding one of these uses the current prompt, so existing jobs get the new
 # behaviour without being recreated; a prompt the user edited is left alone.
 LEGACY_PROMPTS = frozenset({
+    'Write a short morning brief for the user. Use whichever of these this profile actually has connected, and silently skip any that are missing: today\'s calendar events, mail that needs a reply, tasks due today, and open workstreams. If a google-workspace skill is installed, load it and follow its references/daily-brief.md. Highlight conflicts and anything time-critical. Keep it to a few lines. READ ONLY: never send, book, move, delete or change anything during this run. When you find something you could handle with your own tools (reply to an email, book or move an event, file a task, finish open work), say in one line what you would do and ask for a yes, for example "Daniel is waiting on your Aryeo decision. I can reply and book Thursday. Want me to?" The user\'s yes arrives in the normal chat, where you then do it. Use the \'Connected sources\' facts below as the truth about what is connected. If one setup suggestion is allowed, you may add ONE short line offering to help connect that source right here in the chat, naming the real setup it uses; never suggest anything else. If nothing is connected, give a one-line good-morning with the date plus the allowed setup suggestion if any.',
+    'Quietly check, using only the mail, calendar, tasks and open workstreams this profile has connected (skip missing ones silently), what changed since the last run. READ ONLY: never send, book, move, delete or change anything during this run. Message ONLY for something the user must act on today or that is time-critical. If you do, give the reason in one line, and if you could handle it with your own tools (reply, book or move an event, file a task, finish open work) say in one line what you would do and ask for a yes, for example "Daniel is waiting on your Aryeo decision. I can reply and book Thursday. Want me to?" The user\'s yes arrives in the normal chat, where you then do it. Use the \'Connected sources\' facts below as the truth about what is connected. If nothing is pressing but a setup suggestion is allowed, send ONE short message instead of [SILENT], offering to help connect that source right here in the chat (for example "I can\'t see your calendar yet. Want me to help you connect Google Calendar? Takes about 2 minutes."). Never suggest anything not marked allowed. Do not repeat anything your notepad says was already sent. If nothing is pressing and no setup suggestion is allowed, reply with exactly [SILENT].',
     "Write a short morning brief for the user. Use whichever of these this profile actually has connected, and silently skip any that are missing: today's calendar events, mail that needs a reply, tasks due today, and open workstreams. If a google-workspace skill is installed, load it and follow its references/daily-brief.md. Highlight conflicts and anything time-critical. Keep it to a few lines. Do not send or change anything for the user; offer drafts instead. If nothing is connected, give a one-line good-morning with the date.",
     'Quietly check, using only the mail, calendar, tasks and open workstreams this profile has connected (skip missing ones silently), what changed since the last run. Message ONLY for something the user must act on today or that is time-critical. If you do, give the reason in one line and offer a draft; never send or act for them. Do not repeat anything your notepad says was already sent. Otherwise reply with exactly [SILENT].',
 })
@@ -107,21 +116,45 @@ def find_jobs() -> dict[str, dict]:
     return found
 
 
-def check_hours(start: str, end: str, every: int) -> list[int]:
-    """Hours of day (0-23) the check job fires: start, start+N, ... inside the window."""
+def check_times(start: str, end: str, every_min: int) -> list[int]:
+    """Minutes-of-day the check job fires: start, start+N, ... inside the window."""
     from datetime import datetime
     s = gate.parse_hhmm(start)
-    hours: list[int] = []
+    times: list[int] = []
     t = s
-    for _ in range(24):
-        h = (t // 60) % 24
-        probe = datetime(2000, 1, 1, h, t % 60)
-        if gate.in_active_hours(probe, start, end) and h not in hours:
-            hours.append(h)
-        t += every * 60
-        if t - s >= 24 * 60:
-            break
-    return hours or [s // 60]
+    while t - s < 24 * 60:
+        m = t % (24 * 60)
+        probe = datetime(2000, 1, 1, m // 60, m % 60)
+        if gate.in_active_hours(probe, start, end) and m not in times:
+            times.append(m)
+        t += every_min
+    return times or [s]
+
+
+def check_hours(start: str, end: str, every: int) -> list[int]:
+    """Hours of day (0-23) the check job fires (``every`` in hours)."""
+    hours: list[int] = []
+    for m in check_times(start, end, every * 60):
+        if m // 60 not in hours:
+            hours.append(m // 60)
+    return hours
+
+
+def valid_interval(minutes: int) -> bool:
+    """Intervals a cron expression can express exactly: 15, 20, 30 or whole hours."""
+    return (minutes >= gate.MIN_INTERVAL_MIN and (minutes in (15, 20, 30) or minutes % 60 == 0)
+            and minutes <= 24 * 60)
+
+
+def check_expr(start: str, end: str, every_min: int) -> str:
+    times = check_times(start, end, every_min)
+    minutes = sorted({m % 60 for m in times})
+    hours = sorted({m // 60 for m in times}, key=lambda h: times_index(times, h))
+    return f"{','.join(str(m) for m in minutes)} {','.join(str(h) for h in hours)} * * *"
+
+
+def times_index(times: list[int], hour: int) -> int:
+    return next(i for i, m in enumerate(times) if m // 60 == hour)
 
 
 def schedules(cfg: Mapping[str, Any]) -> dict[str, Optional[str]]:
@@ -132,9 +165,10 @@ def schedules(cfg: Mapping[str, Any]) -> dict[str, Optional[str]]:
         m = gate.parse_hhmm(brief)
         out[gate.ROLE_BRIEF] = f"{m % 60} {m // 60} * * *"
     start, end = cfg["active_hours"]["start"], cfg["active_hours"]["end"]
-    minute = gate.parse_hhmm(start) % 60
-    hours = ",".join(str(h) for h in check_hours(start, end, int(cfg["checks_every_hours"])))
-    out[gate.ROLE_CHECK] = f"{minute} {hours} * * *"
+    every = gate.interval_minutes(cfg)
+    if not valid_interval(every):
+        raise ValueError("Checks run every 15, 20 or 30 minutes, or every whole number of hours.")
+    out[gate.ROLE_CHECK] = check_expr(start, end, every)
     return out
 
 
@@ -186,6 +220,34 @@ def enable(raw_cfg: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     return {"brief": brief, "check": check}
 
 
+def migrate_default_schedule(raw_cfg: Optional[Mapping[str, Any]] = None) -> bool:
+    """Move an existing check job from the old 3-hour default to the current interval.
+
+    Only the schedule changes (same job id, no new job). A job is touched only
+    when its schedule still equals what the old default produced for this
+    profile's active hours, so a job the user rescheduled, or a profile whose
+    chosen interval already differs from the default, is left alone.
+    """
+    try:
+        cfg = gate.merged_settings(raw_cfg)
+        job = find_jobs().get(gate.ROLE_CHECK)
+        if not job or not cfg["enabled"]:
+            return False
+        start, end = cfg["active_hours"]["start"], cfg["active_hours"]["end"]
+        wanted = schedules(cfg)[gate.ROLE_CHECK]
+        legacy = check_expr(start, end, gate.LEGACY_INTERVAL_MIN)
+        sched = job.get("schedule")
+        current = sched.get("expr") if isinstance(sched, dict) else sched
+        if not wanted or current == wanted or current != legacy:
+            return False
+        from cron.jobs import update_job
+        update_job(job["id"], {"schedule": wanted})
+        return True
+    except Exception:
+        logger.debug("check-in schedule migration skipped", exc_info=True)
+        return False
+
+
 def disable() -> int:
     """Delete both jobs. Returns how many were removed."""
     from cron.jobs import remove_job
@@ -227,9 +289,12 @@ def seed_default_jobs() -> bool:
         from clover_cli import config as config_api
         from clover_constants import get_clover_home
         marker = Path(get_clover_home()) / SEEDED_MARKER
+        raw = (config_api.load_config(migrate=False).get("proactive") or {}).get("checkin") or {}
+        # Upgrade path: jobs made by 2.1.5 or older move to the new interval
+        # (same job id) unless the user chose their own.
+        migrate_default_schedule(raw)
         if marker.exists():
             return False
-        raw = (config_api.load_config(migrate=False).get("proactive") or {}).get("checkin") or {}
         cfg = gate.merged_settings(raw)
         if not cfg["enabled"]:
             return False

@@ -1289,7 +1289,7 @@ platform_toolsets:
 #     enabled: true
 #     timezone: ""              # empty = Clover's timezone
 #     morning_brief: "08:00"    # "" = no brief
-#     checks_every_hours: 3
+#     checks_every_minutes: 30   # 15+; the old checks_every_hours still works
 #     active_hours: {start: "09:00", end: "20:00"}
 #     max_per_day: 3            # check-ins only, brief not counted
 #     min_gap_minutes: 90
