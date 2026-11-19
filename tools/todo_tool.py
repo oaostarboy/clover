@@ -16,6 +16,7 @@ Design:
 """
 
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 
@@ -103,6 +104,14 @@ class TodoStore:
                         else:
                             existing[item_id].pop("parent", None)
                 else:
+                    same = self._same_text_item(t, existing)
+                    if same is not None:
+                        # A helper re-adding a seeded launch step under a new id
+                        # is that step: keep its id and place, take the status.
+                        status = str(t.get("status") or "").strip().lower()
+                        if status in VALID_STATUSES:
+                            same["status"] = status
+                        continue
                     # New item -- validate fully and append to end
                     validated = self._validate(t)
                     existing[validated["id"]] = validated
@@ -259,6 +268,16 @@ class TodoStore:
             )
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _same_text_item(t: Dict[str, Any], existing: Dict[str, Dict[str, str]]):
+        key = " ".join(str(t.get("content") or "").split()).casefold()
+        if not key:
+            return None
+        for item in existing.values():
+            if " ".join(str(item.get("content") or "").split()).casefold() == key:
+                return item
+        return None
 
     @staticmethod
     def _cap_content(content: str) -> str:
@@ -433,8 +452,11 @@ def todo_tool(
     )
     snapshot = store.snapshot()
 
+    seeded = [i["id"] for i in items if re.fullmatch(r"s\d+", str(i.get("id", "")))]
     return json.dumps({
         "todos": items,
+        **({"note": f"existing steps: {seeded[0]}..{seeded[-1]}; update these by id"}
+           if seeded else {}),
         "revision": snapshot["revision"],
         "delegation_reminded": snapshot["delegation_reminded"],
         **({"delegation": dict(store._delegation)} if store._delegation else {}),
