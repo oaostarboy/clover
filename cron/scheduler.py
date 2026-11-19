@@ -7754,6 +7754,13 @@ def _run_one_job_body(
             delivery_outcome = "suppressed_acked"
         else:
             delivery_outcome = "suppressed"
+        if delivery_outcome == "delivered" and success and job.get("checkin_role") == "check":
+            # Count only real check-in deliveries ([SILENT] never gets here).
+            try:
+                from cron.checkin_gate import record_send
+                record_send()
+            except Exception:
+                logger.warning("Job '%s': could not record check-in send", job["id"], exc_info=True)
         if delivery_outcome in ("delivered", "not_configured") and not success:
             # The failure ping left the process (or was composed for a
             # configured target) — record it on the incident so the CLI

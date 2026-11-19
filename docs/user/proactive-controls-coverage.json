@@ -245,6 +245,30 @@
         "tests/agent/test_workstream_procedure_host.py"
       ],
       "advanced": false
+    },
+    {
+      "id": "checkin",
+      "gates": [
+        "proactive.checkin.enabled",
+        "proactive.checkin.timezone",
+        "proactive.checkin.morning_brief",
+        "proactive.checkin.checks_every_hours",
+        "proactive.checkin.active_hours.start",
+        "proactive.checkin.active_hours.end",
+        "proactive.checkin.max_per_day",
+        "proactive.checkin.min_gap_minutes",
+        "proactive.checkin.sources",
+        "proactive.checkin.deliver",
+        "proactive.checkin.paused_until"
+      ],
+      "menu": "Text only: /proactive checkin on|off|status|brief|hours|every|max|pause",
+      "text_command": "/proactive checkin on",
+      "status": "opt-in; off by default; on creates two cron jobs, off deletes them; Main Off does not stop them",
+      "consumer": "clover_cli/proactive_checkin.py; cron/checkin_gate.py; cron/checkin_jobs.py",
+      "tests": [
+        "tests/cron/test_proactive_checkin.py"
+      ],
+      "advanced": false
     }
   ],
   "intentional_gaps": [

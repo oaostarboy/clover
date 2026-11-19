@@ -481,3 +481,5 @@ session, procedures need 3 runs / 2 sessions, auxiliary calls 1 per event /
 Disable `proactive.enabled`. Rows stay inert and inspectable; no data is
 deleted and nothing is restarted. A database written by a newer build is
 refused (fail closed) rather than modified.
+
+See also [Proactive check-ins](proactive-checkins.md): an opt-in morning brief and quiet, capped check-ins.
