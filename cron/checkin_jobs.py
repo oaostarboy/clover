@@ -26,19 +26,54 @@ BRIEF_PROMPT = (
     "today's calendar events, mail that needs a reply, tasks due today, and "
     "open workstreams. If a google-workspace skill is installed, load it and follow "
     "its references/daily-brief.md. Highlight conflicts and anything time-critical. "
-    "Keep it to a few lines. Do not send or change anything for the user; "
-    "offer drafts instead. If nothing is connected, give a one-line "
-    "good-morning with the date."
+    "Keep it to a few lines. READ ONLY: never send, book, move, delete or change "
+    "anything during this run. When you find something you could handle with your "
+    "own tools (reply to an email, book or move an event, file a task, finish open "
+    "work), say in one line what you would do and ask for a yes, for example "
+    "\"Daniel is waiting on your Aryeo decision. I can reply and book Thursday. "
+    "Want me to?\" The user's yes arrives in the normal chat, where you then do it. "
+    "Use the 'Connected sources' facts below as the truth about what is connected. "
+    "If one setup suggestion is allowed, you may add ONE short line offering to "
+    "help connect that source right here in the chat, naming the real setup it "
+    "uses; never suggest anything else. If nothing is connected, give a one-line "
+    "good-morning with the date plus the allowed setup suggestion if any."
 )
 
 CHECK_PROMPT = (
     "Quietly check, using only the mail, calendar, tasks and open workstreams "
     "this profile has connected (skip missing ones silently), what changed "
-    "since the last run. Message ONLY for something the user must act on today "
-    "or that is time-critical. If you do, give the reason in one line and offer "
-    "a draft; never send or act for them. Do not repeat anything your notepad "
-    "says was already sent. Otherwise reply with exactly [SILENT]."
+    "since the last run. READ ONLY: never send, book, move, delete or change "
+    "anything during this run. Message ONLY for something the user must act on "
+    "today or that is time-critical. If you do, give the reason in one line, and "
+    "if you could handle it with your own tools (reply, book or move an event, "
+    "file a task, finish open work) say in one line what you would do and ask for "
+    "a yes, for example \"Daniel is waiting on your Aryeo decision. I can reply "
+    "and book Thursday. Want me to?\" The user's yes arrives in the normal chat, "
+    "where you then do it. Use the 'Connected sources' facts below as the truth "
+    "about what is connected. If nothing is pressing but a setup suggestion is "
+    "allowed, send ONE short message instead of [SILENT], offering to help connect that source "
+    "right here in the chat (for example \"I can't see your calendar yet. Want me "
+    "to help you connect Google Calendar? Takes about 2 minutes.\"). Never "
+    "suggest anything not marked allowed. Do not repeat anything your notepad "
+    "says was already sent. If nothing is pressing and no setup suggestion is "
+    "allowed, reply with exactly [SILENT]."
 )
+
+
+# Prompts stored in jobs created by earlier versions. At run time a job still
+# holding one of these uses the current prompt, so existing jobs get the new
+# behaviour without being recreated; a prompt the user edited is left alone.
+LEGACY_PROMPTS = frozenset({
+    "Write a short morning brief for the user. Use whichever of these this profile actually has connected, and silently skip any that are missing: today's calendar events, mail that needs a reply, tasks due today, and open workstreams. If a google-workspace skill is installed, load it and follow its references/daily-brief.md. Highlight conflicts and anything time-critical. Keep it to a few lines. Do not send or change anything for the user; offer drafts instead. If nothing is connected, give a one-line good-morning with the date.",
+    'Quietly check, using only the mail, calendar, tasks and open workstreams this profile has connected (skip missing ones silently), what changed since the last run. Message ONLY for something the user must act on today or that is time-critical. If you do, give the reason in one line and offer a draft; never send or act for them. Do not repeat anything your notepad says was already sent. Otherwise reply with exactly [SILENT].',
+})
+
+
+def current_prompt(job: Mapping[str, Any]) -> str:
+    stored = str(job.get("prompt") or "")
+    if stored in LEGACY_PROMPTS:
+        return BRIEF_PROMPT if job.get(TAG) == gate.ROLE_BRIEF else CHECK_PROMPT
+    return stored
 
 
 def _gate_script_text() -> str:
