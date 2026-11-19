@@ -713,3 +713,35 @@ def test_two_stuck_calls_still_end_at_the_deadline(aux, monkeypatch):
 
 def test_the_default_hedge_point_sits_inside_the_default_deadline():
     assert 0 < dr.HEDGE_AFTER_SECONDS < dr.DEFAULT_TIMEOUT_SECONDS - dr._MIN_RETRY_SECONDS
+
+
+@pytest.mark.parametrize('message,expect', [
+    ('Use 3 helpers to review auth, billing and search code', True),
+    ('use two subagents to research X and Y', True),
+    ('Use helpers to fix this typo', True),
+    ("Do it yourself, no helpers, summarize this repo", False),
+    ("What's 2+2?", False),
+])
+def test_explicit_helper_request_tells_the_root_to_split_the_work(aux, message, expect):
+    for reply in ('direct', None):
+        aux.replies[:] = [verdict_json('direct')] if reply else [RuntimeError('down')]*2
+        v = dr.route(message, [], settings=SETTINGS)
+        if not expect:
+            assert v is None or not v.asked_for_helpers
+            continue
+        assert v is not None and v.asked_for_helpers and v.mode == 'single'
+        note = dr.work_plan_note(v)
+        assert 'split the work yourself' in note and 'honor any number' in note
+    plain = dr.Verdict(mode='single', tasks=(dr.PlanTask(goal='g'),))
+    assert 'split the work yourself' not in dr.work_plan_note(plain)
+
+
+def test_helper_request_note_still_ends_the_turn_and_keeps_the_backstop(aux):
+    aux.replies[:] = [verdict_json('direct')]
+    v = dr.route('use 3 helpers to review auth, billing and search code', [], settings=SETTINGS)
+    note = dr.work_plan_note(v)
+    # Background dispatch, then the turn ends so the chat stays free ...
+    assert 'one delegate_task call' in note and 'one short line' in note
+    assert 'wait' not in note.lower()
+    # ... and the plan is still a non-direct plan, so the backstop stays armed.
+    assert v.mode in ('single', 'parallel') and v.tasks
