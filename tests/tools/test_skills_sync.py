@@ -625,16 +625,17 @@ class TestResetBundledSkill:
         # so manifest has an old origin hash that no longer matches anything on disk.
         dest = skills_dir / "productivity" / "google-workspace"
         dest.mkdir(parents=True)
-        (dest / "SKILL.md").write_text("---\nname: google-workspace\n---\n# GW v2 (upstream)\nlocal edit\n")
+        (dest / "SKILL.md").write_text("---\nname: google-workspace\n---\n# GW v2 (upstream)\n")
         # Stale origin_hash — from some prior bundled version. User "restored" by pasting
         # the current bundled contents, so user_hash == current bundled_hash, but manifest
         # still points at the stale hash → treated as user_modified forever.
         manifest_file.write_text("google-workspace:STALEHASH000000000000000000000000\n")
 
         with self._patches(bundled, skills_dir, manifest_file):
-            # Sanity check: without reset, sync would flag it user_modified
+            # Sync now re-baselines a stale origin when the copy equals bundled,
+            # so it is no longer flagged; reset must still be idempotent.
             pre = sync_skills(quiet=True)
-            assert "google-workspace" in pre["user_modified"]
+            assert "google-workspace" not in pre["user_modified"]
 
             # Reset (no --restore) should clear the manifest entry and re-baseline
             result = reset_bundled_skill("google-workspace", restore=False)
@@ -644,7 +645,7 @@ class TestResetBundledSkill:
 
             # After reset, the manifest re-baselines against the user's current copy
             manifest_after = _read_manifest()
-            expected = _dir_hash(dest)
+            expected = _dir_hash(bundled / "productivity" / "google-workspace")
             assert manifest_after["google-workspace"] == expected
         # User's copy was preserved (we didn't delete)
         assert dest.exists()
