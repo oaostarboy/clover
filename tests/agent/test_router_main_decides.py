@@ -164,6 +164,6 @@ def test_tool_description_and_guidance_carry_the_new_rules():
     for phrase in ('stays free', 'one call', 'binding', 'one short line', 'poll'):
         assert phrase in desc, phrase
     low = g.lower()
-    for phrase in ('stays free', 'one delegate_task call', 'binding', 'one short line', "don't poll"):
+    for phrase in ('stays free', 'one call', 'binding', 'one short line', "don't poll"):
         assert phrase in low, phrase
     assert d() == d() and len(d()) <= 3000
