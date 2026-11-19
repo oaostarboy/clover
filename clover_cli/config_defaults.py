@@ -2264,6 +2264,10 @@ DEFAULT_CONFIG = {
         # raise deliberately, each level multiplies API cost.
         "max_spawn_depth": 1,        # depth (1 = flat [default], 2 = orchestrator→leaf, 3+ = deeper)
         "orchestrator_enabled": True,  # kill switch for role="orchestrator"
+        # Helpers get the main agent's saved memory (MEMORY.md + USER.md) in
+        # their system prompt, read-only, frozen at helper start. false = old
+        # clean-slate helpers.
+        "inherit_memory": True,
         # How a background fan-out (several helpers in one delegate_task call)
         # reports back. "joined" (default): each helper's result is saved as it
         # finishes and the chat hears ONE combined report, results in task
