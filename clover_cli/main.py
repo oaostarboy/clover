@@ -8579,6 +8579,10 @@ def _parse_dashboard_runtime(command: str) -> tuple[str, str, int] | None:
     ):
         mode = "serve"
     if mode is None:
+        from clover_cli.dashboard_procs import _dashboard_mode_from_tokens
+
+        mode = _dashboard_mode_from_tokens(command)
+    if mode is None:
         return None
 
     port = 9119
