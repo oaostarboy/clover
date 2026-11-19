@@ -1737,6 +1737,12 @@ def _cron_mirror_delivery_enabled(job: dict, cfg: Optional[dict] = None) -> bool
     per_job = job.get("attach_to_session")
     if isinstance(per_job, bool):
         return per_job
+    if job.get("checkin_role"):
+        # Proactive check-ins are a conversation opener: the user's reply
+        # ("draft the Baptiste one") must see what was sent. On by default,
+        # keyed at delivery time so existing jobs qualify; an explicit
+        # per-job attach_to_session=false above still wins.
+        return True
     try:
         if cfg is None:
             cfg = load_config() or {}
@@ -1832,6 +1838,13 @@ def _target_mirror_eligible(
         )
     if origin_match:
         return True
+    per_job_checkin = job.get("attach_to_session")
+    if job.get("checkin_role") and not (
+        isinstance(per_job_checkin, bool) and not per_job_checkin
+    ):
+        # Check-ins go to the owner's own chat(s) (home/all targets carry no
+        # origin). mirror_to_session no-ops when a target has no session.
+        return True
     resolved_from = target.get("_resolved_from")
     if resolved_from == "origin_fallback":
         # Same activation rules as an origin target: per-job attach wins,
@@ -1910,7 +1923,11 @@ def _maybe_mirror_cron_delivery(
         ok = mirror_to_session(
             platform_name,
             str(chat_id),
-            f"[Cron delivery: {job.get('name') or job.get('id', 'cron')}]\n{text}",
+            (
+                f"[Proactive check-in already sent to the user]\n{text}"
+                if job.get("checkin_role")
+                else f"[Cron delivery: {job.get('name') or job.get('id', 'cron')}]\n{text}"
+            ),
             source_label="cron",
             thread_id=thread_id,
             user_id=user_id,
@@ -3077,6 +3094,55 @@ _DELIVERY_FAILED: "_contextvars.ContextVar[bool]" = _contextvars.ContextVar(
 )
 
 
+def _format_cron_delivery_text(
+    job: dict, cleaned_content: str, user_cfg: Optional[dict], wrap_response: bool
+) -> str:
+    """Final text sent to the chat for a cron delivery (MEDIA already removed).
+
+    Proactive check-in jobs (``checkin_role`` set) are the agent talking, not a
+    scheduled-job report: they always deliver the clean content, with no card,
+    header, footer or classic wrapper, whatever ``cron.wrap_response`` /
+    ``cron.style`` say. Keyed at delivery time so jobs created by older
+    versions get the same look. Every other job is formatted as before.
+    """
+    if job.get("checkin_role"):
+        return cleaned_content
+    if wrap_response:
+        task_name = job.get("name", job["id"])
+        job_id = job.get("id", "")
+        cron_style = (
+            (user_cfg or {}).get("cron", {}).get("style")
+            or (user_cfg or {}).get("display", {}).get("cron_style")
+            or "card"
+        )
+        _clo_card = None
+        if cron_style != "classic":
+            try:
+                from agent import clover_flavor
+
+                _clo_card = clover_flavor.format_cron_card(
+                    str(task_name),
+                    cleaned_content,
+                    job_id=str(job_id),
+                    failed=_DELIVERY_FAILED.get(),
+                )
+            except Exception:
+                _clo_card = None
+
+        if _clo_card is not None:
+            return _clo_card
+        else:
+            # Stock skins or classic style keep stock text byte-for-byte
+            return (
+                f"Cronjob Response: {task_name}\n"
+                f"(job_id: {job_id})\n"
+                f"-------------\n\n"
+                f"{cleaned_content}\n\n"
+                f'To stop or manage this job, send me a new message (e.g. "stop reminder {task_name}").'
+            )
+    return cleaned_content
+
+
 def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Optional[str]:
     """
     Deliver job output to the configured target(s) (origin chat, specific platform, etc.).
@@ -3142,41 +3208,9 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
     # protected-span masking does not swallow attachments.
     media_files, cleaned_content = BasePlatformAdapter.extract_media(content)
 
-    if wrap_response:
-        task_name = job.get("name", job["id"])
-        job_id = job.get("id", "")
-        cron_style = (
-            (user_cfg or {}).get("cron", {}).get("style")
-            or (user_cfg or {}).get("display", {}).get("cron_style")
-            or "card"
-        )
-        _clo_card = None
-        if cron_style != "classic":
-            try:
-                from agent import clover_flavor
-
-                _clo_card = clover_flavor.format_cron_card(
-                    str(task_name),
-                    cleaned_content,
-                    job_id=str(job_id),
-                    failed=_DELIVERY_FAILED.get(),
-                )
-            except Exception:
-                _clo_card = None
-
-        if _clo_card is not None:
-            cleaned_delivery_content = _clo_card
-        else:
-            # Stock skins or classic style keep stock text byte-for-byte
-            cleaned_delivery_content = (
-                f"Cronjob Response: {task_name}\n"
-                f"(job_id: {job_id})\n"
-                f"-------------\n\n"
-                f"{cleaned_content}\n\n"
-                f'To stop or manage this job, send me a new message (e.g. "stop reminder {task_name}").'
-            )
-    else:
-        cleaned_delivery_content = cleaned_content
+    cleaned_delivery_content = _format_cron_delivery_text(
+        job, cleaned_content, user_cfg, wrap_response
+    )
     requested_media = [(str(p), v) for p, v in media_files]
     media_files = BasePlatformAdapter.filter_media_delivery_paths(media_files)
     # Attachments the policy filter dropped will never be sent on ANY lane —
