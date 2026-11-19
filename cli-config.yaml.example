@@ -1282,10 +1282,11 @@ platform_toolsets:
 #     max_calls_per_event: 1
 #     max_calls_per_day: 4
 #     max_output_tokens: 512
-#   # Opt-in check-ins (docs/user/proactive-checkins.md). Use
-#   # `/proactive checkin on` to turn on; it creates two cron jobs.
+#   # Check-ins, on by default (docs/user/proactive-checkins.md). The gateway
+#   # creates two cron jobs once at startup if a home channel is set.
+#   # `/proactive checkin off` (or enabled: false) turns them off for good.
 #   checkin:
-#     enabled: false
+#     enabled: true
 #     timezone: ""              # empty = Clover's timezone
 #     morning_brief: "08:00"    # "" = no brief
 #     checks_every_hours: 3

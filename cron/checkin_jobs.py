@@ -181,8 +181,11 @@ SEEDED_MARKER = ".proactive_checkin_seeded"
 def seed_default_jobs() -> bool:
     """Create the jobs once for a profile where check-ins are on by default.
 
-    Skips when the user turned check-ins off, when a marker shows this already
-    ran (so jobs the user deleted via /cron stay deleted), or when jobs exist.
+    Gateway startup only. Skips (creating nothing) when the user turned
+    check-ins off, when no chat app has a home channel yet (retried at the next
+    start, no marker), when a marker shows seeding already ran (so jobs the
+    user deleted via /cron stay deleted), or when check-in jobs, or a similar
+    morning-brief job the user made themselves, already exist.
     Returns True when jobs were created.
     """
     try:
@@ -195,11 +198,14 @@ def seed_default_jobs() -> bool:
         cfg = gate.merged_settings(raw)
         if not cfg["enabled"]:
             return False
-        if not find_jobs():
+        if str(cfg.get("deliver") or "home").strip() == "home":
+            from cron.scheduler import _expand_routing_tokens
+            if not _expand_routing_tokens("all"):
+                return False
+        created = False
+        if not find_jobs() and not existing_overlap():
             enable(raw)
             created = True
-        else:
-            created = False
         marker.write_text("1", encoding="utf-8")
         return created
     except Exception:

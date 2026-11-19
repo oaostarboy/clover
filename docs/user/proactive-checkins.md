@@ -1,9 +1,10 @@
 # Proactive check-ins
 
-An optional morning brief, plus a few quiet check-ins during the day. A check-in
+A morning brief, plus a few quiet check-ins during the day. A check-in
 messages you only when something needs you today. Otherwise it says nothing.
-It is **on by default**. The first time the gateway starts, Clover creates the
-two jobs. `/proactive checkin off` removes them and keeps them off.
+It is **on by default**. The first time the gateway starts with a home channel set, Clover creates
+the two jobs (once; jobs you delete stay deleted). It sends to one chat app.
+Existing users get this after an update unless check-ins are already off. `/proactive checkin off` removes them and keeps them off.
 
 ## Turn it on (if you turned it off)
 
