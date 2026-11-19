@@ -45,6 +45,14 @@ less than `min_gap_minutes` (default 90) ago. "Today" uses your timezone.
 Only messages that were really delivered count. A check that finds nothing
 replies `[SILENT]` and counts for nothing.
 
+## How they look, and how to stop them
+
+Check-ins arrive as ordinary messages from your agent, not as scheduled-job
+cards: no header, no job id, no footer. Your reply continues the conversation
+(for example "draft the Baptiste one"), because each check-in is added to that
+chat's history. To stop them, send `/proactive checkin off`, or `pause 24h`
+for a break.
+
 ## Things to know
 
 - Delivery goes to your home channel. Set it with `/sethome`. `status` warns if
