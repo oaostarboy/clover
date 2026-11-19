@@ -746,7 +746,7 @@ wheels = [
 
 [[package]]
 name = "clover-c1"
-version = "2.1.4"
+version = "2.1.5"
 source = { editable = "." }
 dependencies = [
     { name = "certifi" },
