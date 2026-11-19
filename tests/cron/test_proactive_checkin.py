@@ -219,7 +219,7 @@ def test_only_gateway_startup_calls_seeding():
 
 def test_on_creates_exactly_two_jobs_and_is_idempotent():
     reply = run("on")
-    assert reply.startswith("Check-ins on. Morning brief 8:00, checks every 3h from 9:00 to 20:00, at most 3 a day.")
+    assert reply.startswith("Check-ins on. Morning brief 8:00, checks every 30m from 9:00 to 20:00, at most 3 a day.")
     assert roles() == ["brief", "check"]
     first = {j["checkin_role"]: j["id"] for j in list_jobs(include_disabled=True)}
     run("on")
@@ -231,7 +231,7 @@ def test_job_shapes():
     run("on")
     by = {j["checkin_role"]: j for j in list_jobs()}
     assert by["brief"]["schedule"]["expr"] == "0 8 * * *"
-    assert by["check"]["schedule"]["expr"] == "0 9,12,15,18 * * *"
+    assert by["check"]["schedule"]["expr"] == "0,30 9,10,11,12,13,14,15,16,17,18,19 * * *"
     assert by["check"]["script"] == checkin_jobs.GATE_SCRIPT
     assert "[SILENT]" in by["check"]["prompt"]
     assert "never send" in by["check"]["prompt"]
@@ -249,7 +249,7 @@ def test_changes_update_existing_jobs_without_duplicates():
     run("on")
     run("brief 07:30")
     run("hours 10-18")
-    run("every 2")
+    run("every 2h")
     run("max 2")
     assert roles() == ["brief", "check"]
     by = {j["checkin_role"]: j for j in list_jobs()}
@@ -264,12 +264,12 @@ def test_settings_saved_while_off_create_no_jobs():
     run("off")
     assert run("every 4").startswith("Saved.")
     assert roles() == []
-    assert saved()["checks_every_hours"] == 4
+    assert saved()["checks_every_minutes"] == 240
 
 
 @pytest.mark.parametrize("args", [
     "brief 25:00", "brief 7:5", "brief soon", "hours 9", "hours 20-20", "hours 9-25",
-    "every 0", "every 25", "every x", "max 0", "max 99", "pause 0h", "pause 400d", "pause soon",
+    "every 0", "every 25", "every 10m", "every 45m", "every x", "max 0", "max 99", "pause 0h", "pause 400d", "pause soon",
     "bogus", "on now"])
 def test_invalid_input_rejected_and_nothing_written(args):
     run("on")
@@ -304,7 +304,7 @@ def test_admin_lock_blocks_writes_but_status_reads():
 def test_status_reports_interval_next_run_sends_and_warnings():
     run("on")
     text = run("status")
-    assert "checks every 3h" in text
+    assert "checks every 30m" in text
     assert "Next run:" in text
     assert "Sent today: 0 of 3" in text
     assert "no home channel" in text.lower() or "gateway is not running" in text.lower()

@@ -29,7 +29,7 @@ DEFAULTS: dict[str, Any] = {
     "enabled": True,
     "timezone": "",
     "morning_brief": "08:00",
-    "checks_every_hours": 3,
+    "checks_every_minutes": 30,
     "active_hours": {"start": "09:00", "end": "20:00"},
     "max_per_day": 3,
     "min_gap_minutes": 90,
@@ -38,6 +38,9 @@ DEFAULTS: dict[str, Any] = {
     "paused_until": "",
 }
 
+DEFAULT_INTERVAL_MIN = 30
+MIN_INTERVAL_MIN = 15
+LEGACY_INTERVAL_MIN = 180  # the 2.1.5 default: every 3 hours
 _KEEP_DAYS = 3
 
 
@@ -64,7 +67,33 @@ def merged_settings(raw: Optional[Mapping[str, Any]]) -> dict[str, Any]:
             out["active_hours"].update({k: v for k, v in value.items() if v not in (None, "")})
         elif key in out:
             out[key] = value
+    # Legacy ``checks_every_hours`` (2.1.5 and older). It is no longer a
+    # default, so when it is present the user (or an old save) set it: honor it
+    # unless a non-default ``checks_every_minutes`` is also saved.
+    legacy = (raw or {}).get("checks_every_hours")
+    # 3 hours was the old default, and every /proactive checkin command used to
+    # save it, so it counts as "not chosen" and moves to the new default.
+    if legacy not in (None, "") and out["checks_every_minutes"] in (None, "", DEFAULT_INTERVAL_MIN):
+        try:
+            hours = int(legacy)
+            if hours * 60 != LEGACY_INTERVAL_MIN:
+                out["checks_every_minutes"] = hours * 60
+        except (TypeError, ValueError):
+            pass
     return out
+
+
+def interval_minutes(cfg: Mapping[str, Any]) -> int:
+    """Minutes between checks from merged settings (bad values fall back to 30)."""
+    try:
+        n = int(cfg.get("checks_every_minutes"))
+    except (TypeError, ValueError):
+        return DEFAULT_INTERVAL_MIN
+    return n if n >= MIN_INTERVAL_MIN else DEFAULT_INTERVAL_MIN
+
+
+def interval_label(minutes: int) -> str:
+    return f"{minutes // 60}h" if minutes % 60 == 0 else f"{minutes}m"
 
 
 def in_active_hours(local_now: datetime, start: str, end: str) -> bool:

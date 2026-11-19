@@ -252,7 +252,7 @@
         "proactive.checkin.enabled",
         "proactive.checkin.timezone",
         "proactive.checkin.morning_brief",
-        "proactive.checkin.checks_every_hours",
+        "proactive.checkin.checks_every_minutes",
         "proactive.checkin.active_hours.start",
         "proactive.checkin.active_hours.end",
         "proactive.checkin.max_per_day",

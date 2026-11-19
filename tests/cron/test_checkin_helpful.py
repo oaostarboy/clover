@@ -19,8 +19,12 @@ def _token(home, *scopes):
         {"refresh_token": "r", "scopes": [f"https://www.googleapis.com/auth/{s}" for s in scopes]}))
 
 
+def _core(c):
+    return {k: c[k] for k in ("mail", "calendar")}
+
+
 def test_facts_none_connected(home):
-    assert cs.connected() == {"mail": False, "calendar": False}
+    assert _core(cs.connected()) == {"mail": False, "calendar": False}
     block = cs.facts_block()
     assert "mail: NOT connected" in block and "calendar: NOT connected" in block
     assert "setup suggestion allowed this run: mail" in block
@@ -28,13 +32,13 @@ def test_facts_none_connected(home):
 
 def test_facts_mail_only(home):
     _token(home, "gmail.readonly")
-    assert cs.connected() == {"mail": True, "calendar": False}
+    assert _core(cs.connected()) == {"mail": True, "calendar": False}
     assert "setup suggestion allowed this run: calendar" in cs.facts_block()
 
 
 def test_facts_all_connected(home):
     _token(home, "gmail.readonly", "calendar")
-    assert cs.connected() == {"mail": True, "calendar": True}
+    assert _core(cs.connected()) == {"mail": True, "calendar": True}
     assert "allowed this run: none" in cs.facts_block()
 
 
@@ -46,7 +50,7 @@ def test_himalaya_config_counts_as_mail(home):
 
 
 NOW = datetime(2026, 11, 19, 9, 0, tzinfo=timezone.utc)
-NONE = {"mail": False, "calendar": False}
+NONE = {k: False for k in cs.SOURCES}
 
 
 def test_once_per_seven_days_per_source(home):
@@ -91,7 +95,7 @@ def test_prompts_offer_and_ask_for_yes_and_forbid_acting():
 
 def test_old_jobs_get_new_prompt_edited_ones_do_not():
     old = checkin_jobs.LEGACY_PROMPTS
-    assert len(old) == 2
+    assert len(old) == 4
     for p in old:
         assert p not in (checkin_jobs.BRIEF_PROMPT, checkin_jobs.CHECK_PROMPT)
     brief_old = next(p for p in old if "morning brief" in p)

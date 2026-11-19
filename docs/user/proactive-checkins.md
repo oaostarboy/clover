@@ -30,12 +30,12 @@ Clover never sends or changes anything for you. It offers drafts and asks.
 | `/proactive checkin status` | Interval, next run, sent today, warnings |
 | `/proactive checkin brief 07:30` / `brief off` | Brief time, or no brief |
 | `/proactive checkin hours 9-20` | No check-ins outside these hours (overnight like `22-6` works) |
-| `/proactive checkin every 3` | Hours between checks (1-24) |
+| `/proactive checkin every 30m` / `1h` / `3h` | Time between checks (15m to 24h; default 30m). More checks do not mean more messages: the daily limit and minimum gap still apply |
 | `/proactive checkin max 2` | At most this many check-ins a day (brief not counted) |
 | `/proactive checkin pause 24h` / `resume` | Pause without deleting the jobs |
 
 The same settings live in `config.yaml` under `proactive.checkin`
-(`morning_brief`, `checks_every_hours`, `active_hours`, `max_per_day`,
+(`morning_brief`, `checks_every_minutes` (the old `checks_every_hours` still works), `active_hours`, `max_per_day`,
 `min_gap_minutes`, `timezone`, `deliver`). Change them with the commands above
 or `clover config set`.
 

@@ -3009,7 +3009,7 @@ DEFAULT_CONFIG = {
             "enabled": True,
             "timezone": "",            # empty = Clover's timezone
             "morning_brief": "08:00",  # "" disables the brief
-            "checks_every_hours": 3,
+            "checks_every_minutes": 30,  # old checks_every_hours still honored if set
             "active_hours": {"start": "09:00", "end": "20:00"},
             "max_per_day": 3,          # check-ins only; the brief is not counted
             "min_gap_minutes": 90,
