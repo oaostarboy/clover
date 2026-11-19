@@ -15,6 +15,11 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.2 | Clover C2.1.2 | 2026-11-18
+
+- Computer use now reliably gets its updated instructions on update, so it no longer refuses passwords you give it on your own accounts.
+- The skill updater no longer mistakes unchanged skills for ones you edited, so they update as they should.
+
 ## 2.1.1 | Clover C2.1.1 | 2026-11-18
 
 - Updating no longer restarts other assistants on the same computer that run their own copy.
