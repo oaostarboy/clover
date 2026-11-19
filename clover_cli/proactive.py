@@ -33,7 +33,9 @@ HELP = (
     "/proactive recommended — select the whole preset (keeps master On/Off).\n"
     "Text choices save immediately. Bot Customize uses Save/Cancel. "
     "/proactive advanced — monitoring, costs, scope and availability. "
-    "/proactive status — Details. Recurring prompts use /loop <interval> <prompt>."
+    "/proactive status — Details. Recurring prompts use /loop <interval> <prompt>.\n"
+    "/proactive checkin on|off|status — morning brief and quiet check-ins "
+    "(also: brief, hours, every, max, pause)."
 )
 MIGRATION = "Unknown proactive choice; nothing changed.\n" + HELP
 LOCKED = "Controls locked by command policy: admin access required."
@@ -339,6 +341,9 @@ def proactive_command(args: str = "", *, can_change: bool, show_commands: bool =
     """Text parity: validated single choices save immediately, never invoke a model."""
     action = args.strip().lower()
     parts = action.split()
+    if parts and parts[0] == "checkin":
+        from clover_cli.proactive_checkin import checkin_command
+        return checkin_command(parts[1:], can_change=can_change)
     mutation = action in {"on", "off", "enable", "disable", "recommended"} or (
         len(parts) == 2 and parts[0] in {*FIELDS, "frequency"})
     if mutation and not can_change:

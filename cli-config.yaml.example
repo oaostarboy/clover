@@ -1282,6 +1282,18 @@ platform_toolsets:
 #     max_calls_per_event: 1
 #     max_calls_per_day: 4
 #     max_output_tokens: 512
+#   # Opt-in check-ins (docs/user/proactive-checkins.md). Use
+#   # `/proactive checkin on` to turn on; it creates two cron jobs.
+#   checkin:
+#     enabled: false
+#     timezone: ""              # empty = Clover's timezone
+#     morning_brief: "08:00"    # "" = no brief
+#     checks_every_hours: 3
+#     active_hours: {start: "09:00", end: "20:00"}
+#     max_per_day: 3            # check-ins only, brief not counted
+#     min_gap_minutes: 90
+#     sources: [mail, calendar, tasks, workstreams]
+#     deliver: home
 
 # =============================================================================
 # Gateway Platform Settings

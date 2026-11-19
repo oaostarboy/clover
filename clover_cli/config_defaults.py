@@ -2996,6 +2996,22 @@ DEFAULT_CONFIG = {
             "max_calls_per_day": 4,
             "max_output_tokens": 512,
         },
+        # Opt-in check-ins: a morning brief plus capped checks that only message
+        # when something needs you. Off by default; ``/proactive checkin on``
+        # creates the two cron jobs, ``off`` deletes them. See
+        # docs/user/proactive-checkins.md.
+        "checkin": {
+            "enabled": False,
+            "timezone": "",            # empty = Clover's timezone
+            "morning_brief": "08:00",  # "" disables the brief
+            "checks_every_hours": 3,
+            "active_hours": {"start": "09:00", "end": "20:00"},
+            "max_per_day": 3,          # check-ins only; the brief is not counted
+            "min_gap_minutes": 90,
+            "sources": ["mail", "calendar", "tasks", "workstreams"],
+            "deliver": "home",
+            "paused_until": "",
+        },
     },
 
     # Kanban multi-agent coordination — controls the dispatcher loop that
