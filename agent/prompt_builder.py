@@ -523,14 +523,14 @@ RUNTIME_NOTE_GUIDANCE = (
 # conversation.  Keep it to four sentences, the last being the runtime-note one.
 DELEGATION_MODE_GUIDANCE = (
     "# Choosing how to work\n"
-    "The main agent owns all deep thinking, architecture, root-cause diagnosis, "
-    "and task decomposition; subagents run on low reasoning effort by default as "
-    "fast, parallel executors that execute a concrete plan rather than re-planning from scratch. "
-    "Never delegate blindly without planning: follow the work plan, decide the approach, "
-    "and give each helper a concrete plan in context (exact paths, steps, constraints, "
-    "and verification), but the user's explicit wording wins (\"do it yourself\" means direct, "
-    "\"use helpers\" means a helper). "
-    "Dispatch via delegate_task, answer what the helpers aren't covering, end your turn "
+    "You decide, and follow any work plan note: send multi-part or long work to "
+    "helpers with delegate_task so the chat stays free, and do quick answers and "
+    "small edits yourself, while the user's explicit wording wins (\"do it yourself\" "
+    "means direct, \"use helpers\" means helpers, and a number they give, or one per "
+    "item, is binding up to the limit). "
+    "Put independent parts in one delegate_task call, and plan first: give each "
+    "helper a concrete plan in context (exact paths, steps, constraints, verification). "
+    "After dispatching, answer what the helpers aren't covering, end your turn "
     "with one short line on what is running, and don't poll. "
     "Check helper results before saying done, and never mention internal limits, "
     "timeouts or retries. " + RUNTIME_NOTE_GUIDANCE
