@@ -3556,6 +3556,13 @@ def _get_approval_timeout() -> int:
 def _get_cron_approval_mode() -> str:
     """Read the cron approval mode from config. Returns 'deny' or 'approve'."""
     try:
+        # Proactive check-ins are read-only: always strictest, ignore config.
+        from cron.checkin_readonly import is_checkin_run
+        if is_checkin_run():
+            return "deny"
+    except Exception:
+        pass
+    try:
         from clover_cli.config import load_config_readonly
         config = load_config_readonly()
         mode = str(cfg_get(config, "approvals", "cron_mode", default="deny")).lower().strip()

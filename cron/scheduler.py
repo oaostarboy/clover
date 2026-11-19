@@ -6169,6 +6169,7 @@ def run_job(
     # future writers.  Acquire itself can't leak (it either blocks or returns).
     _cron_session_var = _VAR_MAP["CLOVER_CRON_SESSION"]
     _cron_session_token = None
+    _checkin_ro_token = None
     _non_dispatcher_token = None
     _session_db = None
     try:
@@ -6193,6 +6194,11 @@ def run_job(
         # which would suppress the legacy os.environ fallback used by standalone
         # cron entrypoints and tests.
         _cron_session_token = _cron_session_var.set("1")
+        # Proactive check-ins run with a read-only capability set (enforced in
+        # code: tool list filter + pre-tool-call refusal + deny approvals).
+        if job.get("checkin_role"):
+            from cron import checkin_readonly as _ro
+            _checkin_ro_token = _ro.enter(str(job["checkin_role"]))
 
         # Mark this job as NOT the dispatcher-owned kanban worker.
         #
@@ -6777,7 +6783,12 @@ def run_job(
             session_id=_cron_session_id,
             session_db=_session_db,
         )
-        
+        if job.get("checkin_role"):
+            from cron import checkin_readonly as _ro
+            _dropped = _ro.filter_agent_tools(agent)
+            logger.info("Job '%s': check-in read-only; removed %d non-read tools",
+                        job.get("id", "?"), len(_dropped))
+
         # Run the agent with an *inactivity*-based timeout: the job can run
         # for hours if it's actively calling tools / receiving stream tokens,
         # but a hung API call or stuck tool with no activity for the configured
@@ -7116,6 +7127,9 @@ def run_job(
         clear_session_vars(_ctx_tokens)
         if _cron_session_token is not None:
             _cron_session_var.reset(_cron_session_token)
+        if _checkin_ro_token is not None:
+            from cron import checkin_readonly as _ro
+            _ro.exit(_checkin_ro_token)
         if _non_dispatcher_token is not None:
             exit_non_dispatcher_owned_context(_non_dispatcher_token)
         for _var_name in _cron_delivery_vars:
