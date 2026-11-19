@@ -1924,7 +1924,13 @@ def _maybe_mirror_cron_delivery(
             platform_name,
             str(chat_id),
             (
-                f"[Proactive check-in already sent to the user]\n{text}"
+                (
+                    "[Proactive check-in already sent to the user; if they say yes "
+                    "to an offer in it, do it now. If they decline an offer to "
+                    "connect mail or calendar, run: python -m cron.checkin_sources "
+                    "decline <mail|calendar> (add 'stop' if they want no more)]\n"
+                    f"{text}"
+                )
                 if job.get("checkin_role")
                 else f"[Cron delivery: {job.get('name') or job.get('id', 'cron')}]\n{text}"
             ),
@@ -4664,6 +4670,19 @@ def _build_job_prompt(
     user_prompt = str(job.get("prompt") or "")
     if extra_prompt:
         user_prompt = f"{user_prompt}\n\n## Run Context\n{extra_prompt}"
+    if job.get("checkin_role"):
+        # Facts about what this profile really has connected (computed in code,
+        # not guessed by the model) + whether one setup suggestion is allowed.
+        try:
+            from cron.checkin_jobs import current_prompt
+            from cron.checkin_sources import facts_block
+
+            user_prompt = current_prompt(job) + (
+                f"\n\n## Run Context\n{extra_prompt}" if extra_prompt else ""
+            )
+            user_prompt = f"{user_prompt}\n\n{facts_block()}"
+        except Exception:
+            logger.debug("check-in source facts unavailable", exc_info=True)
     prompt = user_prompt
     skills = job.get("skills")
     # True when runtime-collected DATA (script stdout, upstream-job output)
@@ -7788,6 +7807,13 @@ def _run_one_job_body(
             delivery_outcome = "suppressed_acked"
         else:
             delivery_outcome = "suppressed"
+        if delivery_outcome == "delivered" and success and job.get("checkin_role"):
+            try:
+                from cron.checkin_sources import commit_pending
+
+                commit_pending()
+            except Exception:
+                logger.debug("check-in setup state not updated", exc_info=True)
         if delivery_outcome == "delivered" and success and job.get("checkin_role") == "check":
             # Count only real check-in deliveries ([SILENT] never gets here).
             try:

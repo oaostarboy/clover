@@ -55,6 +55,19 @@ cards: no header, no job id, no footer. Your reply continues the conversation
 chat's history. To stop them, send `/proactive checkin off`, or `pause 24h`
 for a break.
 
+## Offers and setup suggestions
+
+When a check-in finds something your agent could do itself (answer an email,
+move a meeting, file a task), it says in one line what it would do and asks
+for a yes. It never acts during the check-in. Reply "yes" in the chat and it
+does it, because the check-in is part of that chat's history.
+
+If mail or calendar is not connected, a check-in may offer to help you connect
+it, right in the chat (Gmail and Google Calendar through the google-workspace
+skill, any mailbox through the himalaya skill). What is connected is worked out
+by Clover, not guessed. Each missing source is suggested at most once a week,
+and never again after you say no twice or "stop".
+
 ## Things to know
 
 - Delivery goes to your home channel. Set it with `/sethome`. `status` warns if
