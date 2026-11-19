@@ -20,6 +20,7 @@ HOW TO EDIT (by hand, at release time)
 - Every helper card now shows a checklist, even when the task came without steps.
 - The checklist now follows what the helper is really doing: steps start, finish and never show twice.
 - When the helper finishes, the card settles, and late updates no longer change it.
+- When you ask for several helpers, you now get that many (one per part), and a reply that quotes the word "helpers" no longer starts one.
 
 ## 2.1.4 | Clover C2.1.4 | 2026-11-19
 
