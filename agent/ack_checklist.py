@@ -265,6 +265,7 @@ def _apply_todos_to(steps: List[List[str]], todos: Any, step_ids: List[str]) -> 
     incoming_ids = {t['id'] for t in todos[:100] if isinstance(t, dict)
                     and isinstance(t.get('id'), str) and 0 < len(t['id']) <= 128}
     seen = set()
+    touched: List[int] = []  # row indexes in the helper's own order
     for todo in todos[:100]:
         if not isinstance(todo, dict):
             continue
@@ -292,13 +293,43 @@ def _apply_todos_to(steps: List[List[str]], todos: Any, step_ids: List[str]) -> 
                 continue
             steps.append([text, status])
             step_ids.append(tid)
+            touched.append(len(steps) - 1)
         else:
+            if index not in touched:
+                touched.append(index)
             if text:
                 steps[index][0] = text
             steps[index][1] = status
             if tid:
                 step_ids[index] = tid
+    _adopt_child_snapshot(steps, step_ids, todos, touched)
     return steps != before or step_ids != before_ids
+
+
+def _adopt_child_snapshot(steps: List[List[str]], step_ids: List[str], todos: List[Any],
+                          touched: List[int]) -> None:
+    """Make the helper's own todo list authoritative once it has written one.
+
+    A todo snapshot is the helper's WHOLE list, so launch/goal rows it did not
+    carry over (matched by id or label) are stale and are dropped, kept rows keep
+    their place, and only one row may run: the first in-progress one;
+    later ones show as pending until their turn. Snapshots without any public
+    label (old status-only events ticking seeded ids) keep the seeded rows.
+    """
+    snapshot = [t for t in todos[:100] if isinstance(t, dict)
+                and str(t.get("status") or "").strip().lower() in _STEP_ICON]
+    if not snapshot:
+        return
+    if touched and any(clean_steps([t.get("content")]) for t in snapshot):
+        keep = sorted(touched)  # rows keep their place; identity is the id, not order
+        steps[:] = [steps[i] for i in keep]
+        step_ids[:] = [step_ids[i] for i in keep]
+    running = False
+    for row in steps:
+        if row[1] == "in_progress":
+            if running:
+                row[1] = "pending"
+            running = True
 
 
 def checklist_todos(steps: Sequence[Any], step_ids: Sequence[str] = ()) -> List[Dict[str, str]]:
