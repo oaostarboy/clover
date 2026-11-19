@@ -211,7 +211,7 @@ def test_only_gateway_startup_calls_seeding():
     import pathlib
     root = pathlib.Path(__file__).resolve().parents[2]
     hits = [str(p.relative_to(root)) for p in root.rglob("*.py")
-            if "tests" not in p.parts and ".worktrees" not in p.parts and ".venv" not in p.parts
+            if not {"tests", ".worktrees", ".venv", "node_modules"} & set(p.relative_to(root).parts)
             and "seed_default_jobs()" in p.read_text(encoding="utf-8", errors="ignore")
             and p.name != "checkin_jobs.py"]
     assert hits == ["gateway/run.py"]
