@@ -15,6 +15,12 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.5 | Clover C2.1.5 | 2026-11-19
+
+- Every helper card now shows a checklist, even when the task came without steps.
+- The checklist now follows what the helper is really doing: steps start, finish and never show twice.
+- When the helper finishes, the card settles, and late updates no longer change it.
+
 ## 2.1.4 | Clover C2.1.4 | 2026-11-19
 
 - Morning briefs and check-ins now arrive as normal messages, and your reply keeps the context.
