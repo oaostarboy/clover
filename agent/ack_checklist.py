@@ -249,6 +249,9 @@ def dispatch_steps(goal: Any, steps: Any = ()) -> Tuple[str, ...]:
     return clean_steps([public_goal]) or ("Work on the assigned task",)
 
 
+_SEEDED_ID = re.compile(r"s\d+")
+
+
 def _apply_todos_to(steps: List[List[str]], todos: Any, step_ids: List[str]) -> bool:
     """Merge observed rows by stable id, then exact public label; never position.
 
@@ -280,6 +283,11 @@ def _apply_todos_to(steps: List[List[str]], todos: Any, step_ids: List[str]) -> 
             seen.add(tid)
         labels = clean_steps([todo.get("content")])
         text = labels[0] if labels else ""
+        if text and tid and not _SEEDED_ID.fullmatch(tid) and any(
+                isinstance(o, dict) and _SEEDED_ID.fullmatch(str(o.get("id") or ""))
+                and " ".join(str(o.get("content") or "").split()).casefold()
+                == " ".join(text.split()).casefold() for o in todos[:100]):
+            continue  # a helper's re-add of a seeded launch step: same row
         index = step_ids.index(tid) if tid and tid in step_ids else None
         if index is None and text:
             # Reserve rows for ids still present in the snapshot, including
