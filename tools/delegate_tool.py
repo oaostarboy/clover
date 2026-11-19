@@ -1985,6 +1985,83 @@ def _model_label_for_child(child) -> Optional[str]:
     return model
 
 
+class _FrozenMemorySnapshot:
+    """Read-only stand-in for MemoryStore given to delegated children.
+
+    Holds the parent's MEMORY.md / USER.md prompt blocks as captured when the
+    child started. It has no write methods (the ``memory`` tool is also on
+    DELEGATE_BLOCKED_TOOLS) and ``load_from_disk`` is a no-op, so the child's
+    system prompt is byte-stable for its whole life.
+    """
+
+    def __init__(self, memory_block: Optional[str], user_block: Optional[str]):
+        self._blocks = {"memory": memory_block, "user": user_block}
+
+    def format_for_system_prompt(self, target: str) -> Optional[str]:
+        return self._blocks.get(target) or None
+
+    def load_from_disk(self) -> None:
+        return None
+
+
+def _inherit_memory_enabled() -> bool:
+    try:
+        value = (_load_config() or {}).get("inherit_memory", True)
+    except Exception:
+        return True
+    return is_truthy_value(value, default=True)
+
+
+def _attach_inherited_memory(child, parent_agent) -> None:
+    """Give a child the parent's saved memory as a frozen, read-only snapshot.
+
+    Children are built with ``skip_memory=True`` (no provider, no writes, no
+    nudges). Without this they also never saw the user's saved preferences
+    (MEMORY.md / USER.md). ``delegation.inherit_memory: false`` restores the
+    clean-slate behaviour. Best-effort: any failure leaves the child clean.
+    """
+    if not _inherit_memory_enabled():
+        return
+    try:
+        store = getattr(parent_agent, "_memory_store", None)
+        mem_on = bool(getattr(parent_agent, "_memory_enabled", False))
+        user_on = bool(getattr(parent_agent, "_user_profile_enabled", False))
+        if store is None:
+            from tools.memory_tool import (
+                MemoryStore,
+                get_builtin_memory_config,
+                get_builtin_memory_store_flags,
+            )
+
+            cfg = _load_config_full()
+            mem_on, user_on = get_builtin_memory_store_flags(cfg)
+            if not (mem_on or user_on):
+                return
+            mem_cfg = get_builtin_memory_config(cfg)
+            store = MemoryStore(
+                memory_char_limit=mem_cfg.get("memory_char_limit", 2200),
+                user_char_limit=mem_cfg.get("user_char_limit", 1375),
+                memory_enabled=mem_on,
+                user_profile_enabled=user_on,
+            )
+            store.load_from_disk()
+        mem_block = store.format_for_system_prompt("memory") if mem_on else None
+        user_block = store.format_for_system_prompt("user") if user_on else None
+        if not (mem_block or user_block):
+            return
+        child._memory_store = _FrozenMemorySnapshot(mem_block, user_block)
+        child._memory_enabled = bool(mem_block)
+        child._user_profile_enabled = bool(user_block)
+    except Exception:
+        logger.debug("delegate: memory inheritance skipped", exc_info=True)
+
+
+def _load_config_full() -> dict:
+    from clover_cli.config import load_config_readonly
+
+    return load_config_readonly()
+
+
 def _build_child_agent(
     task_index: int,
     goal: str,
@@ -2436,6 +2513,7 @@ def _build_child_agent(
                 except Exception:
                     pass
             raise
+    _attach_inherited_memory(child, parent_agent)
     child._print_fn = getattr(parent_agent, "_print_fn", None)
     # Ownership transfer for the dedicated handle: the child's close() must
     # release it (nothing else holds a reference), and no parent teardown can
