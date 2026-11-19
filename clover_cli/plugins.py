@@ -6870,6 +6870,15 @@ def _dispatch_pre_tool_call_hooks(
     Callers that also need input transformation should call this
     function and apply ``modified_args`` if not ``None``.
     """
+    # Proactive check-in runs are read-only, enforced here (every dispatch
+    # path funnels through this function). See cron/checkin_readonly.py.
+    try:
+        from cron.checkin_readonly import blocked_message as _checkin_block
+        _ro = _checkin_block(tool_name, args)
+    except Exception:
+        _ro = None
+    if _ro is not None:
+        return (_ro, None)
     details = _get_pre_tool_call_directive_details(
         tool_name, args, task_id=task_id, session_id=session_id,
         tool_call_id=tool_call_id, turn_id=turn_id,
