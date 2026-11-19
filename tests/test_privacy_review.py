@@ -102,6 +102,9 @@ async def test_resume_equal_labels_and_copied_child_context_are_exact(launch, mo
     expected[1]['status']='in_progress'
     child_todo(launch.kids[-1],list(reversed(expected)))
     await settle(launch.pub)
+    # Only one row may run on the card: the helper marked two in progress, the
+    # first one in card order keeps running and the later one shows as pending.
+    expected[-1]['status'] = 'pending'
     assert ac.checklist_todos(cl.steps,cl.step_ids)==expected
     assert inflight.read_record(result['delegation_id'])['tasks'][0]['checklist'] == expected
     # Native Stop and late events must not overwrite or reopen a resumed card.
