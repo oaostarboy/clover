@@ -476,17 +476,24 @@ def _escape_mdv2(text: str) -> str:
 
 
 def _strip_mdv2(text: str) -> str:
-    """Strip MarkdownV2 escape backslashes to produce clean plain text.
+    """Convert MarkdownV2 (or markdown) source to readable plain text.
 
-    Also removes MarkdownV2 formatting markers so the fallback
-    doesn't show stray syntax characters from format_message conversion.
+    Removes escape backslashes, bold/italic/underline/strike/spoiler markers,
+    and the ``>`` / ``**>`` quote markers (plus the closing ``||`` of an
+    expandable quote), so a plain-text fallback never shows raw syntax.
     """
+    # Quote markers first, while escapes still tell a real ``\>`` from a marker.
+    # ``**>`` opens an expandable quote; a trailing ``||`` closes it.
+    cleaned = re.sub(r'(?m)^[ \t]*(?:\*\*)?>+[ \t]?', '', text)
+    cleaned = re.sub(r'(?m)(?<!\\)\|\|[ \t]*$', '', cleaned)
     # Remove escape backslashes before special characters
-    cleaned = re.sub(r'\\([_*\[\]()~`>#\+\-=|{}.!\\])', r'\1', text)
+    cleaned = re.sub(r'\\([_*\[\]()~`>#\+\-=|{}.!\\])', r'\1', cleaned)
     # Remove standard markdown bold (**text** → text) BEFORE MarkdownV2 bold
     cleaned = re.sub(r'\*\*([^*]+)\*\*', r'\1', cleaned)
     # Remove MarkdownV2 bold markers that format_message converted from **bold**
     cleaned = re.sub(r'\*([^*]+)\*', r'\1', cleaned)
+    # MarkdownV2 underline (__text__)
+    cleaned = re.sub(r'(?<!\w)__([^_]+)__(?!\w)', r'\1', cleaned)
     # Remove MarkdownV2 italic markers that format_message converted from *italic*
     # Use word boundary (\b) to avoid breaking snake_case like my_variable_name
     cleaned = re.sub(r'(?<!\w)_([^_]+)_(?!\w)', r'\1', cleaned)
@@ -494,7 +501,38 @@ def _strip_mdv2(text: str) -> str:
     cleaned = re.sub(r'~([^~]+)~', r'\1', cleaned)
     # Remove MarkdownV2 spoiler markers (||text|| → text)
     cleaned = re.sub(r'\|\|([^|]+)\|\|', r'\1', cleaned)
-    return cleaned
+    return cleaned.strip() if cleaned.strip() else cleaned
+
+
+class _MarkdownParseFailed(Exception):
+    """Telegram rejected the MarkdownV2 entities (a real formatting error)."""
+
+
+def _is_entity_parse_error(exc: BaseException) -> bool:
+    """True only for Telegram's "can't parse entities" style BadRequest."""
+    msg = str(exc).lower()
+    is_bad_request = type(exc).__name__ == "BadRequest" or any(
+        c.__name__ == "BadRequest" for c in type(exc).__mro__)
+    return is_bad_request and ("parse entities" in msg or "can't parse" in msg
+                               or "entities" in msg)
+
+
+_TRANSIENT_EDIT_MARKERS = (
+    "timed out", "timeout", "connecterror", "connect error", "connection error",
+    "networkerror", "network error", "server disconnected", "readtimeout",
+    "writetimeout", "temporarily unavailable", "temporary failure",
+)
+
+
+def _is_transient_edit_error(exc: BaseException) -> bool:
+    if _is_entity_parse_error(exc):
+        return False
+    if type(exc).__name__ in ("TimedOut", "NetworkError", "ConnectError", "ReadTimeout"):
+        return True
+    return any(m in str(exc).lower() for m in _TRANSIENT_EDIT_MARKERS)
+
+
+_EDIT_RETRY_DELAYS = (0.5, 1.5, 3.0)
 
 
 _CHUNK_INDICATOR_ON_FENCE_RE = re.compile(
@@ -6197,16 +6235,10 @@ class TelegramAdapter(BasePlatformAdapter):
 
             formatted = self.format_message(content)
             try:
-                await self._bot.edit_message_text(
-                    chat_id=normalize_telegram_chat_id(chat_id),
-                    message_id=int(message_id),
-                    text=formatted,
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                )
-            except Exception as fmt_err:
-                # "Message is not modified" is a no-op, not an error
-                if "not modified" in str(fmt_err).lower():
-                    return SendResult(success=True, message_id=message_id)
+                await self._edit_markdown_v2(chat_id, message_id, formatted)
+            except _MarkdownParseFailed as fmt_err:
+                # Only a real parse error falls back; network errors raise
+                # to the handler below and leave the previous message alone.
                 # Fallback: strip MarkdownV2 escapes and retry as clean plain text
                 safe_format_error = _redact_telegram_error_text(fmt_err)
                 logger.warning(
@@ -6314,6 +6346,41 @@ class TelegramAdapter(BasePlatformAdapter):
             )
             return SendResult(success=False, error=safe_error)
 
+    async def _edit_markdown_v2(self, chat_id, message_id, formatted: str) -> None:
+        """Edit with MarkdownV2; never degrade a good message on a network error.
+
+        Returns when the edit landed (or Telegram says it is already identical).
+        Raises ``_MarkdownParseFailed`` only for a real entity-parse error, so
+        the caller may send readable plain text. A timeout or network error is
+        retried with the SAME MarkdownV2 text (the first try may even have
+        landed, so "message is not modified" counts as success); if it still
+        fails the original error is raised and the previous message stays.
+        """
+        attempt = 0
+        while True:
+            try:
+                await self._bot.edit_message_text(
+                    chat_id=normalize_telegram_chat_id(chat_id),
+                    message_id=int(message_id),
+                    text=formatted,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
+                return
+            except Exception as err:
+                if "not modified" in str(err).lower():
+                    return
+                if _is_entity_parse_error(err):
+                    raise _MarkdownParseFailed(str(err)) from err
+                if _is_transient_edit_error(err) and attempt < len(_EDIT_RETRY_DELAYS):
+                    logger.warning(
+                        "[%s] Telegram edit hit a network error, retrying MarkdownV2 edit in %.1fs: %s",
+                        self.name, _EDIT_RETRY_DELAYS[attempt], _redact_telegram_error_text(err),
+                    )
+                    await asyncio.sleep(_EDIT_RETRY_DELAYS[attempt])
+                    attempt += 1
+                    continue
+                raise
+
     def _truncate_stream_overflow_preview(self, content: str) -> str:
         """Return a one-message preview for oversized streaming edits.
 
@@ -6373,24 +6440,18 @@ class TelegramAdapter(BasePlatformAdapter):
                     self.format_message(first_chunk)
                 )
                 try:
+                    await self._edit_markdown_v2(chat_id, message_id, formatted)
+                except _MarkdownParseFailed as fmt_err:
+                    logger.warning(
+                        "[%s] Overflow split: MarkdownV2 first-chunk edit "
+                        "failed, falling back to plain text: %s",
+                        self.name, _redact_telegram_error_text(fmt_err),
+                    )
                     await self._bot.edit_message_text(
                         chat_id=normalize_telegram_chat_id(chat_id),
                         message_id=int(message_id),
-                        text=formatted,
-                        parse_mode=ParseMode.MARKDOWN_V2,
+                        text=_strip_mdv2(first_chunk),
                     )
-                except Exception as fmt_err:
-                    if "not modified" not in str(fmt_err).lower():
-                        logger.warning(
-                            "[%s] Overflow split: MarkdownV2 first-chunk edit "
-                            "failed, falling back to plain text: %s",
-                            self.name, _redact_telegram_error_text(fmt_err),
-                        )
-                        await self._bot.edit_message_text(
-                            chat_id=normalize_telegram_chat_id(chat_id),
-                            message_id=int(message_id),
-                            text=_strip_mdv2(first_chunk),
-                        )
             else:
                 await self._bot.edit_message_text(
                     chat_id=normalize_telegram_chat_id(chat_id),
