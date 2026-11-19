@@ -17,9 +17,11 @@ HOW TO EDIT (by hand, at release time)
 
 ## 2.1.4 | Clover C2.1.4 | 2026-11-19
 
-- Morning briefs and check-ins now arrive as normal messages from your assistant, not as scheduled-job cards.
-- Your reply to a check-in now has context, so you can say "draft the Baptiste one" and it knows what you mean.
-- Turn them off anytime with /proactive checkin off.
+- Morning briefs and check-ins now arrive as normal messages, and your reply keeps the context.
+- Check-ins are on by default for everyone. Turn them off anytime with /proactive checkin off.
+- Check-ins now offer to do the task for you ("I can reply and book Thursday. Want me to?") and wait for your yes.
+- If mail or calendar is not connected, a check-in can offer to help you connect it, at most once a week.
+- Helpers now know your saved preferences and notes, so they stop asking you things you already told Clover.
 
 ## 2.1.3 | Clover C2.1.3 | 2026-11-18
 
