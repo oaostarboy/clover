@@ -15,6 +15,12 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.4 | Clover C2.1.4 | 2026-11-19
+
+- Morning briefs and check-ins now arrive as normal messages from your assistant, not as scheduled-job cards.
+- Your reply to a check-in now has context, so you can say "draft the Baptiste one" and it knows what you mean.
+- Turn them off anytime with /proactive checkin off.
+
 ## 2.1.3 | Clover C2.1.3 | 2026-11-18
 
 - New, optional morning brief and quiet check-ins: turn on with /proactive checkin on. It messages you only when something needs you today, never outside your hours, and at most a few times a day.
