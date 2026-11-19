@@ -158,6 +158,11 @@ def facts_block() -> str:
         lines.append(
             f"- setup suggestion allowed this run: {sug} (help to connect it: {SETUP_HINT[sug]})"
         )
+        lines.append(
+            f"- So {sug} is not connected and this is its setup turn: unless something "
+            "more pressing needs the user today, your message is ONE short offer to "
+            f"help connect {sug} right here in the chat. Do not reply [SILENT]."
+        )
     else:
         lines.append("- setup suggestion allowed this run: none (do not suggest connecting anything)")
     return "\n".join(lines)

@@ -51,11 +51,12 @@ CHECK_PROMPT = (
     "and book Thursday. Want me to?\" The user's yes arrives in the normal chat, "
     "where you then do it. Use the 'Connected sources' facts below as the truth "
     "about what is connected. If nothing is pressing but a setup suggestion is "
-    "allowed, you may send ONE short message offering to help connect that source "
+    "allowed, send ONE short message instead of [SILENT], offering to help connect that source "
     "right here in the chat (for example \"I can't see your calendar yet. Want me "
     "to help you connect Google Calendar? Takes about 2 minutes.\"). Never "
     "suggest anything not marked allowed. Do not repeat anything your notepad "
-    "says was already sent. Otherwise reply with exactly [SILENT]."
+    "says was already sent. If nothing is pressing and no setup suggestion is "
+    "allowed, reply with exactly [SILENT]."
 )
 
 
