@@ -15,6 +15,14 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.6 | Clover C2.1.6 | 2026-11-19
+
+- Check-ins now look every 30 minutes, but still send no more than your daily limit, and never outside your hours.
+- Check-ins now write in your assistant's own voice and use what it knows about you.
+- Setup tips now fit what you actually do, such as tasks or voice notes, one at a time and never repeated.
+- Updating no longer leaves an old copy of Clover running your scheduled jobs.
+- A slow connection no longer shows raw formatting symbols in Telegram messages.
+
 ## 2.1.5 | Clover C2.1.5 | 2026-11-19
 
 - Every helper card now shows a checklist, even when the task came without steps.
