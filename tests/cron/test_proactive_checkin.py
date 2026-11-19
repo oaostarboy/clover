@@ -30,8 +30,8 @@ def cfg(**kw):
 
 # ── gate ────────────────────────────────────────────────────────────────
 
-def test_gate_disabled_by_default():
-    assert gate.evaluate({}, at(12), [])[0] is False
+def test_gate_enabled_by_default_and_explicit_off_wins():
+    assert gate.evaluate({}, at(12), [])[0] is True
     assert gate.evaluate({"enabled": False}, at(12), [])[1] == "disabled"
 
 
@@ -96,6 +96,7 @@ def test_sends_file_counts_only_recorded_sends(tmp_path):
 
 def test_gate_script_runs_as_scheduler_precheck_and_skips_when_off():
     """The real script, run the way the scheduler runs it, says do not wake."""
+    run("off")
     checkin_jobs._write_gate_script()
     ok, out = s._run_job_script(checkin_jobs.GATE_SCRIPT)
     assert ok, out
@@ -117,11 +118,27 @@ def saved():
     return config_api.require_readable_config_before_write().get("proactive", {}).get("checkin", {})
 
 
-def test_fresh_home_has_no_jobs_and_defaults_off():
+def test_fresh_home_defaults_on_and_only_seeding_creates_jobs():
     assert roles() == []
-    assert config_api.load_config(migrate=False)["proactive"]["checkin"]["enabled"] is False
-    # config load/migration and gateway-side helpers never create jobs
+    assert config_api.load_config(migrate=False)["proactive"]["checkin"]["enabled"] is True
+    # config load/migration never creates jobs
     config_api.load_config()
+    assert roles() == []
+    assert checkin_jobs.seed_default_jobs() is True
+    assert roles() == ["brief", "check"]
+    assert checkin_jobs.seed_default_jobs() is False
+
+
+def test_seeding_respects_explicit_off_and_deleted_jobs():
+    run("off")
+    assert checkin_jobs.seed_default_jobs() is False
+    assert roles() == []
+
+
+def test_seeding_runs_once_so_deleted_jobs_stay_deleted():
+    assert checkin_jobs.seed_default_jobs() is True
+    checkin_jobs.disable()
+    assert checkin_jobs.seed_default_jobs() is False
     assert roles() == []
 
 
@@ -169,6 +186,7 @@ def test_changes_update_existing_jobs_without_duplicates():
 
 
 def test_settings_saved_while_off_create_no_jobs():
+    run("off")
     assert run("every 4").startswith("Saved.")
     assert roles() == []
     assert saved()["checks_every_hours"] == 4

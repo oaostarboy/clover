@@ -2,9 +2,10 @@
 
 An optional morning brief, plus a few quiet check-ins during the day. A check-in
 messages you only when something needs you today. Otherwise it says nothing.
-It is **off by default**. Installing or updating Clover never turns it on.
+It is **on by default**. The first time the gateway starts, Clover creates the
+two jobs. `/proactive checkin off` removes them and keeps them off.
 
-## Turn it on
+## Turn it on (if you turned it off)
 
 ```
 /proactive checkin on
