@@ -552,9 +552,19 @@ _QUOTED_SPANS = (
 )
 
 
+# The gateway prefixes a reply with ``[Replying to: "<the earlier message>"]``
+# (gateway/run.py). That quote is somebody else's text, often the agent's own
+# earlier reply, and must never count as the user asking for anything.
+_REPLY_QUOTE = re.compile(
+    r'\A\s*\[Replying to(?: your previous message)?:\s*".*?"\][ \t]*(?:\n\s*\n|\n|\Z)',
+    re.DOTALL,
+)
+
+
 def authentic_text(message: str) -> str:
-    """``message`` without quoted / fenced / blockquoted source text."""
-    text = message or ""
+    """``message`` without quoted / fenced / blockquoted source text, and
+    without the gateway's ``[Replying to: "..."]`` quote block."""
+    text = _REPLY_QUOTE.sub(" ", message or "", count=1)
     text = _FENCE_CLOSED.sub(" ", text)
     text = _FENCE_OPEN.sub(" ", text)
     text = _INLINE_CODE.sub(" ", text)

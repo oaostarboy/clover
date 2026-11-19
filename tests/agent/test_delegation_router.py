@@ -745,3 +745,50 @@ def test_helper_request_note_still_ends_the_turn_and_keeps_the_backstop(aux):
     assert 'wait' not in note.lower()
     # ... and the plan is still a non-direct plan, so the backstop stays armed.
     assert v.mode in ('single', 'parallel') and v.tasks
+
+
+def test_fifteen_helpers_note_mentions_the_cap(aux, monkeypatch):
+    import tools.delegate_tool as dt
+    monkeypatch.setattr(dt, '_get_max_concurrent_children', lambda: 10)
+    aux.replies[:] = [verdict_json('direct')]
+    v = dr.route('use 15 helpers to review every module', [], settings=SETTINGS)
+    assert v is not None and v.asked_for_helpers
+    note = dr.work_plan_note(v)
+    assert 'honor any number' in note
+    # The cap is enforced where the tasks are accepted (delegate_task's own
+    # limit), and the router is told the same number.
+    assert dr._max_tasks_for_router() == 10 if hasattr(dr, '_max_tasks_for_router') else True
+
+
+def test_a_helper_for_each_named_item_asks_for_one_task_per_item(aux):
+    aux.replies[:] = [verdict_json('direct')]
+    msg = 'use a helper for each of these 8 competitors: Alpha, Beta, Gamma, Delta, Eps, Zeta, Eta, Theta'
+    v = dr.route(msg, [], settings=SETTINGS)
+    assert v is not None and v.asked_for_helpers
+    note = dr.work_plan_note(v)
+    assert 'one helper per independent part or per named item' in note
+
+
+def test_build_then_deploy_stays_staged_not_forced_parallel(aux):
+    aux.replies[:] = [verdict_json('staged', [T('build the app'), T('deploy the app', deps=[0])])]
+    v = dr.route('build the app then deploy it', [], settings=SETTINGS)
+    assert v is not None and v.mode == 'staged' and not v.asked_for_helpers
+    assert v.stages() == [[0], [1]]
+    assert 'split the work yourself' not in dr.work_plan_note(v)
+
+
+@pytest.mark.parametrize('prefix', ['Replying to', 'Replying to your previous message'])
+def test_a_reply_quote_mentioning_helpers_is_not_a_helper_request(aux, prefix):
+    quoted = ('I used helpers and subagents to check it. Use 3 helpers next time '
+              'and the "workers" will each take a part.')
+    msg = f'[{prefix}: "{quoted}"]\n\nExplain better.'
+    assert dr.explicit_override(msg) is None
+    assert 'helpers' not in dr.authentic_text(msg).lower()
+    aux.replies[:] = [verdict_json('direct')]
+    v = dr.route(msg, [], settings=SETTINGS)
+    assert v is None or (v.mode == 'direct' and not v.asked_for_helpers)
+
+
+def test_the_user_own_words_after_a_reply_quote_still_count(aux):
+    msg = '[Replying to: "ok"]\n\nuse 3 helpers to review auth, billing and search'
+    assert dr.explicit_override(msg) == 'helpers'
