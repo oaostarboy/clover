@@ -1107,6 +1107,15 @@ def sync_skills(quiet: bool = False, refresh_optional: bool = False) -> dict:
                     skipped += 1
                 continue
 
+            if user_hash == bundled_hash:
+                # Copy already equals the bundled version but the manifest
+                # baseline is stale (e.g. recorded from an older/foreign
+                # state). Nothing to overwrite and nothing the user edited:
+                # re-baseline so it is not reported as user-modified forever.
+                manifest[skill_name] = bundled_hash
+                skipped += 1
+                continue
+
             if _is_tracked_user_modification(origin_hash, user_hash):
                 # User modified this skill — don't overwrite their changes
                 user_modified.append(skill_name)
@@ -1405,7 +1414,10 @@ def list_user_modified_bundled_skills() -> List[dict]:
         dest = _compute_relative_dest(skill_dir, bundled_dir)
         if not dest.exists():
             continue
-        if _is_tracked_user_modification(origin_hash, _dir_hash(dest)):
+        user_hash = _dir_hash(dest)
+        if user_hash == _dir_hash(skill_dir):
+            continue  # identical to stock: sync re-baselines it, not a user edit
+        if _is_tracked_user_modification(origin_hash, user_hash):
             modified.append(
                 {"name": skill_name, "dest": dest, "bundled_src": skill_dir}
             )
