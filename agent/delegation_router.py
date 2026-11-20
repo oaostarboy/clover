@@ -121,6 +121,10 @@ class RouterSettings:
     # and opens with a line in the root's own voice.  ``False`` = the old
     # hand-off: the request, the last few cut-down results, the card alone.
     handoff_notes: bool = True
+    # ``delegation.router.mode``: ``"router"`` (default) = a small model sizes
+    # each message first; ``"main_decides"`` = no pre-message sizing call, the
+    # main model decides through ``delegate_task`` and the backstop stays.
+    mode: str = "router"
 
 
 _TRUE = frozenset({"true", "1", "yes", "on"})
@@ -156,6 +160,15 @@ def _positive_int(value: Any, default: int) -> int:
     if isinstance(value, int) and value > 0:
         return value
     return default
+
+
+ROUTER_MODES = ("router", "main_decides")
+
+
+def normalize_mode(value: Any) -> str:
+    """``delegation.router.mode``; anything unknown keeps today's ``router``."""
+    text = str(value or "").strip().lower().replace("-", "_")
+    return text if text in ROUTER_MODES else "router"
 
 
 def load_settings() -> RouterSettings:
@@ -203,6 +216,7 @@ def load_settings() -> RouterSettings:
             ),
             direct_backstop_seconds=direct_seconds,
             handoff_notes=_bool(raw.get("handoff_notes"), True),
+            mode=normalize_mode(raw.get("mode")),
         )
     except Exception:
         logger.debug("delegation router settings unreadable; using defaults", exc_info=True)
@@ -1112,6 +1126,41 @@ def _floor_applies(agent: Any, settings: RouterSettings) -> bool:
     )
 
 
+def _arm_main_decides(
+    agent: Any, user_message: Any, settings: RouterSettings,
+    history: Optional[Sequence[Any]],
+) -> str:
+    """``mode: main_decides``: no sizing call and no per-turn prompt text.
+
+    A free local check (:func:`explicit_override`, the user's own words only)
+    marks an explicit helper request so the backstop arms with the tight
+    planned limits; every other turn gets the direct backstop.  Always ``""``:
+    the system prompt and the message stay byte-stable.
+    """
+    override = explicit_override(str(user_message))
+    if override == "helpers":
+        goal = " ".join(str(user_message).split())[:MAX_GOAL_CHARS]
+        verdict = Verdict(
+            mode="single", source="override", reason="you asked for helpers",
+            asked_for_helpers=True,
+            tasks=(PlanTask(goal=goal, acceptance="the request is fully done and checked"),),
+        )
+    else:
+        verdict = Verdict(
+            mode="direct", tasks=(), source="override" if override == "self" else "main_decides",
+            reason="you asked for this to be done directly" if override == "self" else "",
+        )
+    from agent import router_backstop
+
+    logger.info("%s %s", LOG_PREFIX, json.dumps({
+        "session_id": getattr(agent, "session_id", None) or "",
+        "mode": "main_decides", "override": override, "source": verdict.source,
+        "ok": True,
+    }, sort_keys=True))
+    router_backstop.begin(agent, verdict, str(user_message), settings, history=history)
+    return ""
+
+
 def plan_for_turn(
     agent: Any,
     user_message: Any,
@@ -1138,6 +1187,8 @@ def plan_for_turn(
         if why:
             logger.debug("delegation router skipped: %s", why)
             return ""
+        if settings.mode == "main_decides":
+            return _arm_main_decides(agent, user_message, settings, history)
         from agent.delegation_ownership import active_owned_jobs
         jobs = active_owned_jobs(agent)
         verdict, stats = _route_detail(

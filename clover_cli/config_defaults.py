@@ -2217,6 +2217,10 @@ DEFAULT_CONFIG = {
             # the earlier hand-off (the request, a short digest of the last
             # results, the card alone).
             "handoff_notes": True,
+            # Who sizes a message: "router" (a small model plans first; the
+            # default) or "main_decides" (no pre-message call: the main model
+            # decides via delegate_task; the backstop safety net stays).
+            "mode": "router",
 
             # Fast-model behaviour (own block): the wait when the router has
             # no small model and runs on the big main one, and the free

@@ -4222,9 +4222,9 @@ def _release_child_resources(child, parent_agent) -> None:
 _STRICT_REJECTION_NOTES = {
     "capacity": (
         "Background capacity is full. No subagent was started and nothing was "
-        "queued. Wait for a running background job to finish (its result "
-        "returns to this conversation) or tell the user the work cannot be "
-        "handed off right now."
+        "queued, and the work did NOT run in this chat. Tell the user in one "
+        "line what is running (the error says) and that this will start once "
+        "one finishes; do not wait, poll or do it inline."
     ),
     "persistence": (
         "The background job could not be recorded durably, so it was not "
@@ -4244,6 +4244,29 @@ _STRICT_REJECTION_NOTES = {
         "nothing was queued. Fix the reported problem or tell the user."
     ),
 }
+
+
+def _capacity_message(limit: int) -> str:
+    """``at the limit: N running: <titles>`` for a full background pool.
+
+    Local registry read only; the model relays it to the user.  Never raises.
+    """
+    titles: List[str] = []
+    try:
+        from tools.async_delegation import _records, _records_lock
+
+        with _records_lock:
+            rows = [dict(r) for r in _records.values()
+                    if r.get("status") in ("running", "stalling")]
+        for r in rows:
+            goals = r.get("goals") or [r.get("goal")]
+            first = " ".join(str(next((g for g in goals if g), "helper")).split())
+            titles.append(first[:50] + ("…" if len(first) > 50 else ""))
+    except Exception:
+        logger.debug("capacity titles unavailable", exc_info=True)
+    n = len(titles) or limit
+    listed = f": {'; '.join(titles)}" if titles else ""
+    return f"at the limit: {n} running{listed}"
 
 
 def _strict_background_rejection(
@@ -5008,7 +5031,7 @@ def delegate_task(
             )
         if not has_async_capacity(_get_max_async_children()):
             return _reject_background(
-                "capacity", "Async delegation capacity reached."
+                "capacity", _capacity_message(_get_max_async_children())
             )
 
     # delegation.default_tier: the tier for tasks that name none. Resolved once
@@ -6487,18 +6510,22 @@ def _build_top_level_description(
         "terminal session, and toolset, and only its final summary returns to "
         "you. Pass every task in `tasks` — one entry spawns one subagent, "
         "several run in parallel (limit in the tasks description).\n\n"
-        "A user request for helpers is binding: one task per part or named "
-        "item, in ONE call, honoring any number given (up to the limit).\n\n"
+        "WHEN: delegate bounded, independent, multi-step or slow work (research, "
+        "builds, audits, many lookups) so the chat stays free; do chat, quick "
+        "lookups and small edits yourself, and keep dependent steps with one owner. "
+        "Independent parts = several entries in ONE call, never one call each. "
+        "If the user asks for helpers or parallel work you MUST delegate; a number "
+        "they give, or \"one per X\", is binding up to the limit (say so if capped). "
+        "Dispatch from the user's words (helpers find and check the items); do not "
+        "search or ask first. E.g. \"audit these 3 sites\" -> 3 tasks, one call.\n\n"
         "Runs in the background: dispatch returns immediately with live "
         "transcript paths. Several tasks in one call report back together "
         "by default (the dispatch note says how each call reports). "
-        "Do NOT wait or poll; continue other work. "
-        "While children run, `action` "
-        "(list/steer/stop) controls them live — steer when a transcript shows "
-        "a child drifting.\n\n"
-        "USE FOR: independent parallel workstreams, work flooding your context with "
-        "intermediate data, executing well-specified plans, long scripts, "
-        "many lookups.\n"
+        "AFTER dispatching: answer any question in the user's message, say in "
+        "one short line what is running, end the turn. Do NOT wait or poll. "
+        "If the result says the limit is reached, tell the user what is "
+        "running; nothing was started. While children run, `action` "
+        "(list/steer/stop) controls them live.\n\n"
         "DO NOT USE FOR (use these instead):\n"
         "- Deep architectural thinking or root-cause planning -> main agent owns all deep thinking, architecture, and task decomposition\n"
         "- Short mechanical steps (a few lines) -> execute_code\n"
@@ -6508,8 +6535,6 @@ def _build_top_level_description(
         "terminal(background=True, notify=True); /stop, /new, or "
         "process exit discards running subagents.\n\n"
         "RULES:\n"
-        "- Main agent plans first: never delegate blindly without planning. Decide the approach and pass a concrete execution plan in `context`.\n"
-        "- Children run on low reasoning effort by default: they are fast parallel executors that execute concrete plans, not re-plan from scratch.\n"
         "- Children know nothing of this conversation: pass everything needed "
         "via 'context', including any required output language, tone, or "
         "style (e.g. \"respond in Chinese\").\n"
@@ -6521,8 +6546,7 @@ def _build_top_level_description(
         + restrictions_rule +
         "- Children inherit the parent model unless pinned via "
         "delegation.provider / delegation.model in config.yaml.\n"
-        "- Subagent reasoning effort defaults to 'low' unless configured via "
-        "delegation.reasoning_effort."
+        "- Subagent reasoning effort defaults to 'low' (delegation.reasoning_effort)."
     )
 
     # Plan-first delegation guidance applies regardless of tiers; the
@@ -6530,12 +6554,11 @@ def _build_top_level_description(
     # resolves for this user (see _resolved_tiers).
     plan_first = (
         "\n\nPLAN FIRST, THEN DELEGATE: The main agent owns all deep thinking, "
-        "architecture, root-cause diagnosis, and task decomposition. Subagents run on "
-        "low reasoning effort by default as fast, parallel executors — they execute a "
-        "concrete plan, they do not re-plan from scratch. Never delegate blindly without "
-        "planning: before calling delegate_task, decide the approach and pass each subagent "
-        "a concrete execution plan in `context` (exact target files/paths, specific steps, "
-        "constraints, and how to verify completion)."
+        "architecture, root-cause diagnosis, and task decomposition; "
+        "subagents run on low reasoning effort and execute a concrete plan. "
+        "Never delegate blindly without planning: decide the approach and "
+        "pass each subagent a concrete execution plan in `context` (exact "
+        "paths, steps, constraints, how to verify)."
     )
     if resolved_tiers:
         plan_first += (

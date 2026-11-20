@@ -118,6 +118,7 @@ delegation:
       enabled: true
       work_calls: 25
       seconds: 180
+    mode: router                     # router | main_decides (see below)
     calibration_v2: true             # rubric v2 + wider override wording
     slow_model_timeout_seconds: 20   # wait when only the big main model exists
     skip_small_talk: true            # "thanks", "ok go", "lol": no router call
@@ -508,3 +509,25 @@ instructions teach the rule to new sessions.
 
 This change does not modify updater, restart, process-termination, or Windows
 update behavior. Windows `/update` acceptance is a separate verification step.
+
+
+## `delegation.router.mode: main_decides` (opt-in)
+
+Default `router`: a small model sizes every message first (about 2 s) and the
+plan is put on the turn. `main_decides` removes that step: no router call, no
+work-plan note, nothing per-turn in the prompt (the system prompt stays
+byte-stable). The main model decides through the `delegate_task` tool
+description and the stable "Choosing how to work" guidance: long or multi-part
+work goes to helpers, independent parts go in one call, a number the user gives
+is binding up to the cap, quick answers stay direct.
+
+The safety net stays. A free local check (the same explicit-request wording
+check as `router` mode, on the user's own text only; a `[Replying to: ...]`
+quote is ignored) arms the tight limits (`backstop_calls`, `backstop_seconds`)
+for an explicit "use helpers" request; every other turn gets the direct
+backstop (`direct_backstop`, 25 calls / 180 s) and the time-limit hand-off.
+"Do it yourself" is never handed off.
+
+At capacity (`delegation.max_concurrent_children` background units running) a
+chat turn never runs a helper inline: `delegate_task` returns a rejected result
+`at the limit: N running: <titles>` that the model relays.
