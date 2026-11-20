@@ -15,6 +15,12 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.7 | Clover C2.1.7 | 2026-11-19
+
+- Check-ins can only read. They can never send messages or change anything.
+- New optional setting `delegation.router.mode: main_decides` lets the main AI decide on helpers. It is off by default. It is faster but less accurate in our tests.
+- A helper's checklist no longer shows the same step twice.
+
 ## 2.1.6 | Clover C2.1.6 | 2026-11-19
 
 - Check-ins now look every 30 minutes, but still send no more than your daily limit, and never outside your hours.
