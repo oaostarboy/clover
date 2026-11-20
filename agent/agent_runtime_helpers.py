@@ -4934,6 +4934,76 @@ def extract_api_error_context(error: Exception) -> Dict[str, Any]:
 
 
 
+STALE_CHECKLIST_CALLS_DEFAULT = 8
+STALE_CHECKLIST_NOTE = (
+    "Note: your checklist hasn't changed in {n} tool calls. Mark finished "
+    "steps completed (and the next one in_progress) with the todo tool."
+)
+
+
+def _stale_checklist_threshold(agent) -> int:
+    cached = getattr(agent, "_stale_ck_threshold", None)
+    if isinstance(cached, int):
+        return cached
+    value = STALE_CHECKLIST_CALLS_DEFAULT
+    try:
+        from clover_cli.config import load_config_readonly
+
+        raw = (load_config_readonly().get("delegation") or {}).get("checklist_reminder_calls")
+        if raw is not None and not isinstance(raw, bool):
+            value = max(0, int(raw))
+    except Exception:
+        pass
+    agent._stale_ck_threshold = value
+    return value
+
+
+def stale_checklist_reminder(agent, num_tool_msgs: int) -> Optional[str]:
+    """Reminder text when a delegated child's open checklist has not moved.
+
+    Counts tool calls since the last todo change; fires once per N calls.
+    Delegated children only. Never raises.
+    """
+    try:
+        if getattr(agent, "_delegate_depth", 0) <= 0:
+            return None
+        store = getattr(agent, "_todo_store", None)
+        if store is None:
+            return None
+        snap = store.snapshot()
+        rev = snap.get("revision", 0)
+        if getattr(agent, "_stale_ck_rev", None) != rev:
+            agent._stale_ck_rev = rev
+            agent._stale_ck_calls = 0
+        agent._stale_ck_calls = getattr(agent, "_stale_ck_calls", 0) + num_tool_msgs
+        limit = _stale_checklist_threshold(agent)
+        if limit <= 0 or agent._stale_ck_calls < limit:
+            return None
+        if not any(t.get("status") in ("pending", "in_progress") for t in snap.get("todos", [])):
+            return None
+        n = agent._stale_ck_calls
+        agent._stale_ck_calls = 0
+        return STALE_CHECKLIST_NOTE.format(n=n)
+    except Exception:
+        return None
+
+
+def _append_to_last_tool_result(messages: list, num_tool_msgs: int, marker: str) -> bool:
+    for j in range(len(messages) - 1, max(len(messages) - num_tool_msgs - 1, -1), -1):
+        msg = messages[j]
+        if isinstance(msg, dict) and msg.get("role") == "tool":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                msg["content"] = content + marker
+            else:
+                try:
+                    msg["content"] = list(content or []) + [{"type": "text", "text": marker.lstrip()}]
+                except Exception:
+                    msg["content"] = f"{content}{marker}"
+            return True
+    return False
+
+
 def apply_pending_steer_to_tool_results(agent, messages: list, num_tool_msgs: int) -> None:
     """Append any pending /steer text to the last tool result in this turn.
 
@@ -4950,8 +5020,12 @@ def apply_pending_steer_to_tool_results(agent, messages: list, num_tool_msgs: in
     """
     if num_tool_msgs <= 0 or not messages:
         return
+    reminder = stale_checklist_reminder(agent, num_tool_msgs)
     steer_text = agent._drain_pending_steer()
+    if not steer_text and not reminder:
+        return
     if not steer_text:
+        _append_to_last_tool_result(messages, num_tool_msgs, "\n\n[" + reminder + "]")
         return
     # Find the last tool-role message in the recent tail. Skipping
     # non-tool messages defends against future code appending
@@ -4978,6 +5052,8 @@ def apply_pending_steer_to_tool_results(agent, messages: list, num_tool_msgs: in
             agent._pending_steer = (existing + "\n" + steer_text) if existing else steer_text
         return
     marker = format_steer_marker(steer_text)
+    if reminder:
+        marker += "\n\n[" + reminder + "]"
     existing_content = messages[target_idx].get("content", "")
     if not isinstance(existing_content, str):
         # Anthropic multimodal content blocks — preserve them and append
@@ -5088,6 +5164,7 @@ __all__ = [
     "cleanup_dead_connections",
     "extract_api_error_context",
     "apply_pending_steer_to_tool_results",
+    "stale_checklist_reminder",
     "_iter_pool_sockets",
     "force_close_tcp_sockets",
 ]
