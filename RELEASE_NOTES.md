@@ -15,6 +15,11 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.8 | Clover C2.1.8 | 2026-11-19
+
+- Updating now stops old copies of the desktop app's background service, so the app restarts on the new version.
+- The update now says what it found, even when no old copies were running.
+
 ## 2.1.7 | Clover C2.1.7 | 2026-11-19
 
 - Check-ins can only read. They can never send messages or change anything.
