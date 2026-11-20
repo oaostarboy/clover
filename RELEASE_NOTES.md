@@ -15,6 +15,10 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.10 | Clover C2.1.10 | 2026-11-19
+
+- Updating now also restarts desktop app copies that were started over SSH on older code, and the update says how many it restarted.
+
 ## 2.1.9 | Clover C2.1.9 | 2026-11-19
 
 - Helper checklists keep moving: a helper gets a reminder when its steps go stale, and a finished helper closes out its card.
