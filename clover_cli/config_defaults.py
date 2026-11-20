@@ -2107,6 +2107,9 @@ DEFAULT_CONFIG = {
     # Uses the same runtime provider resolution as CLI/gateway startup, so all
     # configured providers (OpenRouter, Clover, Z.ai, Kimi, etc.) are supported.
     "delegation": {
+        # Remind a helper to update its todo checklist after this many tool
+        # calls without a todo change (0 = off).
+        "checklist_reminder_calls": 8,
         "model": "",       # e.g. "google/gemini-3-flash-preview" (empty = inherit parent model)
         "provider": "",    # e.g. "openrouter" (empty = inherit parent provider + credentials)
         # Value-routed model tiers: task.tier -> ordered "provider/model"
