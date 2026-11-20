@@ -54,3 +54,20 @@ def _suppress_concurrent_clover_gate(request, monkeypatch):
         lambda *_a, **_k: [],
         raising=False,
     )
+
+
+@pytest.fixture(autouse=True)
+def _no_real_fresh_cleanup_child(request, monkeypatch):
+    """Never spawn the real fresh-process cleanup from unrelated update tests.
+
+    The child would scan the REAL process table. Default it to "failed" so the
+    pre-existing in-process path (which each test already mocks) is used.
+    Tests in test_update_fresh_cleanup.py opt out via ``real_fresh_cleanup``.
+    """
+    if request.node.get_closest_marker("real_fresh_cleanup"):
+        return
+    from clover_cli import update_fresh_cleanup
+
+    monkeypatch.setattr(
+        update_fresh_cleanup, "run_in_fresh_process", lambda *a, **k: None
+    )

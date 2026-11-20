@@ -1176,11 +1176,27 @@ def _finish_dashboard_update_cleanup(
 
     # The scan path lazy-imports symbols from _subprocess_compat; make sure
     # both modules reflect the freshly-updated source before touching them.
-    _reload_process_scan_modules()
+    # Preferred: a FRESH child process of the newly installed code, so the
+    # matcher is the new one (this process still holds the old modules).
+    stop_result = None
+    try:
+        from clover_cli import update_fresh_cleanup as _fc
 
-    stop_result = _m()._kill_stale_dashboard_processes(
-        restart_managed=True, already_restarted_units=already_restarted_units
-    )
+        stop_result = _fc.run_in_fresh_process(already_restarted_units)
+    except Exception as exc:
+        logger.warning("Fresh-process stale cleanup failed: %s", exc)
+    if stop_result is not None:
+        print(_fc._summarize(stop_result))
+    else:
+        # Fallback: in-process cleanup with reloaded modules.
+        _reload_process_scan_modules()
+        stop_result = _m()._kill_stale_dashboard_processes(
+            restart_managed=True, already_restarted_units=already_restarted_units
+        )
+        print(
+            "  ✓ Stale-copy check (fallback, in-process): "
+            f"{len(stop_result.get('killed') or [])} old process(es) stopped."
+        )
     if not stop_result.get("unrecovered"):
         return
 
