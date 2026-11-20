@@ -1028,12 +1028,10 @@ class TestMainAgentPlanningDelegationGuidance:
 
         text = DELEGATION_MODE_GUIDANCE.lower()
         assert "deep thinking" in text
-        assert "architecture" in text
-        assert "root-cause" in text or "root cause" in text
-        assert "task decomposition" in text
+        assert "diagnosis" in text
         assert "low reasoning effort" in text
-        assert "never delegate blindly without planning" in text
-        assert "concrete plan" in text
+        assert "work plan" in text
+        assert "brief each helper with goal" in text
 
     def test_delegation_fallback_guidance_enforces_planning(self):
         from agent.prompt_builder import DELEGATION_PLAN_FALLBACK_GUIDANCE
