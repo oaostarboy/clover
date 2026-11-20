@@ -920,3 +920,57 @@ class TestPostUpdateStaleModuleReload:
 
         assert "clover_cli._subprocess_compat" in reloaded
         assert "clover_cli.dashboard_procs" in reloaded
+
+
+def _ssh_lock_test(tmp_path, monkeypatch, *, proc_age, code_age):
+    """Run the update cleanup with one SSH-owned serve of the given age."""
+    from clover_cli import dashboard_procs
+
+    pid = _write_valid_ssh_backend_lock(tmp_path, monkeypatch)
+    seen = {}
+
+    def fake_find(*, exclude_pids=None):
+        seen["exclude"] = set(exclude_pids or ())
+        return [] if pid in seen["exclude"] else [pid]
+
+    kills = []
+
+    def fake_kill(p, sig):
+        kills.append((p, sig))
+        if sig == 0:
+            raise ProcessLookupError
+
+    with patch("clover_cli.main._find_stale_dashboard_pids", side_effect=fake_find), \
+         patch("clover_cli.main._restart_managed_dashboard_service", return_value=False), \
+         patch.object(dashboard_procs, "_code_updated_age_seconds", return_value=code_age), \
+         patch.object(dashboard_procs, "_process_age_seconds", return_value=proc_age), \
+         patch("clover_cli.main._get_pid_cgroup_path", return_value=None), \
+         patch("clover_cli.main._get_systemd_service_for_pid", return_value=None), \
+         patch("clover_cli.main._dashboard_cmdline_for_pid", return_value=None), \
+         patch("os.kill", side_effect=fake_kill), patch("time.sleep"):
+        result = _kill_stale_dashboard_processes(restart_managed=True)
+    return pid, seen, kills, result
+
+
+def test_update_cleanup_stops_ssh_serve_started_before_update(tmp_path, monkeypatch):
+    # Process is 600s old, code changed 60s ago: it runs old code.
+    pid, seen, kills, result = _ssh_lock_test(tmp_path, monkeypatch, proc_age=600, code_age=60)
+    assert pid not in seen["exclude"]
+    assert (pid, 15) in kills
+    assert result["killed"] == [pid]
+    assert result["ssh_outdated"] == [pid]
+
+
+def test_update_cleanup_spares_ssh_serve_started_after_update(tmp_path, monkeypatch):
+    # Process is 5s old, code changed 60s ago: already on current code.
+    pid, seen, kills, result = _ssh_lock_test(tmp_path, monkeypatch, proc_age=5, code_age=60)
+    assert pid in seen["exclude"]
+    assert kills == []
+    assert result["killed"] == []
+
+
+def test_outcome_line_names_restarted_ssh_copy():
+    from clover_cli.update_fresh_cleanup import _summarize
+
+    line = _summarize({"matched": [1], "killed": [1], "failed": [], "ssh_outdated": [1]})
+    assert "outdated desktop copy over SSH" in line

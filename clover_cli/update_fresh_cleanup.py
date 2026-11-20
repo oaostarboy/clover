@@ -27,6 +27,9 @@ def _summarize(result: dict) -> str:
     msg = f"  ✓ Stale-copy check: stopped {killed} old dashboard/serve process(es)"
     if failed:
         msg += f", {failed} could not be stopped"
+    ssh = len(result.get("ssh_outdated") or [])
+    if ssh:
+        msg += f" (including {ssh} outdated desktop copy over SSH)"
     return msg + ". The desktop app starts a new backend on the new code by itself."
 
 

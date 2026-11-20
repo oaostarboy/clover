@@ -451,6 +451,7 @@ def _kill_stale_dashboard_processes(
     # backend child, it sets CLOVER_DESKTOP_CHILD_PID so that the update
     # path can skip killing the desktop-managed process.  (#37532)
     exclude: set[int] = set()
+    outdated_ssh: list[int] = []
     raw_pid = os.environ.get("CLOVER_DESKTOP_CHILD_PID")
     if raw_pid:
         # The desktop may manage several backends (one per active profile) and
@@ -469,7 +470,12 @@ def _kill_stale_dashboard_processes(
         # the updater runs from an unrelated remote shell with no Desktop child
         # PID. Honor the same validated ownership records as the orphan reaper;
         # killing one permanently strands that client's fixed SSH port-forward.
-        exclude |= _lock_owned_serve_pids()
+        # ...but only while it runs CURRENT code. One that started before the
+        # code on disk was updated is stopped; the Desktop app respawns it.
+        owned = _lock_owned_serve_pids()
+        outdated = _outdated_serve_pids(owned)
+        exclude |= owned - outdated
+        outdated_ssh = sorted(outdated)
 
     pids = _m()._find_stale_dashboard_pids(exclude_pids=exclude or None)
     if not pids:
@@ -638,6 +644,7 @@ def _kill_stale_dashboard_processes(
         "killed": list(killed),
         "failed": list(failed),
         "unrecovered": list(unrecovered),
+        "ssh_outdated": [p for p in killed if p in set(outdated_ssh)],
     }
 
 def _detect_concurrent_clover_instances(
@@ -902,6 +909,36 @@ def _valid_lockfile_payload(parsed: object, ownership_id: str) -> bool:
     if not log_path.endswith(f"/{ownership_id}/{spawn_nonce}.log"):
         return False
     return True
+
+
+def _code_updated_age_seconds() -> float | None:
+    """Seconds since the installed code last changed (clover_cli/__init__.py mtime)."""
+    import time as _time
+
+    try:
+        mtime = (Path(__file__).resolve().parent / "__init__.py").stat().st_mtime
+    except OSError:
+        return None
+    return max(0.0, _time.time() - mtime)
+
+
+def _outdated_serve_pids(pids: set[int], *, age_fn=None, code_age: float | None = None) -> set[int]:
+    """Subset of *pids* that started before the code on disk was last updated."""
+    if not pids:
+        return set()
+    if code_age is None:
+        code_age = _code_updated_age_seconds()
+    if code_age is None:
+        return set()
+    age_fn = age_fn or _process_age_seconds
+    out: set[int] = set()
+    for pid in pids:
+        try:
+            if age_fn(pid) > code_age:
+                out.add(pid)
+        except Exception:
+            continue
+    return out
 
 
 def _lock_owned_serve_pids(base_dir: Path | None = None) -> set[int]:
