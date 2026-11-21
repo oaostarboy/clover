@@ -18,6 +18,11 @@
 #   --count   how many tags to emit (default 5, minimum 1). Fewer tags than
 #             requested emits all of them.
 #   --repo    repository to read tags from (default: this checkout).
+#   --exclude-commit SHA
+#             drop tags that point at this commit. CI passes the commit under
+#             test: right after a release is cut, the newest tag IS that
+#             commit, and "update from X to X" is not an update (the E2E's
+#             base != target guard rejects it). Emits [] when nothing is left.
 #
 # Reads tags from the local checkout, so it needs one fetched with tags
 # (actions/checkout with fetch-depth: 0, or `fetch-tags: true`). A shallow
@@ -34,6 +39,7 @@ COUNT=5
 # path so a symlinked or copied script still reads the checkout it lives in
 # rather than whatever repo the caller happens to be standing in.
 REPO=""
+EXCLUDE_COMMIT=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --count)
@@ -42,6 +48,9 @@ while [ "$#" -gt 0 ]; do
     --repo)
       [ "$#" -ge 2 ] || { echo 'error: --repo needs a value' >&2; exit 1; }
       REPO="$2"; shift 2 ;;
+    --exclude-commit)
+      [ "$#" -ge 2 ] || { echo 'error: --exclude-commit needs a value' >&2; exit 1; }
+      EXCLUDE_COMMIT="$2"; shift 2 ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; exit 1 ;;
   esac
@@ -78,6 +87,22 @@ if [ "$total" -eq 0 ]; then
   echo '       A shallow clone has no tags: fetch with tags (actions/checkout' >&2
   echo '       with fetch-depth: 0, or fetch-tags: true).' >&2
   exit 1
+fi
+
+if [ -n "$EXCLUDE_COMMIT" ]; then
+  exclude_sha="$(git -C "$REPO" rev-parse --verify --quiet "${EXCLUDE_COMMIT}^{commit}" || printf '%s' "$EXCLUDE_COMMIT")"
+  kept=()
+  for tag in "${tags[@]}"; do
+    tag_sha="$(git -C "$REPO" rev-parse --verify --quiet "refs/tags/${tag}^{commit}" || true)"
+    [ "$tag_sha" = "$exclude_sha" ] && continue
+    kept+=("$tag")
+  done
+  tags=("${kept[@]+"${kept[@]}"}")
+  total="${#tags[@]}"
+  if [ "$total" -eq 0 ]; then
+    echo '[]'
+    exit 0
+  fi
 fi
 
 if [ "$total" -le "$COUNT" ]; then
