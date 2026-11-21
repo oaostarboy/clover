@@ -9,6 +9,8 @@ gateway) is restarted after a bounded idle wait; see
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 from typing import NoReturn
 
@@ -222,9 +224,37 @@ def _proved_stderr_wrapper(pid: int, admitted: dict[int, tuple[Path, int]]) -> b
     return False
 
 
+def _gateway_pid_install_verdict(pid) -> str:
+    """own/other/unknown install ownership of a gateway PID.
+
+    The updater process may be an old release whose ``update_cmd`` predates
+    ``_gateway_pid_install_verdict`` (v1.1.0), so import it only when present.
+    Otherwise compare the PID's interpreter directory with ours by file
+    identity; anything unreadable is "unknown" (not proven foreign).
+    """
+    try:
+        from clover_cli.update_cmd import _gateway_pid_install_verdict as verdict
+    except ImportError:
+        verdict = None
+    if verdict is not None:
+        return verdict(pid)
+    if not sys.platform.startswith('linux'):
+        return 'unknown'
+    try:
+        raw = Path(f'/proc/{int(pid)}/cmdline').read_bytes().split(b'\0')[0]
+        executable = os.fsdecode(raw)
+        if not os.path.isabs(executable):
+            return 'unknown'
+        if os.path.samefile(Path(executable).parent, Path(sys.executable).parent):
+            return 'own'
+        os.stat(executable)
+        return 'other'
+    except (OSError, ValueError, TypeError, IndexError):
+        return 'unknown'
+
+
 def _unsafe_gateways() -> list[str]:
     from clover_cli.gateway import find_gateway_pids, find_profile_gateway_processes
-    from clover_cli.update_cmd import _gateway_pid_install_verdict
     from gateway.status import _get_process_start_time, runtime_status_pid_is_live
 
     processes = find_profile_gateway_processes(strict=True)
