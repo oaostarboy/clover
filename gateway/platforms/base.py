@@ -6190,6 +6190,10 @@ class BasePlatformAdapter(ABC):
             return result
 
         error_str = result.error or ""
+        # Over-cap flood wait: fail closed. Re-sending now (even as a
+        # plain-text fallback) would hit the penalty window again.
+        if error_str.startswith("flood_control:"):
+            return result
         is_network = result.retryable or self._is_retryable_error(error_str)
 
         # Timeout errors are not safe to retry (message may have been

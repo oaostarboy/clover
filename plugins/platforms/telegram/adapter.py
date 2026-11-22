@@ -3963,19 +3963,15 @@ class TelegramAdapter(BasePlatformAdapter):
             expected_generation = self._polling_generation + 1
             if not app:
                 raise RuntimeError("Telegram application was torn down during conflict reconnect")
-            # drop_pending_updates=True tells Telegram to terminate any
-            # other active getUpdates sessions for this bot token.  The
-            # competing session is either a zombie from the previous
-            # gateway process (whose long-poll hasn't expired server-side
-            # yet) or our own previous retry's still-expiring session.
-            # Without this, each retry starts a new getUpdates session
-            # that immediately gets 409'd by the previous one, creating
-            # the very conflict we are trying to recover from (#75017).
+            # Keep queued updates: any new getUpdates call already supersedes
+            # the competing (zombie or still-expiring) session server-side,
+            # so dropping the pending queue here only loses messages that
+            # arrived during the overlap.
             self._polling_conflict_recovery_generation = expected_generation
             try:
                 await self._start_polling_once(
                     app,
-                    drop_pending_updates=True,
+                    drop_pending_updates=False,
                     error_callback=self._polling_error_callback_ref,
                 )
                 logger.info(
@@ -5871,7 +5867,9 @@ class TelegramAdapter(BasePlatformAdapter):
                 effective_thread_id = thread_kwargs.get("message_thread_id")
 
                 msg = None
-                for _send_attempt in range(3):
+                _send_attempt = -1
+                while _send_attempt < 2:
+                    _send_attempt += 1
                     try:
                         # Try Markdown first, fall back to plain text if it fails
                         try:
@@ -5927,6 +5925,7 @@ class TelegramAdapter(BasePlatformAdapter):
                                         "[%s] Thread %s not found, retrying once with same thread_id",
                                         self.name, effective_thread_id,
                                     )
+                                    _send_attempt -= 1  # fallback rewrite: not a retry
                                     continue
                                 # Second failure: the thread is genuinely gone.
                                 # Retry without ``message_thread_id`` so the
@@ -5944,6 +5943,7 @@ class TelegramAdapter(BasePlatformAdapter):
                                 used_thread_fallback = True
                                 effective_thread_id = None
                                 thread_kwargs = {"message_thread_id": None}
+                                _send_attempt -= 1  # fallback rewrite: not a retry
                                 continue
                             err_lower = str(send_err).lower()
                             if "message to be replied not found" in err_lower and reply_to_id is not None:
@@ -5976,6 +5976,7 @@ class TelegramAdapter(BasePlatformAdapter):
                                         reply_to_mode=self._reply_to_mode,
                                     )
                                     effective_thread_id = thread_kwargs.get("message_thread_id")
+                                _send_attempt -= 1  # fallback rewrite: not a retry
                                 continue
                             # Other BadRequest errors are permanent — don't retry
                             raise
