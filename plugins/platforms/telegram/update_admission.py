@@ -20,7 +20,7 @@ Adapted from NousResearch/hermes-agent plugins/platforms/telegram/update_admissi
 (MIT), commits 992f569fc1 and a1838ea87a. The Hermes version subclasses PTB's
 Application to pin dispatch claims and flushes receipts from a background task.
 This port uses a plain group -1 handler with PTB's own ApplicationHandlerStop, and
-writes each receipt synchronously when the update's work is handed off. The receipt-file layout and 24h TTL are
+queues each receipt write to a background thread when the update's work is handed off. The receipt-file layout and 24h TTL are
 kept from Hermes.
 
 Durable receipts are EXPERIMENTAL and off by default
@@ -36,8 +36,10 @@ alive.
 No cross-process coordination or exactly-once effects are promised.
 """
 
+import atexit
 import json
 import logging
+import threading
 import time
 
 from utils import atomic_json_write
@@ -74,6 +76,7 @@ def load_receipts(seen: dict, receipt_dir, bot_id) -> None:
 
     Callers only reach this in durable mode; the default never reads the file.
     """
+    flush_receipts()  # a rebuilt adapter must see writes still queued
     path = _receipt_path(receipt_dir, bot_id)
     try:
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -102,8 +105,61 @@ def _trim(seen: dict) -> None:
     seen.update(newest)
 
 
+# Receipt writes (JSON + fsync) run on one daemon writer thread, never on the
+# event loop. The loop only snapshots the IDs; bursts coalesce to the newest
+# snapshot per file. The in-memory map is updated first, so same-process dedupe
+# is immediate. A crash before the write lands leaves no receipt, and the
+# unacknowledged replay is processed again (a duplicate, never a loss), the
+# same rule as a crash before the handoff.
+_pending: dict = {}  # path -> (receipt_dir, ids)
+_cond = threading.Condition()
+_writing = False
+_writer = None
+
+
+def _write_receipts(path, receipt_dir, ids) -> None:
+    try:
+        receipt_dir.mkdir(parents=True, exist_ok=True)
+        atomic_json_write(path, {"update_ids": ids})
+    except Exception:
+        logger.warning("[Telegram] Failed to persist update receipts to %s", path, exc_info=True)
+
+
+def _writer_loop() -> None:
+    global _writing
+    while True:
+        with _cond:
+            while not _pending:
+                _cond.wait()
+            path = next(iter(_pending))
+            receipt_dir, ids = _pending.pop(path)
+            _writing = True
+        try:
+            _write_receipts(path, receipt_dir, ids)
+        finally:
+            with _cond:
+                _writing = False
+                _cond.notify_all()
+
+
+def flush_receipts(timeout: float = 10.0) -> bool:
+    """Block until every queued receipt write is on disk (shutdown, tests)."""
+    deadline = time.monotonic() + timeout
+    with _cond:
+        while _pending or _writing:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return False
+            _cond.wait(left)
+    return True
+
+
+atexit.register(flush_receipts)
+
+
 def _persist(adapter, bot_id) -> None:
-    """Write this bot's unexpired admitted IDs to its receipt file."""
+    """Queue a write of this bot's unexpired admitted IDs to its receipt file."""
+    global _writer
     if not getattr(adapter, "_durable_update_receipts", False):
         return
     prefix, cutoff = f"{bot_id}:", time.time() - RECEIPT_TTL_SECONDS
@@ -111,11 +167,12 @@ def _persist(adapter, bot_id) -> None:
            if key.startswith(prefix) and ts > cutoff}
     receipt_dir = adapter._update_receipt_dir
     path = _receipt_path(receipt_dir, bot_id)
-    try:
-        receipt_dir.mkdir(parents=True, exist_ok=True)
-        atomic_json_write(path, {"update_ids": ids})
-    except Exception:
-        logger.warning("[Telegram] Failed to persist update receipts to %s", path, exc_info=True)
+    with _cond:
+        _pending[path] = (receipt_dir, ids)
+        if _writer is None or not _writer.is_alive():
+            _writer = threading.Thread(target=_writer_loop, name="telegram-receipts", daemon=True)
+            _writer.start()
+        _cond.notify_all()
 
 
 def _expired(seen: dict, key: str, now: float) -> bool:

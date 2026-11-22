@@ -26,6 +26,7 @@ from plugins.platforms.telegram.adapter import _update_receipt_dir
 
 def _full_restart():
     """Forget every in-memory admission map, as a new process would."""
+    update_admission.flush_receipts()  # queued writes land before the "crash"
     getattr(update_admission, "_PROCESS_SEEN", {}).clear()
 
 
@@ -137,6 +138,7 @@ async def test_opt_in_still_writes_and_reads_receipts(tmp_path):
     events = await _admit(tmp_path, 91040, durable=True)
     mark_inbound_durable(events[0])
     complete_inbound_handoff(events[0])
+    update_admission.flush_receipts()
     assert _receipt_files()
     _full_restart()
     assert await _admit(tmp_path, 91040, durable=True) == []
