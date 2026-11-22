@@ -725,3 +725,34 @@ async def test_thread_fallback_only_fires_once():
     # The key point: the message was delivered despite the invalid thread
 
 
+
+
+@pytest.mark.asyncio
+async def test_send_fallback_rewrites_do_not_exhaust_attempt_budget():
+    """thread-not-found x2 + reply-target-deleted must still reach a 4th send."""
+    adapter = _make_adapter()
+    call_log = []
+    errors = [
+        "Message thread not found",
+        "Message thread not found",
+        "Message to be replied not found",
+    ]
+
+    async def mock_send_message(**kwargs):
+        call_log.append(dict(kwargs))
+        if len(call_log) <= len(errors):
+            raise FakeBadRequest(errors[len(call_log) - 1])
+        return SimpleNamespace(message_id=901)
+
+    adapter._bot = SimpleNamespace(send_message=mock_send_message)
+
+    result = await adapter.send(
+        chat_id="123",
+        content="hello",
+        reply_to="55",
+        metadata={"thread_id": "777"},
+    )
+
+    assert result.success is True, result.error
+    assert len(call_log) == 4
+    assert call_log[-1].get("reply_to_message_id") is None

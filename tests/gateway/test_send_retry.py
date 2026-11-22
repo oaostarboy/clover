@@ -206,3 +206,15 @@ class TestSendWithRetryAfter:
         second_sleep = mock_sleep.call_args_list[1][0][0]
         assert second_sleep >= 29.0  # 30 - 1 (max jitter)
 
+
+
+@pytest.mark.asyncio
+async def test_flood_control_cap_result_is_not_resent_as_plain_fallback():
+    adapter = _StubAdapter()
+    adapter._send_results = [
+        SendResult(success=False, error="flood_control:900.0", retry_after=900.0)
+    ]
+    result = await adapter._send_with_retry("c", "x" * 5000)
+    assert result.success is False
+    assert result.retry_after == 900.0
+    assert len(adapter._send_calls) == 1
