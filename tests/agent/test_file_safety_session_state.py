@@ -61,3 +61,14 @@ def test_write_file_tool_preserves_existing_session_snapshot(fake_homes):
 
     assert "error" in result
     assert target.read_text(encoding="utf-8") == "original transcript"
+
+
+@pytest.mark.parametrize("relative", ["state.db", "sessions/session_abc.json"])
+def test_session_state_denial_is_named_app_state(fake_homes, relative):
+    from agent.file_safety import _classify_write_denial, get_write_denied_error
+
+    _root, profile = fake_homes
+    target = profile / relative
+    assert _classify_write_denial(str(target)) == "app_state"
+    msg = get_write_denied_error(str(target))
+    assert "application state" in msg and "credential" not in msg

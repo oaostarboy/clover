@@ -130,7 +130,7 @@ def build_write_approval_paths(home: str) -> set[str]:
 
 
 def _classify_write_denial(path: str) -> Optional[str]:
-    """Return ``'credential'``, ``'safe_root'``, or ``None`` if writes are allowed."""
+    """Return ``'credential'``, ``'app_state'``, ``'safe_root'``, or ``None`` if writes are allowed."""
     home = os.path.realpath(os.path.expanduser("~"))
     resolved = os.path.realpath(os.path.expanduser(str(path)))
 
@@ -165,10 +165,10 @@ def _classify_write_denial(path: str) -> Optional[str]:
         # falsify conversation history and invalidate resume/compression state.
         try:
             if resolved == os.path.realpath(os.path.join(base_real, "state.db")):
-                return True
+                return "app_state"
             sessions_real = os.path.realpath(os.path.join(base_real, "sessions"))
             if resolved == sessions_real or resolved.startswith(sessions_real + os.sep):
-                return True
+                return "app_state"
         except Exception:
             pass
         try:
@@ -212,6 +212,11 @@ def get_write_denied_error(path: str, *, verb: str = "Write") -> Optional[str]:
         return (
             f"{verb} denied: '{path}' is outside CLOVER_WRITE_SAFE_ROOT "
             f"({roots_display}). Unset the variable or add this path's directory prefix."
+        )
+    if denial == "app_state":
+        return (
+            f"{verb} denied: '{path}' is Clover application state "
+            "(session database/transcripts) and cannot be edited with file tools."
         )
     return f"{verb} denied: '{path}' is a protected system/credential file."
 
