@@ -361,8 +361,10 @@ def read_drain_request(*, home: Optional[Path] = None) -> Optional[dict[str, Any
     except FileNotFoundError:
         return None
     except OSError as e:
+        # Present but unreadable: fail toward "drain active" (legacy/corrupt
+        # contract) rather than silently releasing an active drain.
         _log.warning("drain-control: failed to read %s: %s", path, e)
-        return None
+        return {}
     try:
         data = json.loads(raw)
     except (ValueError, TypeError):

@@ -6574,11 +6574,27 @@ class BasePlatformAdapter(ABC):
             session_key,
         )
         self._active_sessions.pop(session_key, None)
-        self._pending_messages.pop(session_key, None)
-        self._local_overflow_store().pop(session_key, None)
+        # Keep queued events (slot, overflow, held debounce) in arrival order
+        # so the next dispatch re-delivers them instead of dropping them.
+        orphans: List[MessageEvent] = []
+        head = self._pending_messages.pop(session_key, None)
+        if head is not None:
+            orphans.append(head)
+        orphans.extend(self._local_overflow_store().pop(session_key, None) or [])
+        held = self._text_debounce_store().get(session_key)
+        if held is not None:
+            orphans.append(held.event)
+        if orphans:
+            self.__dict__.setdefault("_healed_orphans", {}).setdefault(
+                session_key, []
+            ).extend(orphans)
         self._session_tasks.pop(session_key, None)
         self._discard_text_debounce(session_key)
         return True
+
+    def _take_healed_orphans(self, session_key: str) -> List[MessageEvent]:
+        """Pop events preserved by :meth:`_heal_stale_session_lock`."""
+        return self.__dict__.get("_healed_orphans", {}).pop(session_key, [])
 
     def _start_session_processing(
         self,
@@ -6836,7 +6852,23 @@ class BasePlatformAdapter(ABC):
         # normal dispatch so the user isn't trapped behind a dead guard —
         # this is the split-brain tail described in issue #11016.
         if session_key in self._active_sessions:
-            self._heal_stale_session_lock(session_key)
+            if self._heal_stale_session_lock(session_key):
+                orphans = self._take_healed_orphans(session_key)
+                if orphans:
+                    # Oldest first: the healed queue runs before the new event.
+                    # A command keeps its own dispatch; the orphans then drain
+                    # as pending after it.
+                    if event.get_command():
+                        queue = orphans
+                    else:
+                        queue = orphans + [event]
+                        event = queue[0]
+                        queue = queue[1:]
+                    if queue and not self._pending_messages.get(session_key):
+                        self._pending_messages[session_key] = queue[0]
+                        queue = queue[1:]
+                    for extra in queue:
+                        self._enqueue_overflow(session_key, extra)
 
         # Check if there's already an active handler for this session
         if session_key in self._active_sessions:
@@ -7939,7 +7971,14 @@ class BasePlatformAdapter(ABC):
         # Flush pending messages to disk before clearing (#72680).
         try:
             from gateway.shutdown_flush import flush_pending_to_file
-            flush_pending_to_file(self._pending_messages, reason="adapter_shutdown")
+            queues: Dict[str, List[Any]] = {}
+            for _sk, _ev in list(self._pending_messages.items()):
+                queues.setdefault(_sk, []).append(_ev)
+            for _sk, _evs in list(self._local_overflow_store().items()):
+                queues.setdefault(_sk, []).extend(_evs)
+            for _sk, _state in list(self._text_debounce_store().items()):
+                queues.setdefault(_sk, []).append(_state.event)
+            flush_pending_to_file(queues, reason="adapter_shutdown")
         except Exception:
             pass
         self._pending_messages.clear()

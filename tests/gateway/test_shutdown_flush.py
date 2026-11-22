@@ -168,3 +168,79 @@ def test_get_flush_dir_uses_get_clover_home(tmp_path, monkeypatch):
     assert result == tmp_path / "pending_messages"
 
 
+
+
+# ---------------------------------------------------------------------------
+# Restart-recovery regressions
+# ---------------------------------------------------------------------------
+
+
+def _spool(flush_dir, name, session_key, data, ts=1, seq=None):
+    payload = {"session_key": session_key, "reason": "shutdown", "ts": ts, "data": data}
+    if seq is not None:
+        payload["seq"] = seq
+    (flush_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_recover_continues_after_per_file_failure(tmp_path, monkeypatch):
+    """One failing file must not strand later files (Exception before BaseException)."""
+    flush_dir = _make_flush_dir(tmp_path)
+    monkeypatch.setattr("gateway.shutdown_flush._get_flush_dir", lambda: flush_dir)
+    _spool(flush_dir, "a.json", "k1", {"text": "bad", "session_id": "boom"})
+    _spool(flush_dir, "b.json", "k2", {"text": "good", "session_id": "ok"})
+
+    class DB:
+        closed = False
+        calls = []
+
+        def append_message(self, **kw):
+            if kw["session_id"] == "boom":
+                raise RuntimeError("db hiccup")
+            self.calls.append(kw)
+
+        def close(self):
+            self.closed = True
+
+    db = DB()
+    monkeypatch.setattr("clover_state.SessionDB", lambda: db)
+    assert recover_pending_to_db() == 1
+    assert [c["content"] for c in db.calls] == ["good"]
+    assert (flush_dir / "a.json").exists()  # retained for retry
+    assert not (flush_dir / "b.json").exists()
+    assert db.closed is True
+
+
+def test_recover_resolves_session_id_from_session_key(tmp_path, monkeypatch):
+    """Text-only runner entries carry no session_id; resolve via session_key."""
+    flush_dir = _make_flush_dir(tmp_path)
+    monkeypatch.setattr("gateway.shutdown_flush._get_flush_dir", lambda: flush_dir)
+    _spool(flush_dir, "a.json", "agent:main:telegram:dm:42", {"text": "hello"})
+
+    db = MagicMock()
+    db.find_session_id_by_key.return_value = "sid-42"
+    assert recover_pending_to_db(session_db=db) == 1
+    db.find_session_id_by_key.assert_called_once_with("agent:main:telegram:dm:42")
+    assert db.append_message.call_args.kwargs["session_id"] == "sid-42"
+    assert not (flush_dir / "a.json").exists()
+
+
+def test_recover_keeps_unresolvable_text_entry(tmp_path, monkeypatch):
+    flush_dir = _make_flush_dir(tmp_path)
+    monkeypatch.setattr("gateway.shutdown_flush._get_flush_dir", lambda: flush_dir)
+    _spool(flush_dir, "a.json", "unknown", {"text": "hello"})
+    db = MagicMock()
+    db.find_session_id_by_key.return_value = None
+    assert recover_pending_to_db(session_db=db) == 0
+    assert (flush_dir / "a.json").exists()
+
+
+def test_flush_list_values_preserve_order_on_recovery(tmp_path, monkeypatch):
+    flush_dir = _make_flush_dir(tmp_path)
+    monkeypatch.setattr("gateway.shutdown_flush._get_flush_dir", lambda: flush_dir)
+    assert flush_pending_to_file({"k": ["one", "two", "three"]}, reason="adapter_shutdown") == 3
+    db = MagicMock()
+    db.find_session_id_by_key.return_value = "sid"
+    assert recover_pending_to_db(session_db=db) == 3
+    assert [c.kwargs["content"] for c in db.append_message.call_args_list] == [
+        "one", "two", "three",
+    ]

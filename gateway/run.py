@@ -35324,7 +35324,7 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
                 "Recovered %d pending message(s) from shutdown flush", recovered,
             )
     except Exception:
-        pass
+        logger.warning("Pending-message startup recovery failed", exc_info=True)
     if runner.should_exit_cleanly:
         _shutdown_gateway_health_export(runner)
         if runner.exit_reason:

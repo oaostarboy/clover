@@ -326,3 +326,18 @@ class TestNewTurnGate:
         assert result is not None
         assert "draining" in result.lower()
 
+
+
+class TestUnreadableMarker:
+    def test_unreadable_marker_keeps_drain_active(self, home, monkeypatch):
+        dc.write_drain_request(principal="nas")
+        real = Path.read_text
+
+        def boom(self, *a, **k):
+            if self.name == ".drain_request.json":
+                raise PermissionError("denied")
+            return real(self, *a, **k)
+
+        monkeypatch.setattr(Path, "read_text", boom)
+        assert dc.read_drain_request() == {}
+        assert dc.drain_requested() is True
