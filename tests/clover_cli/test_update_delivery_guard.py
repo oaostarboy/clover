@@ -200,3 +200,21 @@ def test_legacy_message_is_truthful_and_never_says_nothing_changed(monkeypatch, 
     out = capsys.readouterr().out.lower()
     assert 'nothing was changed' not in out and 'deferred' not in out and 'maintenance' not in out
     assert 'continues' in out and 'restarted' in out
+
+
+def test_unsafe_gateways_survives_updater_without_install_verdict(monkeypatch):
+    """v1.1.0's update_cmd has no _gateway_pid_install_verdict; the guard must not fail closed."""
+    from clover_cli import update_delivery_guard as guard, update_cmd
+    monkeypatch.delattr(update_cmd, '_gateway_pid_install_verdict', raising=False)
+    monkeypatch.setattr('clover_cli.gateway.find_profile_gateway_processes', lambda strict=False: [])
+    monkeypatch.setattr('clover_cli.gateway.find_gateway_pids', lambda all_profiles=False: [])
+    assert guard._unsafe_gateways() == []
+
+
+def test_fallback_verdict_own_other_unknown(monkeypatch, tmp_path):
+    import sys
+    from clover_cli import update_delivery_guard as guard, update_cmd
+    monkeypatch.delattr(update_cmd, '_gateway_pid_install_verdict', raising=False)
+    assert guard._gateway_pid_install_verdict(0x7ffffff0) == 'unknown'
+    import os
+    assert guard._gateway_pid_install_verdict(os.getpid()) in ('own', 'other')
