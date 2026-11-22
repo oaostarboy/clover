@@ -140,6 +140,8 @@ async def test_redelivery_after_restart_reads_the_receipt_file(tmp_path):
     await _process(app1, _text_update(app1.bot, 900))
     assert first_seen == [900]
 
+    from plugins.platforms.telegram.update_admission import flush_receipts
+    assert flush_receipts()
     receipts = list(_update_receipt_dir().glob("telegram_update_receipts_111*.json"))
     assert receipts, "completed update must be persisted to a per-bot receipt file"
     assert "900" in json.loads(receipts[0].read_text())["update_ids"]
