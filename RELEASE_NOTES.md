@@ -15,6 +15,15 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.10.1 | Clover C2.1.10.1 | 2026-11-21
+
+- Telegram messages that arrive while Clover reconnects are no longer lost.
+- When Telegram asks Clover to slow down, it waits instead of resending a cut-off reply.
+- Messages waiting during a restart are recovered, even if one saved file is damaged.
+- Each Telegram bot keeps its own settings, and settings placed directly in the Telegram section now work.
+- Updating from very old versions finishes properly.
+- Faster config reads and less lag while saving message receipts.
+
 ## 2.1.10 | Clover C2.1.10 | 2026-11-19
 
 - Updating now also restarts desktop app copies that were started over SSH on older code, and the update says how many it restarted.
