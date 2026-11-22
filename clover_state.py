@@ -6733,6 +6733,18 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             rows = conn.execute(query, params).fetchall()
         return [self._session_row_dict(r) for r in rows]
 
+    def find_session_id_by_key(self, session_key: str) -> Optional[str]:
+        """Return the newest session id for a gateway routing key, or None."""
+        if not session_key:
+            return None
+        with self._read_ctx() as conn:
+            row = conn.execute(
+                "SELECT id FROM sessions WHERE session_key = ? "
+                "ORDER BY (ended_at IS NULL) DESC, started_at DESC LIMIT 1",
+                (session_key,),
+            ).fetchone()
+        return str(row["id"]) if row else None
+
     def find_session_by_origin(
         self,
         *,

@@ -114,25 +114,33 @@ def flush_pending_to_file(
     for session_key, value in list(pending.items()):
         if value is None:
             continue
-        try:
-            serialised = _serialise_value(value)
-            if serialised is None:
+        # A list/tuple is an ordered queue (head, overflow..., held): one
+        # payload per entry, stamped with a monotonic seq so recovery keeps
+        # the original order.
+        entries = list(value) if isinstance(value, (list, tuple)) else [value]
+        for entry in entries:
+            if entry is None:
                 continue
-            _write_payload(
-                flush_dir,
-                {
-                    "session_key": session_key,
-                    "reason": reason,
-                    "ts": ts,
-                    "data": serialised,
-                },
-            )
-            flushed += 1
-        except Exception as exc:
-            logger.debug(
-                "Failed to flush pending message for %s: %s",
-                session_key, exc,
-            )
+            try:
+                serialised = _serialise_value(entry)
+                if serialised is None:
+                    continue
+                _write_payload(
+                    flush_dir,
+                    {
+                        "session_key": session_key,
+                        "reason": reason,
+                        "ts": ts,
+                        "seq": next(_TRANSCRIPT_SPOOL_SEQ),
+                        "data": serialised,
+                    },
+                )
+                flushed += 1
+            except Exception as exc:
+                logger.debug(
+                    "Failed to flush pending message for %s: %s",
+                    session_key, exc,
+                )
 
     if flushed:
         logger.info(
@@ -309,6 +317,15 @@ def recover_pending_to_db(
     if not flush_files:
         return 0
 
+    def _order_key(path: Path):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return (payload.get("ts", 0), payload.get("seq", 0), path.name)
+        except Exception:
+            return (0, 0, path.name)
+
+    flush_files.sort(key=_order_key)
+
     # Use the provided SessionDB or open one on the default path.
     own_db = False
     if session_db is None:
@@ -376,6 +393,13 @@ def recover_pending_to_db(
             session_id = data.get("session_id", "")
 
             if not session_id:
+                # Runner text-only entries carry no session_id; resolve it
+                # from the routing key via state.db.
+                resolver = getattr(session_db, "find_session_id_by_key", None)
+                if callable(resolver):
+                    session_id = resolver(session_key) or ""
+
+            if not session_id:
                 # Try to extract from the session_key itself — gateway
                 # session keys contain the session_id as the last segment
                 # in some formats, but that's not guaranteed.  Log and
@@ -397,16 +421,16 @@ def recover_pending_to_db(
             )
             recovered += 1
             path.unlink(missing_ok=True)
-        except BaseException:
-            # Shutdown cancellation/interrupt must not strand an owned DB.
-            _close_owned_db()
-            raise
         except Exception as exc:
             logger.warning(
                 "Failed to recover pending message from %s: %s",
                 path, exc,
             )
-            # Leave the file for next startup retry.
+            # Leave the file for next startup retry; keep going.
+        except BaseException:
+            # Shutdown cancellation/interrupt must not strand an owned DB.
+            _close_owned_db()
+            raise
 
     _close_owned_db()
 
