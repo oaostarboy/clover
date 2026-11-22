@@ -11772,7 +11772,12 @@ class TelegramAdapter(BasePlatformAdapter):
 
     def _reactions_enabled(self) -> bool:
         """Check if message reactions are enabled via config/env."""
-        return os.getenv("TELEGRAM_REACTIONS", "false").lower() not in {"false", "0", "no"}
+        # An explicitly exported TELEGRAM_REACTIONS wins (operator override);
+        # otherwise this bot's own config extra, then the default.
+        configured = os.getenv("TELEGRAM_REACTIONS") or self.config.extra.get("reactions")
+        if configured is None:
+            configured = "false"
+        return str(configured).lower() not in {"false", "0", "no"}
 
     async def _set_reaction(self, chat_id: str, message_id: str, emoji: str) -> bool:
         """Set a single emoji reaction on a Telegram message."""
@@ -11966,6 +11971,29 @@ def interactive_setup() -> None:
     _setup_mod._setup_telegram()
 
 
+# Keys the adapter reads via ``config.extra.get(...)`` that have no dedicated
+# bridge in gateway/config.py. Single source of truth: _apply_yaml_config
+# bridges every one from the top level of the telegram block, and the contract
+# test fails if the adapter reads a key that is in neither place.
+_ADAPTER_EXTRA_KEYS = (
+    "ignore_root_dm",
+    "group_topics",
+    "dm_topics",
+    "reactions",
+    "status_indicator",
+    "status_online",
+    "status_offline",
+    "group_sessions_per_user",
+    "thread_sessions_per_user",
+    "fallback_ips",
+    "base_url",
+    "base_file_url",
+    "local_mode",
+    "disable_link_previews",
+    "ingest_unmentioned_group_messages",
+)
+
+
 def _apply_yaml_config(yaml_cfg: dict, telegram_cfg: dict) -> dict | None:
     """Translate config.yaml telegram: keys into TELEGRAM_* env vars and
     PlatformConfig.extra entries.
@@ -11993,9 +12021,11 @@ def _apply_yaml_config(yaml_cfg: dict, telegram_cfg: dict) -> dict | None:
     if "disable_topic_auto_rename" in telegram_cfg:
         extras.setdefault("disable_topic_auto_rename", telegram_cfg["disable_topic_auto_rename"])
 
-    _effective_rm = telegram_cfg.get("require_mention", yaml_cfg.get("require_mention"))
-    if _effective_rm is not None and not os.getenv("TELEGRAM_REQUIRE_MENTION"):
-        os.environ["TELEGRAM_REQUIRE_MENTION"] = str(_effective_rm).lower()
+    # require_mention / reactions are per-adapter: they live in
+    # PlatformConfig.extra (require_mention via the shared bridge in
+    # gateway/config.py, reactions via _ADAPTER_EXTRA_KEYS below) and are NOT
+    # written to process env, where two bots in one process would clobber
+    # each other. The TELEGRAM_* env vars remain an explicit operator fallback.
     if "mention_patterns" in telegram_cfg and not os.getenv("TELEGRAM_MENTION_PATTERNS"):
         os.environ["TELEGRAM_MENTION_PATTERNS"] = _json.dumps(telegram_cfg["mention_patterns"])
     if "exclusive_bot_mentions" in telegram_cfg and not os.getenv("TELEGRAM_EXCLUSIVE_BOT_MENTIONS"):
@@ -12042,8 +12072,6 @@ def _apply_yaml_config(yaml_cfg: dict, telegram_cfg: dict) -> dict | None:
             ignored_threads = ",".join(str(v) for v in ignored_threads)
         if not _skip_env_bridge and not os.getenv("TELEGRAM_IGNORED_THREADS"):
             os.environ["TELEGRAM_IGNORED_THREADS"] = str(ignored_threads)
-    if "reactions" in telegram_cfg and not os.getenv("TELEGRAM_REACTIONS"):
-        os.environ["TELEGRAM_REACTIONS"] = str(telegram_cfg["reactions"]).lower()
     if "proxy_url" in telegram_cfg and not os.getenv("TELEGRAM_PROXY"):
         os.environ["TELEGRAM_PROXY"] = str(telegram_cfg["proxy_url"]).strip()
     _telegram_extra = telegram_cfg.get("extra") if isinstance(telegram_cfg.get("extra"), dict) else {}
@@ -12091,6 +12119,11 @@ def _apply_yaml_config(yaml_cfg: dict, telegram_cfg: dict) -> dict | None:
     for _k, _v in _telegram_extra.items():
         if _k not in _GENERIC_MERGE_KEYS:
             extras.setdefault(_k, _v)
+    # Every key the adapter reads from config.extra may be written at the top
+    # level of the telegram block; an explicit ``extra:`` value wins.
+    for _k in _ADAPTER_EXTRA_KEYS:
+        if _k in telegram_cfg and _k not in _telegram_extra:
+            extras.setdefault(_k, telegram_cfg[_k])
 
     return extras or None
 

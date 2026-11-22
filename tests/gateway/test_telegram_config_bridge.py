@@ -143,6 +143,8 @@ def test_adapter_gating_accessors_all_have_bridge_lines():
 
     adapter_keys = set(re.findall(r'extra\.get\(\s*["\']([a-z_]+)["\']', adapter_src))
     bridged_keys = set(re.findall(r'bridged\[["\']([a-z_]+)["\']\]', loader_src))
+    # Plugin-owned top-level key list (adapter-side bridge).
+    bridged_keys |= set(tg_adapter._ADAPTER_EXTRA_KEYS)
 
     # Keys that are legitimately adapter-local (connection/display concerns
     # configured elsewhere or read straight from env), not group gating.

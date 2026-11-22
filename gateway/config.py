@@ -1870,14 +1870,6 @@ def load_gateway_config() -> GatewayConfig:
                     _tg_plat = platforms_data.setdefault(Platform.TELEGRAM.value, {})
                     _tg_extra = _tg_plat.setdefault("extra", {})
                     _tg_extra.setdefault("require_mention", _tl_require_mention)
-                    # Also bridge to the TELEGRAM_REQUIRE_MENTION env var that the
-                    # adapter reads at runtime.  This used to live in the telegram_cfg
-                    # block in core; it stays in core because it keys off the TOP-LEVEL
-                    # require_mention (not a telegram: block), so the telegram plugin's
-                    # apply_yaml_config_fn hook — which only runs when a telegram config
-                    # block exists — can't cover the no-telegram-block case (#3979).
-                    if not os.getenv("TELEGRAM_REQUIRE_MENTION"):
-                        os.environ["TELEGRAM_REQUIRE_MENTION"] = str(_tl_require_mention).lower()
 
             # Telegram settings → env vars / extra: migrated to the telegram
             # plugin's apply_yaml_config_fn hook
