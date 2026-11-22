@@ -89,7 +89,14 @@ jobs:
             echo "tags=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          tags="$(scripts/sandbox/pick-release-tags.sh --count '${{ inputs.tag-count || 5 }}')"
+          # Skip tags on the commit under test: right after a release is cut,
+          # newest tag == HEAD and "update to the same commit" is not a test.
+          tags="$(scripts/sandbox/pick-release-tags.sh --count '${{ inputs.tag-count || 5 }}' --exclude-commit "$GITHUB_SHA")"
+          if [ "$tags" = "[]" ]; then
+            echo "Only release tag is the commit under test; skipping the update E2E."
+            echo "tags=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           echo "Testing updates from: $tags"
           echo "tags=$tags" >> "$GITHUB_OUTPUT"
 
