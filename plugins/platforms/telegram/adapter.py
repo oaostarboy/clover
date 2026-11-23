@@ -921,6 +921,7 @@ class TelegramAdapter(BasePlatformAdapter):
         self._pending_photo_batch_tasks: Dict[str, asyncio.Task] = {}
         self._media_group_events: Dict[str, MessageEvent] = {}
         self._media_group_tasks: Dict[str, asyncio.Task] = {}
+        self._media_group_inflight: Dict[str, int] = {}
         # Popped batches belong to dispatch, not to the debounce timer.
         # Track them separately so disconnect still cancels and awaits them.
         self._media_dispatch_tasks: set[asyncio.Task] = set()
@@ -10990,8 +10991,47 @@ class TelegramAdapter(BasePlatformAdapter):
 
         self._pending_photo_batch_tasks[batch_key] = asyncio.create_task(self._flush_photo_batch(batch_key))
 
+    # Longest an album flush waits for a member that is still downloading.
+    MEDIA_GROUP_MAX_DOWNLOAD_WAIT_SECONDS = 20.0
+
     async def _handle_media_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle incoming media messages, downloading images to local cache."""
+        """Handle incoming media messages, downloading images to local cache.
+
+        Album members are marked in-flight while they download so the album
+        debounce cannot flush the album early and split it into two turns.
+        """
+        media_group_id = getattr(getattr(update, "message", None), "media_group_id", None)
+        if not media_group_id:
+            return await self._handle_media_message_inner(update, context)
+        album = str(media_group_id)
+        inflight = getattr(self, "_media_group_inflight", None)
+        if inflight is None:
+            inflight = self._media_group_inflight = {}
+        inflight[album] = inflight.get(album, 0) + 1
+        try:
+            return await self._handle_media_message_inner(update, context)
+        finally:
+            remaining = inflight.get(album, 1) - 1
+            if remaining > 0:
+                inflight[album] = remaining
+            else:
+                inflight.pop(album, None)
+
+    async def _wait_for_album_downloads(self, media_group_key: str) -> None:
+        """Hold an album flush while another member of it is still downloading."""
+        event = self._media_group_events.get(media_group_key)
+        batch = str((event.metadata or {}).get("telegram_media_batch", "")) if event else ""
+        if not batch.startswith("album:"):
+            return
+        album = batch[len("album:"):]
+        inflight = getattr(self, "_media_group_inflight", None) or {}
+        step = max(0.01, min(0.1, self.MEDIA_GROUP_WAIT_SECONDS))
+        waited = 0.0
+        while inflight.get(album) and waited < self.MEDIA_GROUP_MAX_DOWNLOAD_WAIT_SECONDS:
+            await asyncio.sleep(step)
+            waited += step
+
+    async def _handle_media_message_inner(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
             return
         if not self._is_user_authorized_from_message(update.message):
@@ -11336,6 +11376,7 @@ class TelegramAdapter(BasePlatformAdapter):
         event = None
         try:
             await asyncio.sleep(self.MEDIA_GROUP_WAIT_SECONDS)
+            await self._wait_for_album_downloads(media_group_id)
             event = self._media_group_events.pop(media_group_id, None)
             if event is None:
                 return
