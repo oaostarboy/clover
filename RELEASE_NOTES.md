@@ -15,6 +15,10 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.10.2 | Clover C2.1.10.2 | 2026-11-23
+
+- Several photos sent together in Telegram now arrive as one message, even when one photo is slow to load.
+
 ## 2.1.10.1 | Clover C2.1.10.1 | 2026-11-21
 
 - Telegram messages that arrive while Clover reconnects are no longer lost.
