@@ -11004,7 +11004,9 @@ class TelegramAdapter(BasePlatformAdapter):
         if not media_group_id:
             return await self._handle_media_message_inner(update, context)
         album = str(media_group_id)
-        inflight = self._media_group_inflight
+        inflight = getattr(self, "_media_group_inflight", None)
+        if inflight is None:
+            inflight = self._media_group_inflight = {}
         inflight[album] = inflight.get(album, 0) + 1
         try:
             return await self._handle_media_message_inner(update, context)
@@ -11022,7 +11024,7 @@ class TelegramAdapter(BasePlatformAdapter):
         if not batch.startswith("album:"):
             return
         album = batch[len("album:"):]
-        inflight = self._media_group_inflight
+        inflight = getattr(self, "_media_group_inflight", None) or {}
         step = max(0.01, min(0.1, self.MEDIA_GROUP_WAIT_SECONDS))
         waited = 0.0
         while inflight.get(album) and waited < self.MEDIA_GROUP_MAX_DOWNLOAD_WAIT_SECONDS:
