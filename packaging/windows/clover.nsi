@@ -43,7 +43,7 @@ Section "Install"
   IfSilent silent interactive
   silent:
     ; unattended: real install, no prompts
-    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\install.ps1" -Branch ${BRANCH} -SkipSetup -NonInteractive' $1
+    ExecWait `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '$INSTDIR\install.ps1' -Branch ${BRANCH} -SkipSetup -NonInteractive *> '$INSTDIR\install.log'; exit $$LASTEXITCODE"` $1
     DetailPrint "install.ps1 exit code $1"
     Goto done
   interactive:

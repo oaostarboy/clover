@@ -32,6 +32,7 @@ jobs:
           $p = Start-Process $exe -ArgumentList '/S' -Wait -PassThru
           "installer exit: $($p.ExitCode)"
           Get-ChildItem "$env:LOCALAPPDATA\Clover Installer" | Format-Table Name,Length
+          Get-Content "$env:LOCALAPPDATA\Clover Installer\install.log" -Tail 60
           Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Clover\Clover.lnk"
       - name: clover --version in a fresh shell
         shell: cmd
