@@ -235,24 +235,79 @@ def test_markers_are_box_drawing_joints_on_the_rail(monkeypatch):
     assert "◇" not in lucky.S("done") and "◆" not in lucky.S("active")
 
 
-def test_mark_grows_petal_by_petal_and_ends_as_official_mark():
+def _env(monkeypatch, **kw):
+    for k in ("TERM", "TERM_PROGRAM", "KITTY_WINDOW_ID", "WT_SESSION", "NO_COLOR",
+              "CLOVER_ASCII", "CLOVER_IMAGE", "COLORTERM"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in kw.items():
+        monkeypatch.setenv(k, v)
+
+
+@pytest.mark.parametrize("env,proto", [
+    ({"TERM": "xterm-kitty"}, "kitty"),
+    ({"KITTY_WINDOW_ID": "1", "TERM": "xterm-256color"}, "kitty"),
+    ({"TERM_PROGRAM": "ghostty", "TERM": "xterm-256color"}, "kitty"),
+    ({"TERM_PROGRAM": "iTerm.app", "TERM": "xterm-256color"}, "iterm"),
+    ({"TERM_PROGRAM": "WezTerm", "TERM": "xterm-256color"}, "iterm"),
+    ({"WT_SESSION": "x", "TERM": "xterm-256color"}, "sixel"),
+    ({"TERM": "foot"}, "sixel"),
+    ({"TERM": "xterm"}, None),
+])
+def test_image_protocol_per_env(monkeypatch, env, proto):
     from clover_cli import lucky
 
-    assert lucky.mark_quadrants(4) == list(lucky.MARK)
-    assert all(l.strip() == "" for l in lucky.mark_quadrants(0))
-    filled = [sum(c != " " for l in lucky.mark_quadrants(n) for c in l) for n in range(5)]
-    assert filled == sorted(filled) and len(set(filled)) == 5
+    _env(monkeypatch, **env)
+    assert lucky.image_protocol() == proto
 
 
-def test_no_anim_env_and_no_color_emit_no_escapes(monkeypatch, capsys):
+def test_logo_image_is_the_real_png_and_no_heart_art(monkeypatch):
+    import base64
+    import hashlib
+    from pathlib import Path
+
     from clover_cli import lucky
 
-    monkeypatch.setenv("CLOVER_NO_ANIM", "1")
-    assert lucky.animation_ok() is False
-    monkeypatch.setenv("NO_COLOR", "1")
-    lucky.grow_mark()
+    _env(monkeypatch, TERM="xterm-kitty")
+    out = lucky.logo_image()
+    assert out.startswith("\033_G") and "f=100" in out
+    payload = "".join(c.split(";", 1)[1] for c in out.split("\033\\")[:-1])
+    png = base64.b64decode(payload)
+    assert png == (Path(lucky.__file__).parent / "data" / "clover-logo.png").read_bytes()
+    assert png[:8] == b"\x89PNG\r\n\x1a\n" and len(png) < 8192
+    assert not hasattr(lucky, "MARK") and not hasattr(lucky, "grow_mark")
+    _env(monkeypatch, TERM_PROGRAM="iTerm.app")
+    assert lucky.logo_image().startswith("\033]1337;File=inline=1")
+    _env(monkeypatch, TERM="foot")
+    assert lucky.logo_image().startswith("\033P")
+
+
+def test_wordmark_is_solid_blocks_only():
+    from clover_cli import lucky
+
+    assert set("".join(lucky.WORDMARK)) <= set(" █▀▄")
+
+
+def test_banner_plain_xterm_has_letters_only(monkeypatch, capsys):
+    from clover_cli import lucky
+
+    _env(monkeypatch, TERM="xterm")
+    lucky.banner()
+    out = capsys.readouterr().out
+    assert "\033_G" not in out and "\033P" not in out and "1337" not in out
+    assert "██" in out and "╔" not in out
+
+
+def test_no_color_and_ascii_emit_no_escapes_or_blocks(monkeypatch, capsys):
+    from clover_cli import lucky
+
+    _env(monkeypatch, TERM="xterm-kitty", NO_COLOR="1", CLOVER_NO_ANIM="1")
+    lucky.banner()
     lucky.flourish("done")
     assert "\033" not in capsys.readouterr().out
+    _env(monkeypatch, TERM="xterm", CLOVER_ASCII="1")
+    lucky.banner()
+    out = capsys.readouterr().out
+    assert "Clover" in out and not any(c in out for c in "█▀▄")
 
 
 def test_installer_default_path_has_no_jargon():

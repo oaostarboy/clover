@@ -577,7 +577,7 @@ def image_protocol() -> str | None:
     forced = env.get("CLOVER_IMAGE", "").lower()
     if forced:
         return forced if forced in ("kitty", "iterm", "sixel") else None
-    if not should_use_color() or env.get("CLOVER_ASCII") or env.get("TERM") == "dumb":
+    if env.get("NO_COLOR") or env.get("CLOVER_ASCII") or env.get("TERM") == "dumb":
         return None
     prog, term = env.get("TERM_PROGRAM", ""), env.get("TERM", "")
     if term == "xterm-kitty" or env.get("KITTY_WINDOW_ID") or prog == "ghostty":
@@ -625,7 +625,7 @@ def logo_image() -> str:
 def banner() -> None:
     """Welcome: the real logo where the terminal can show images, then CLOVER, then the rail."""
     print()
-    img = logo_image()
+    img = logo_image() if _tty() and should_use_color() else ""
     if img:
         sys.stdout.write("  " + img + "\n")
         sys.stdout.flush()
