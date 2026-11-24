@@ -27,7 +27,7 @@ def test_quick_provider_menu_shows_no_warning_before_pick(home, monkeypatch, cap
 
     seen = {}
 
-    def fake_pick(choices, *, default=0, title=""):
+    def fake_pick(choices, *, default=0, title="", rail=False):
         seen["before"] = capsys.readouterr().out
         return None  # user cancels
 
@@ -58,7 +58,7 @@ def test_local_quick_start_asks_no_techy_questions(home, monkeypatch):
         asked.append(prompt)
         return next(answers)
 
-    monkeypatch.setattr(flows, "line_input", fake_line)
+    monkeypatch.setattr("clover_cli.cli_output.line_input", lambda p: fake_line("Web address"))
     monkeypatch.setattr("clover_cli.secret_prompt.masked_secret_prompt", lambda p: "")
     monkeypatch.setattr("builtins.input", lambda *a: asked.append("input") or "")
     monkeypatch.setattr("clover_cli.auth._save_model_choice", lambda m: None)
@@ -78,12 +78,13 @@ def test_plain_output_has_no_ansi_and_no_delay(monkeypatch, capsys):
     start = time.monotonic()
     lucky.banner()
     lucky.grow()
-    lucky.screen("Pick your lucky charm", "Choose the AI that powers Clover.")
-    lucky.leaf_step(2)
+    lucky.rail("hello")
+    lucky.step_done(lucky.leaf_title(2, "Pick its brain"), "ChatGPT")
     lucky.flourish("done")
     out = capsys.readouterr().out
     assert "\x1b" not in out
     assert "Leaf 2 of 3" in out
+    assert "┌" in out and "└" in out
     assert time.monotonic() - start < 0.3
 
 
@@ -110,8 +111,46 @@ def test_quick_start_never_prints_skipped_line(home, monkeypatch, capsys):
 def test_quick_url_step_uses_plain_words(home, monkeypatch, capsys):
     from clover_cli import model_setup_flows as flows
 
-    monkeypatch.setattr(flows, "line_input", lambda p: "")
+    monkeypatch.setattr("clover_cli.cli_output.line_input", lambda p: "")
     monkeypatch.setattr("clover_cli.secret_prompt.masked_secret_prompt", lambda p: "")
     flows._model_flow_custom({}, quick=True)
     out = capsys.readouterr().out
     assert "OpenAI-compatible" not in out and "web address" in out
+
+
+def test_select_numbered_fallback_returns_index(monkeypatch, capsys):
+    from clover_cli import lucky
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("builtins.input", lambda *a: "2")
+    idx = lucky.select("Pick", ["A  ·  one", "B  ·  two", "C"], 0)
+    out = capsys.readouterr().out
+    assert idx == 1
+    assert "\x1b" not in out and "B" in out
+
+
+def test_select_default_on_empty_and_skip_on_eof(monkeypatch):
+    from clover_cli import lucky
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("builtins.input", lambda *a: "")
+    assert lucky.select("Pick", ["A", "B"], 1) == 1
+
+    def boom(*a):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", boom)
+    assert lucky.select("Pick", ["A", "B"], 0) is None
+
+
+def test_ascii_fallback_has_no_box_characters(monkeypatch, capsys):
+    from clover_cli import lucky
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("CLOVER_ASCII", "1")
+    lucky.intro("hi")
+    lucky.step_done("Q", "A")
+    lucky.outro("bye")
+    out = capsys.readouterr().out
+    assert out.isascii() or "🍀" in out
+    assert not any(c in out for c in "┌│└◆◇●○")

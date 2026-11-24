@@ -4161,16 +4161,22 @@ def select_provider_and_model(args=None, *, short_list=False):
         _top.append(("cancel", "Skip for now", []))
         ordered = _top
         default_idx = 0
+        from clover_cli import lucky as _lucky
+
+        lucky_title = _lucky.leaf_title(2, "Pick its brain")
         provider_idx = _prompt_provider_choice(
             [label for _, label, _ in ordered],
             default=0,
-            title="Pick your lucky charm 🍀 — which AI should power Clover?",
+            title=lucky_title,
+            rail=True,
         )
         if provider_idx is not None and ordered[provider_idx][0] == "more":
             ordered = _full_ordered
             provider_idx = _prompt_provider_choice(
                 [label for _, label, _ in ordered],
                 default=default_idx,
+                title="All providers",
+                rail=True,
             )
     else:
         provider_idx = _prompt_provider_choice(
@@ -4788,13 +4794,19 @@ def _aux_flow_custom_endpoint(task: str, task_cfg: dict) -> None:
     print(f"{display_name}: custom ({short_url})" + (f" · {model}" if model else ""))
 
 
-def _prompt_provider_choice(choices, *, default=0, title="Select provider:"):
+def _prompt_provider_choice(choices, *, default=0, title="Select provider:", rail=False):
     """Show provider selection menu with curses arrow-key navigation.
 
     Falls back to a numbered list when curses is unavailable (e.g. piped
     stdin, non-TTY environments).  Returns the selected index, or None
     if the user cancels.
+
+    ``rail=True`` (quick start only) draws the clack-style side-rail selector.
     """
+    if rail:
+        from clover_cli import lucky
+
+        return lucky.select(title, list(choices), default)
     try:
         from clover_cli.setup import _curses_prompt_choice
 
@@ -5024,7 +5036,10 @@ def _save_custom_provider(
     providers.append(entry)
     cfg["custom_providers"] = providers
     save_config(cfg)
-    print(f'  💾 Saved to custom providers as "{name}" (edit in config.yaml)')
+    from clover_cli import setup as _setup
+
+    if not getattr(_setup, "_IN_QUICK_START", False):
+        print(f'  💾 Saved to custom providers as "{name}" (edit in config.yaml)')
 
 
 

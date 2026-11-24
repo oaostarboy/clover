@@ -214,9 +214,38 @@ done
 # Helper functions
 # ============================================================================
 
+# --- Side rail look -------------------------------------------------------
+# Same look as the setup wizard: one left rail, ◇ for finished steps.
+# Idea from clack (bombshell-dev/clack, MIT). Plain text when NO_COLOR is set,
+# output is not a terminal, or the locale cannot draw box characters.
+RAIL_COLOR=false
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != "dumb" ]; then
+    RAIL_COLOR=true
+fi
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *UTF-8*|*utf8*|*UTF8*|*utf-8*) RAIL_UNICODE=true ;;
+    *) RAIL_UNICODE=false ;;
+esac
+[ -n "${CLOVER_ASCII:-}" ] && RAIL_UNICODE=false
+if [ "$RAIL_UNICODE" = true ]; then
+    S_BAR='│'; S_START='┌'; S_END='└'; S_DONE='◇'; S_WARN='▲'; S_ERR='■'; S_LUCK='🍀'
+else
+    S_BAR='|'; S_START='T'; S_END='-'; S_DONE='o'; S_WARN='!'; S_ERR='x'; S_LUCK='*'
+fi
+if [ "$RAIL_COLOR" = true ]; then
+    R_G=$'\033[38;2;57;190;120m'; R_Y=$'\033[0;33m'; R_R=$'\033[0;31m'
+    R_D=$'\033[2m'; R_B=$'\033[1m'; R_N=$'\033[0m'
+else
+    R_G=''; R_Y=''; R_R=''; R_D=''; R_B=''; R_N=''
+    GREEN=''; YELLOW=''; RED=''; CYAN=''; NC=''; BOLD=''
+fi
+
+rail_line() { printf '%s%s%s  %s\n' "$R_G" "$S_BAR" "$R_N" "$1"; }
+rail_gap() { printf '%s%s%s\n' "$R_G" "$S_BAR" "$R_N"; }
+
 print_banner() {
     echo ""
-    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    if [ "$RAIL_COLOR" = true ] && [ "$RAIL_UNICODE" = true ]; then
     printf '  \033[38;2;%sm%s\033[0m\n' '146;242;186' '     ▄██▄  ▄██▄     '
     printf '  \033[38;2;%sm%s\033[0m\n' '134;234;177' '    ████████████    '
     printf '  \033[38;2;%sm%s\033[0m\n' '122;226;169' ' ▄██▄██████████▄██▄     ██████╗██╗      ██████╗ ██╗   ██╗███████╗██████╗'
@@ -231,26 +260,28 @@ print_banner() {
         echo "  C L O V E R"
     fi
     echo ""
-    echo -e "  ${GREEN}${BOLD}Feeling lucky?${NC} Let's grow your Clover."
-    echo -e "  ${CYAN}It brings its own Python, Node and tools. Nothing else on this computer gets touched.${NC}"
-    echo -e "  ${GREEN}──────────────────────────────────────────────────────────────${NC}"
-    echo ""
+    printf '%s%s%s  %s%sFeeling lucky? Let'"'"'s grow your Clover.%s\n' "$R_G" "$S_START" "$R_N" "$R_G" "$R_B" "$R_N"
+    rail_gap
+    rail_line "${R_D}It brings its own Python, Node and tools. Nothing else on this computer gets touched.${R_N}"
+    rail_gap
 }
 
 log_info() {
-    echo -e "${CYAN}→${NC} $1"
+    printf '%s%s%s  %s%s%s\n' "$R_G" "$S_BAR" "$R_N" "$R_D" "$1" "$R_N"
 }
 
 log_success() {
-    echo -e "${GREEN}✓${NC} $1"
+    printf '%s%s%s  %s\n' "$R_G" "$S_DONE" "$R_N" "$1"
+    rail_gap
 }
 
 log_warn() {
-    echo -e "${YELLOW}⚠${NC} $1"
+    printf '%s%s%s  %s\n' "$R_Y" "$S_WARN" "$R_N" "$1"
+    rail_gap
 }
 
 log_error() {
-    echo -e "${RED}✗${NC} $1"
+    printf '%s%s%s  %s\n' "$R_R" "$S_ERR" "$R_N" "$1"
 }
 
 json_escape() {
@@ -3095,35 +3126,19 @@ write_bootstrap_marker() {
 }
 
 print_success() {
+    printf '%s%s%s  %s %s%sYou struck gold! Clover is planted and ready.%s\n' "$R_G" "$S_END" "$R_N" "$S_LUCK" "$R_G" "$R_B" "$R_N"
     echo ""
-    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-    printf '  \033[38;2;%sm%s\033[0m%b\n' '146;242;186' '     ▄██▄  ▄██▄     ' ''
-    printf '  \033[38;2;%sm%s\033[0m%b\n' '134;234;177' '    ████████████    ' ''
-    printf '  \033[38;2;%sm%s\033[0m%b\n' '122;226;169' ' ▄██▄██████████▄██▄ ' ''
-    printf '  \033[38;2;%sm%s\033[0m%b\n' '109;218;160' '████████████████████' '   \033[1;38;2;146;242;186m🍀 YOU STRUCK GOLD!\033[0m'
-    printf '  \033[38;2;%sm%s\033[0m%b\n' '97;210;152' ' ▀██████▄▀▀▄██████▀ ' ''
-    printf '  \033[38;2;%sm%s\033[0m%b\n' '85;202;143' ' ▄██████▀▄▄▀██████▄ ' '   \033[38;2;36;170;109mClover is planted and ready.\033[0m'
-    printf '  \033[38;2;%sm%s\033[0m%b\n' '73;194;135' '████████████████████' ''
-    printf '  \033[38;2;%sm%s\033[0m%b\n' '60;186;126' ' ▀██▀██████████▀██▀ ' ''
-    printf '  \033[38;2;%sm%s\033[0m%b\n' '48;178;118' '    ████████████    ' ''
-    printf '  \033[38;2;%sm%s\033[0m%b\n' '36;170;109' '     ▀██▀  ▀██▀     ' ''
-    else
-        echo "  You struck gold! Clover is planted and ready."
-    fi
+    echo -e "     ${BOLD}Next:${NC} name it and pick its brain. Takes a minute."
     echo ""
-    echo -e "  ${GREEN}──────────────────────────────────────────────────────────────${NC}"
-    echo ""
-    echo -e "  ${BOLD}Next:${NC} name it and pick its brain. Takes a minute."
-    echo ""
-    echo -e "     ${GREEN}${BOLD}clover setup${NC}"
+    echo -e "        ${GREEN}${BOLD}clover setup${NC}"
     echo ""
     if [ "$DISTRO" != "termux" ] && [ "$ROOT_FHS_LAYOUT" != true ]; then
-        echo -e "  ${CYAN}If your terminal says \"clover: not found\", open a new terminal window first.${NC}"
+        echo -e "     ${CYAN}If your terminal says \"clover: not found\", open a new terminal window first.${NC}"
         echo ""
     fi
-    echo -e "  ${CYAN}Later:${NC} ${GREEN}clover${NC} chat  ·  ${GREEN}clover update${NC} stay fresh  ·  ${GREEN}clover doctor${NC} fix stuff"
+    echo -e "     ${CYAN}Later:${NC} ${GREEN}clover${NC} chat  ·  ${GREEN}clover update${NC} stay fresh  ·  ${GREEN}clover doctor${NC} fix stuff"
     echo ""
-    echo -e "  ${CYAN}Your stuff lives in $CLOVER_HOME${NC}"
+    echo -e "     ${CYAN}Your stuff lives in $CLOVER_HOME${NC}"
     echo ""
 
     # Show Node.js warning if auto-install failed

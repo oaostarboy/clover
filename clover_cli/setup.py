@@ -474,23 +474,23 @@ def _print_quick_done(provider_ready: bool) -> None:
     """Short end screen for the quick-start path."""
     from clover_cli import lucky
 
-    lucky.leaf_step(3)
-    print()
     if provider_ready:
         lucky.flourish(
             "You struck gold! Clover is ready.",
             [
-                color("Type ", Colors.DIM) + color("clover", Colors.GREEN, Colors.BOLD) + color(" to start chatting.", Colors.DIM),
+                color("Next: type ", Colors.DIM) + color("clover", Colors.GREEN, Colors.BOLD) + color(" to start chatting.", Colors.DIM),
+                "",
+                f"{color('clover setup --full', Colors.GREEN)}   Add tools, Telegram and more",
+                f"{color('clover doctor', Colors.GREEN)}         Check that everything works",
             ],
         )
-        print()
-        print(lucky.rule())
     else:
-        print(color("No luck yet? Add an AI service later with clover model.", Colors.YELLOW, Colors.BOLD))
-        print()
-        print(f"   {color('clover model', Colors.GREEN)}      Connect one now")
-    print(f"   {color('clover setup --full', Colors.GREEN)}   Add tools, Telegram and more")
-    print(f"   {color('clover doctor', Colors.GREEN)}         Check that everything works")
+        lucky.rail("No luck yet? Add an AI service later with clover model.")
+        lucky.gap()
+        lucky.outro("Almost there. Clover is saved.")
+        print(f"   {color('clover model', Colors.GREEN)}         Connect one now")
+        print(f"   {color('clover setup --full', Colors.GREEN)}   Add tools, Telegram and more")
+        print(f"   {color('clover doctor', Colors.GREEN)}         Check that everything works")
     print()
 
 
@@ -981,14 +981,13 @@ def setup_model_provider(config: dict, *, quick: bool = False, short_list: bool 
     if short_list:
         from clover_cli import lucky
 
-        lucky.leaf_step(2)
-        lucky.screen("Pick your lucky charm", "Choose the AI that powers Clover.")
+        pass
     else:
         print_header("Connect an AI service")
         print_info("Clover needs one AI service to think with. Pick one and sign in.")
     if not short_list:
         print_info(f"   Guide: {_DOCS_BASE}/integrations/providers")
-    print()
+        print()
 
     # Delegate to the shared clover model flow — handles provider picker,
     # credential prompting, model selection, and config persistence.
@@ -1777,18 +1776,10 @@ def _apply_default_agent_settings(config: dict, quiet: bool = False):
 
 def setup_agent_name(config: dict, *, lucky_theme: bool = False) -> None:
     """Configure the agent's name across branding and agent config."""
-    if lucky_theme:
-        from clover_cli import lucky
-
-        lucky.leaf_step(1)
-        lucky.screen(
-            "Every clover needs a name",
-            "Name your agent. Press Enter to keep \"Clover\".",
-        )
-    else:
+    if not lucky_theme:
         print_header("Name your agent")
         print_info("What should it be called? Press Enter to keep \"Clover\".")
-    print()
+        print()
 
     branding_cfg = config.get("branding")
     branding = branding_cfg if isinstance(branding_cfg, dict) else {}
@@ -1797,7 +1788,18 @@ def setup_agent_name(config: dict, *, lucky_theme: bool = False) -> None:
 
     current_name = str(branding.get("agent_name") or agent.get("name") or "Clover").strip()
     try:
-        name_input = prompt("Agent name", current_name)
+        if lucky_theme:
+            from clover_cli import lucky
+
+            name_input = lucky.ask(
+                lucky.leaf_title(1, "Name it"),
+                f"Every clover needs a name. Enter keeps \"{current_name}\".",
+                default=current_name,
+            )
+        else:
+            name_input = prompt("Agent name", current_name)
+    except (KeyboardInterrupt, EOFError):
+        raise
     except Exception:
         name_input = None
     name = (name_input.strip() if name_input else "") or current_name or "Clover"
@@ -1805,7 +1807,8 @@ def setup_agent_name(config: dict, *, lucky_theme: bool = False) -> None:
     config.setdefault("branding", {})["agent_name"] = name
     config.setdefault("agent", {})["name"] = name
     save_config(config)
-    print_success(f"Agent named: {name}")
+    if not lucky_theme:
+        print_success(f"Agent named: {name}")
 
 
 def setup_agent_settings(config: dict):
@@ -3039,7 +3042,8 @@ def _run_setup_wizard_impl(args):
 
     lucky.banner()
     lucky.grow("Sprouting…")
-    print(color("  Press Ctrl+C at any time to exit.", Colors.DIM))
+    lucky.rail("Press Ctrl+C at any time to exit.", dim=True)
+    lucky.gap()
 
     migration_ran = False
 

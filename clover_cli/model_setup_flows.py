@@ -687,21 +687,26 @@ def _model_flow_custom(config, quick=False):
     current_url = get_env_value("OPENAI_BASE_URL") or ""
     current_key = get_env_value("OPENAI_API_KEY") or ""
 
-    if quick:
-        print("Where's your model running? Paste its web address.")
-        print("  Example: http://127.0.0.1:11434/v1  (Ollama on this computer)")
-    else:
+    if not quick:
         print("Custom OpenAI-compatible endpoint configuration:")
-    if current_url:
-        print(f"  Current URL: {current_url}")
-    if current_key:
-        print(f"  Current key: {current_key[:8]}...")
-    print()
+        if current_url:
+            print(f"  Current URL: {current_url}")
+        if current_key:
+            print(f"  Current key: {current_key[:8]}...")
+        print()
 
     try:
-        base_url = line_input(
-            ("Web address: " if quick else f"API base URL [{current_url or 'e.g. https://api.example.com/v1'}]: ")
-        ).strip()
+        if quick:
+            from clover_cli import lucky
+
+            base_url = lucky.ask(
+                "Where's your model running?",
+                "Paste its web address. Example: http://127.0.0.1:11434/v1 (Ollama on this computer)",
+            )
+        else:
+            base_url = line_input(
+                f"API base URL [{current_url or 'e.g. https://api.example.com/v1'}]: "
+            ).strip()
         api_key = "" if quick else masked_secret_prompt(
             f"API key [{current_key[:8] + '...' if current_key else 'optional'}]: "
         ).strip()
@@ -750,8 +755,10 @@ def _model_flow_custom(config, quick=False):
     if quick:
         from clover_cli import lucky
 
-        lucky.grow("Planting the seed…")
-    probe = probe_api_models(effective_key, effective_url)
+        with lucky.working("Planting the seed…", "Seed planted"):
+            probe = probe_api_models(effective_key, effective_url)
+    else:
+        probe = probe_api_models(effective_key, effective_url)
     if probe.get("used_fallback") and probe.get("resolved_base_url"):
         print(
             f"Warning: endpoint verification worked at {probe['resolved_base_url']}/models, "
@@ -760,13 +767,17 @@ def _model_flow_custom(config, quick=False):
         effective_url = probe["resolved_base_url"]
         if base_url:
             base_url = effective_url
+    elif probe.get("models") is not None and quick:
+        pass
     elif probe.get("models") is not None:
         print(
             f"Verified endpoint via {probe.get('probed_url')} "
             f"({len(probe.get('models') or [])} model(s) visible)"
         )
     elif quick:
-        print("  Couldn't see any models there yet. Clover will save it anyway.")
+        from clover_cli import lucky
+
+        pass
     else:
         print(
             f"Warning: could not verify this endpoint via {probe.get('probed_url')}. "
@@ -810,7 +821,10 @@ def _model_flow_custom(config, quick=False):
         if quick and detected_models:
             if len(detected_models) == 1:
                 model_name = detected_models[0]
-                print(f"  Using model: {model_name}")
+                from clover_cli import lucky
+
+                lucky.rail(f"Using model: {model_name}", dim=True)
+                lucky.gap()
             else:
                 from clover_cli.main import _prompt_provider_choice
 
@@ -818,6 +832,7 @@ def _model_flow_custom(config, quick=False):
                     list(detected_models),
                     default=0,
                     title="Which model should Clover use?",
+                    rail=True,
                 )
                 model_name = detected_models[_pick if _pick is not None else 0]
         elif len(detected_models) == 1:
@@ -826,7 +841,7 @@ def _model_flow_custom(config, quick=False):
             if confirm in {"", "y", "yes"}:
                 model_name = detected_models[0]
             else:
-                model_name = line_input("Which model? (its name, e.g. llama3.2): " if quick else "Model name (e.g. gpt-4, llama-3-70b): ").strip()
+                model_name = line_input("Model name (e.g. gpt-4, llama-3-70b): ").strip()
         elif len(detected_models) > 1:
             print("  Available models:")
             for i, m in enumerate(detected_models, 1):
@@ -838,8 +853,12 @@ def _model_flow_custom(config, quick=False):
                 model_name = detected_models[int(pick) - 1]
             elif pick:
                 model_name = pick
+        elif quick:
+            from clover_cli import lucky
+
+            model_name = lucky.ask("Which model?", "Its name, e.g. llama3.2")
         else:
-            model_name = line_input("Which model? (its name, e.g. llama3.2): " if quick else "Model name (e.g. gpt-4, llama-3-70b): ").strip()
+            model_name = line_input("Model name (e.g. gpt-4, llama-3-70b): ").strip()
 
         default_name = _auto_provider_name(effective_url)
         if quick:
@@ -909,7 +928,12 @@ def _model_flow_custom(config, quick=False):
         # the stale values from its own config dict (#4172).
         config["model"] = dict(model)
 
-        print(f"Default model set to: {model_name} (via {effective_url})")
+        if quick:
+            from clover_cli import lucky
+
+            lucky.step_done("Model ready", f"{model_name} · {effective_url}")
+        else:
+            print(f"Default model set to: {model_name} (via {effective_url})")
     else:
         if base_url or api_key:
             deactivate_provider()
