@@ -15,7 +15,7 @@ Not the Electron desktop app (electron-builder config exists in apps/desktop but
 - Not notarized (Mac keychain locked, no identity).
 
 ## Tested (real runs)
-- Windows: Actions run 45475252394 on windows-latest: `/S` silent install from cmd, exit 0, real install.ps1 ran, Start Menu shortcut present, fresh cmd `clover --version` => "Clover Cognition v2.1.10.2". Log: windows-actions-run-45475252394.log. Interactive wizard pages NOT tested (no screenshot).
+- Windows: Actions run 45475252394 on windows-latest: `/S` silent install from cmd, exit 0, real install.ps1 ran, Start Menu shortcut present, fresh cmd `clover --version` => "Clover v2.1.10.2". Log: windows-actions-run-45475252394.log. Interactive wizard pages NOT tested (no screenshot).
 - Linux .deb: installed with apt in a clean debian:stable container, ran `clover-installer` as a normal user: install rc=0, `clover --version` => v2.1.10.2. Found+fixed 4 missing deps this way (xz, libatomic, build-essential, python3). Note the container run had no TTY, so the `clover setup` screen did not start there.
 - Linux .AppImage: ran on this box with a throwaway HOME inside xterm: showed the new CLOVER setup screen (appimage-first-screen.png). Full install via AppImage not run (same install.sh as the deb).
 - Linux .rpm: built; `rpm -qp` requires/files checked only. Not installed.
