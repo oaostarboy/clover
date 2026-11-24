@@ -65,6 +65,11 @@ def leaves(done: int, total: int = 3) -> str:
 
 
 def leaf_step(done: int, total: int = 3) -> None:
+    if done > 1 and animation_ok():
+        # Fresh screen per step so each one fits 80x26 on a phone.
+        sys.stdout.write("\033[2J\033[H")
+    else:
+        print()
     print(color(leaves(done, total), Colors.DIM))
 
 
