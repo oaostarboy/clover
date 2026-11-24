@@ -1108,8 +1108,23 @@ def seed_todos(steps: Sequence[str]) -> List[Dict[str, str]]:
     ]
 
 
-def child_instruction(steps: Sequence[str]) -> str:
-    """What the helper is told about its pre-seeded todo list."""
+def child_instruction(steps: Sequence[str], placeholder: bool = False) -> str:
+    """What the helper is told about its pre-seeded todo list.
+
+    ``placeholder`` means the single row is only the goal fallback (the parent
+    passed no steps): the helper must write its own real plan first.
+    """
+    if placeholder:
+        return (
+            "Your todo list has one placeholder row (id s1) that only repeats the "
+            "task; the user watches this list live. As your FIRST action, before "
+            "any other tool, call the todo tool with 3-6 short concrete steps for "
+            "this task (plain words, 60 characters or less each), the first one "
+            "in_progress. Reuse id s1 for the first real step so it replaces the "
+            "placeholder; use s2, s3... for the rest. Then keep it current "
+            "(merge=true): mark a step completed when it is done and the next one "
+            "in_progress. Do not mark work completed until you have done it."
+        )
     listed = "; ".join(f"{i + 1}) {s}" for i, s in enumerate(steps))
     return (
         "Your todo list is already set up with these steps, which the user "

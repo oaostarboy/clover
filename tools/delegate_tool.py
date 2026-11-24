@@ -5069,6 +5069,10 @@ def delegate_task(
         clean_todos(_restored[i]) if i < len(_restored) else []
         for i in range(n_tasks)
     ]
+    _placeholder = [
+        not _task_todos[i] and not (clean_steps(_ack_steps or t.get("steps")))
+        for i, t in enumerate(task_list)
+    ]
     _task_todos = [todos or seed_todos(_task_steps[i]) for i, todos in enumerate(_task_todos)]
     _task_steps = [tuple(t['content'] for t in todos) for todos in _task_todos]
     task_list = [{**t, "steps": list(_task_steps[i])} for i, t in enumerate(task_list)]
@@ -5088,7 +5092,7 @@ def delegate_task(
 
                 _child_context = (
                     f"{_child_context}\n\n" if _child_context else ""
-                ) + child_instruction(_steps_i)
+                ) + child_instruction(_steps_i, placeholder=_placeholder[i])
             if _task_schema is not None:
                 from tools.delegation_output_schema import append_output_contract
 
