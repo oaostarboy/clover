@@ -275,3 +275,5 @@ def test_template_config_alone_is_not_an_existing_setup(tmp_path):
     assert _config_has_provider(cfg) is False
     cfg.write_text("model:\n  provider: openrouter\n  default: x\n")
     assert _config_has_provider(cfg) is True
+    cfg.write_text('model:\n  default: x\n  provider: "auto"\n  base_url: "https://openrouter.ai/api/v1"\n')
+    assert _config_has_provider(cfg) is False  # shipped template

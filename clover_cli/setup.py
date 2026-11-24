@@ -3227,7 +3227,10 @@ def _config_has_provider(config_path) -> bool:
         data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
         model = data.get("model")
         if isinstance(model, dict):
-            return bool(model.get("provider") or model.get("base_url"))
+            prov = str(model.get("provider") or "").strip().lower()
+            if prov == "auto" or (not prov and model.get("base_url") == "https://openrouter.ai/api/v1"):
+                return False  # the shipped template, nothing chosen yet
+            return bool(prov) or bool(model.get("base_url"))
         return False
     except Exception:
         return True  # unreadable file: treat as an existing setup, never overwrite
