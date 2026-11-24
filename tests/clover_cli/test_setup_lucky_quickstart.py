@@ -281,3 +281,44 @@ def test_template_config_alone_is_not_an_existing_setup(tmp_path):
     assert _config_has_provider(cfg) is True
     cfg.write_text('model:\n  default: x\n  provider: "auto"\n  base_url: "https://openrouter.ai/api/v1"\n')
     assert _config_has_provider(cfg) is False  # shipped template
+
+
+def _lucky_env(monkeypatch, **env):
+    from clover_cli import lucky
+
+    for k in ("COLORTERM", "TERM", "TERM_PROGRAM", "WT_SESSION", "NO_COLOR", "CI"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
+    monkeypatch.setattr(lucky, "should_use_color", lambda: "NO_COLOR" not in env)
+    monkeypatch.setattr(lucky, "_modern_conhost", lambda: False)
+    return lucky
+
+
+def test_windows_terminal_gets_truecolor_gradient(monkeypatch):
+    lucky = _lucky_env(monkeypatch, WT_SESSION="x", TERM="xterm")
+    assert "38;2;" in lucky.gradient("CLOVER")
+
+
+def test_xterm_256_without_colorterm_gets_256_gradient(monkeypatch):
+    lucky = _lucky_env(monkeypatch, TERM="xterm-256color")
+    out = lucky.gradient("CLOVER")
+    assert "38;5;" in out and "38;2;" not in out
+    assert "\033[1;32m" not in out and "\033[32m" not in out
+
+
+def test_apple_terminal_uses_256(monkeypatch):
+    lucky = _lucky_env(monkeypatch, TERM="xterm", TERM_PROGRAM="Apple_Terminal")
+    assert "38;5;" in lucky.gradient("CLOVER")
+
+
+def test_no_color_prints_plain(monkeypatch):
+    lucky = _lucky_env(monkeypatch, NO_COLOR="1", TERM="xterm-256color")
+    assert lucky.gradient("CLOVER") == "CLOVER"
+
+
+def test_basic_terminal_falls_back_to_basic_green(monkeypatch):
+    lucky = _lucky_env(monkeypatch, TERM="xterm")
+    out = lucky.gradient("CLOVER")
+    assert "38;5;" not in out and "38;2;" not in out and "\033[" in out

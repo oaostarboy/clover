@@ -50,7 +50,7 @@ def _paint(line: str, row: int, rows: int, width: int) -> str:
     """Diagonal logo gradient across a block of art (top-left light, bottom-right deep)."""
     if not should_use_color():
         return line
-    if not truecolor_ok():
+    if color_depth() < 256:
         return color(line, Colors.GREEN, Colors.BOLD)
     out = []
     for x, ch in enumerate(line):
@@ -58,7 +58,7 @@ def _paint(line: str, row: int, rows: int, width: int) -> str:
             out.append(ch)
             continue
         r, g, b = _rgb_at((x / max(width - 1, 1) + row / max(rows - 1, 1)) / 2)
-        out.append(f"\033[38;2;{r};{g};{b}m{ch}")
+        out.append(f"{_fg(r, g, b)}{ch}")
     return "".join(out) + Colors.RESET
 
 
@@ -94,11 +94,46 @@ def rule(width: int = 56) -> str:
     return "  " + gradient("─" * width) if should_use_color() else "  " + "-" * width
 
 
+def color_depth() -> int:
+    """0 = none, 8 = basic ANSI, 256 = xterm-256, 1<<24 = truecolor."""
+    if not should_use_color():
+        return 0
+    env = os.environ
+    term = env.get("TERM", "").lower()
+    prog = env.get("TERM_PROGRAM", "")
+    if env.get("COLORTERM", "").lower() in ("truecolor", "24bit") or "direct" in term:
+        return 1 << 24
+    if env.get("WT_SESSION") or prog in ("vscode", "WezTerm", "ghostty"):
+        return 1 << 24
+    if prog == "iTerm.app" or "kitty" in term or "alacritty" in term:
+        return 1 << 24
+    if os.name == "nt" and _modern_conhost():
+        return 1 << 24
+    if prog == "Apple_Terminal" or "256color" in term:
+        return 256
+    return 8
+
+
 def truecolor_ok() -> bool:
-    return should_use_color() and (
-        os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit")
-        or "direct" in os.environ.get("TERM", "")
-    )
+    return color_depth() == 1 << 24
+
+
+def _to256(r: int, g: int, b: int) -> int:
+    """Nearest xterm-256 colour (6x6x6 cube or grey ramp)."""
+    lv = (0, 95, 135, 175, 215, 255)
+    ci = [min(range(6), key=lambda i: abs(lv[i] - c)) for c in (r, g, b)]
+    cube = 16 + 36 * ci[0] + 6 * ci[1] + ci[2]
+    cd = sum((lv[i] - c) ** 2 for i, c in zip(ci, (r, g, b)))
+    gi = min(23, max(0, round((sum((r, g, b)) / 3 - 8) / 10)))
+    gv = 8 + 10 * gi
+    gd = sum((gv - c) ** 2 for c in (r, g, b))
+    return 232 + gi if gd < cd else cube
+
+
+def _fg(r: int, g: int, b: int) -> str:
+    if color_depth() == 256:
+        return f"\033[38;5;{_to256(r, g, b)}m"
+    return f"\033[38;2;{r};{g};{b}m"
 
 
 def animation_ok() -> bool:
@@ -115,7 +150,7 @@ def gradient(text: str) -> str:
     """Colour *text* with the logo gradient (basic green without truecolor)."""
     if not should_use_color():
         return text
-    if not truecolor_ok():
+    if color_depth() < 256:
         return color(text, Colors.GREEN, Colors.BOLD)
     n = max(len(text) - 1, 1)
     out = []
@@ -123,7 +158,7 @@ def gradient(text: str) -> str:
         r, g, b = (
             round(a + (z - a) * i / n) for a, z in zip(GRADIENT_START, GRADIENT_END)
         )
-        out.append(f"\033[38;2;{r};{g};{b}m{ch}")
+        out.append(f"{_fg(r, g, b)}{ch}")
     return "".join(out) + Colors.RESET
 
 
