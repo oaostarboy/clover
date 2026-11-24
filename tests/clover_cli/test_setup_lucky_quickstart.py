@@ -264,3 +264,14 @@ def test_installer_default_path_has_no_jargon():
     shown = re.findall(r'log_success "([^"]*)"', sh)
     assert not [s for s in shown if re.search(r"\(\$|launcher|PATH|venv|Virtual environment|\.yaml|\.env", s)]
     assert "◇" not in sh
+
+
+def test_template_config_alone_is_not_an_existing_setup(tmp_path):
+    from clover_cli.setup import _config_has_provider
+
+    cfg = tmp_path / "config.yaml"
+    assert _config_has_provider(cfg) is False
+    cfg.write_text("model:\n  default: some/model\nagent:\n  max_turns: 90\n")
+    assert _config_has_provider(cfg) is False
+    cfg.write_text("model:\n  provider: openrouter\n  default: x\n")
+    assert _config_has_provider(cfg) is True

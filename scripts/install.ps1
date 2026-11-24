@@ -3556,7 +3556,7 @@ You are Clover Cognition, Built by Anthony Nguyen. Be direct: match the length o
             $env:PYTHONIOENCODING = "utf-8"
             $env:PYTHONUTF8 = "1"
             try {
-                & $pythonExe "$InstallDir\tools\skills_sync.py" 2>$null
+                & $pythonExe "$InstallDir\tools\skills_sync.py" 2>$null | ForEach-Object { if ($script:ShowDetails) { Write-Host $_ } }
             } finally {
                 $env:PYTHONIOENCODING = $prevPythonioencoding
                 $env:PYTHONUTF8 = $prevPythonutf8

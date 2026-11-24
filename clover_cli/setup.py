@@ -3052,8 +3052,10 @@ def _run_setup_wizard_impl(args):
     from clover_cli.auth import get_active_provider
 
     active_provider = get_active_provider()
+    # A config.yaml alone does not mean "already set up": the installers write
+    # the template one. Only a chosen provider/key/endpoint counts.
     is_existing = (
-        config_path.exists()
+        _config_has_provider(config_path)
         or bool(get_env_value("OPENROUTER_API_KEY"))
         or bool(get_env_value("OPENAI_BASE_URL"))
         or active_provider is not None
@@ -3213,6 +3215,22 @@ def _run_setup_wizard_impl(args):
         print_info("If setup changed a value you customized, restore it with:")
         print_info(f"  cp {_backup_path} {config_path}")
     _print_setup_summary(config, clover_home)
+
+
+def _config_has_provider(config_path) -> bool:
+    """True when config.yaml already names a provider or endpoint (not just the template)."""
+    try:
+        if not config_path.exists():
+            return False
+        import yaml
+
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        model = data.get("model")
+        if isinstance(model, dict):
+            return bool(model.get("provider") or model.get("base_url"))
+        return False
+    except Exception:
+        return True  # unreadable file: treat as an existing setup, never overwrite
 
 
 def _lucky_mod():

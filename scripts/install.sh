@@ -2353,7 +2353,7 @@ SOUL_EOF
         log_info "  Future 'clover update' runs will not inject bundled skills. Delete the marker to opt back in."
     else
         log_info "Syncing bundled skills to ~/.clover/skills/ ..."
-        if "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/tools/skills_sync.py" 2>/dev/null; then
+        if "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/tools/skills_sync.py" >/dev/null 2>&1; then
             log_success "Starter skills planted"
         else
             # Fallback: simple directory copy if Python sync fails
