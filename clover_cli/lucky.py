@@ -604,7 +604,91 @@ def _data(name: str) -> bytes:
     return (Path(__file__).parent / "data" / name).read_bytes()
 
 
-def logo_image() -> str:
+SIXEL_PX = 160  # clover-logo.six is drawn at exactly this many pixels square
+LOGO_ROWS = 7  # logo height in text rows; the 5-row CLOVER sits centred on it
+_DEFAULT_CELL = (10, 20)  # (w, h) px when the terminal won't say
+
+
+def cell_px() -> tuple[int, int]:
+    """Size of one text cell in pixels: tty winsize pixels, then CSI 16 t, else a default."""
+    if not _tty() or _use_windows_keys():
+        return _DEFAULT_CELL
+    try:
+        import fcntl
+        import struct
+        import termios
+
+        rows, cols, xpx, ypx = struct.unpack(
+            "HHHH", fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, b"\0" * 8)
+        )
+        if rows and cols and xpx and ypx:
+            w, h = xpx // cols, ypx // rows
+            if 6 <= w <= 60 and 10 <= h <= 120:
+                return w, h
+    except Exception:
+        pass
+    if not _can_key():
+        return _DEFAULT_CELL
+    try:
+        import re
+        import select
+        import termios
+        import tty
+
+        old = termios.tcgetattr(0)
+        try:
+            tty.setcbreak(0)
+            sys.stdout.write("\033[16t")
+            sys.stdout.flush()
+            buf = b""
+            while select.select([0], [], [], 0.15)[0]:
+                buf += os.read(0, 64)
+                if buf.endswith(b"t"):
+                    break
+        finally:
+            termios.tcsetattr(0, termios.TCSADRAIN, old)
+        m = re.search(rb"\033\[6;(\d+);(\d+)t", buf)
+        if m:
+            h, w = int(m.group(1)), int(m.group(2))
+            if 6 <= w <= 60 and 10 <= h <= 120:
+                return w, h
+    except Exception:
+        pass
+    return _DEFAULT_CELL
+
+
+def logo_box(proto: str | None, cell: tuple[int, int]) -> tuple[int, int, int, int]:
+    """(cols, rows, letter_top_row, sixel_shift_px) so CLOVER sits on the logo's middle."""
+    w, h = cell
+    if proto == "sixel":
+        # Letters take 5 whole rows; push the 160px image down (in 6px sixel bands)
+        # until its middle matches the middle of those rows.
+        top = max(0, -(-(SIXEL_PX // 2 - int(2.5 * h)) // h))
+        shift = round(((top + 2.5) * h - SIXEL_PX / 2) / 6) * 6
+        shift = max(0, shift)
+        rows = max(top + len(WORDMARK), -(-(SIXEL_PX + shift) // h))
+        cols = -(-SIXEL_PX // w)
+        return cols, rows, top, shift
+    rows = LOGO_ROWS
+    cols = -(-(LOGO_ROWS * h) // w)  # square image, scaled to LOGO_ROWS tall
+    return cols, rows, (LOGO_ROWS - len(WORDMARK)) // 2, 0
+
+
+def _sixel(shift_px: int = 0) -> str:
+    six = _data("clover-logo.six").decode("ascii")
+    if shift_px <= 0:
+        return six
+    import re
+
+    bands = shift_px // 6
+    m = re.match(r'(\x1bP[^q]*q"\d+;\d+;\d+;)(\d+)', six)
+    if not m:
+        return six
+    head = m.group(1) + str(int(m.group(2)) + bands * 6)
+    return head + "-" * bands + six[m.end():]
+
+
+def logo_image(shift_px: int = 0) -> str:
     """Escape sequence drawing the real Clover logo, or '' when unsupported."""
     proto = image_protocol()
     try:
@@ -615,7 +699,8 @@ def logo_image() -> str:
             chunks = [b64[i : i + 4096] for i in range(0, len(b64), 4096)]
             out = []
             for i, ch in enumerate(chunks):
-                head = "a=T,f=100,c=20,r=10,q=2," if i == 0 else ""
+                # rows only: kitty keeps the aspect ratio when one side is given
+                head = f"a=T,f=100,r={LOGO_ROWS},C=1,q=2," if i == 0 else ""
                 out.append(f"\033_G{head}m={1 if i < len(chunks) - 1 else 0};{ch}\033\\")
             return "".join(out)
         if proto == "iterm":
@@ -623,30 +708,34 @@ def logo_image() -> str:
 
             raw = _data("clover-logo.png")
             b64 = base64.b64encode(raw).decode()
-            return f"\033]1337;File=inline=1;size={len(raw)};width=20;height=10;preserveAspectRatio=1:{b64}\a"
+            return (
+                f"\033]1337;File=inline=1;size={len(raw)};width=auto;height={LOGO_ROWS};"
+                f"preserveAspectRatio=1;doNotMoveCursor=1:{b64}\a"
+            )
         if proto == "sixel":
-            return _data("clover-logo.six").decode("ascii")
+            return _sixel(shift_px)
     except Exception:
         return ""
     return ""
 
 
-LOGO_COLS, LOGO_ROWS = 20, 10
-
-
 def banner() -> None:
     """Welcome lockup: real logo on the left, CLOVER beside it, then the rail."""
     print()
-    img = logo_image() if _tty() and should_use_color() else ""
-    wide = unicode_ok() and _cols() >= (50 + (LOGO_COLS + 2 if img else 0))
+    proto = image_protocol() if _tty() and should_use_color() else None
+    cols, rows, top, shift = logo_box(proto, cell_px()) if proto else (0, 0, 0, 0)
+    img = logo_image(shift) if proto else ""
+    wide = unicode_ok() and _cols() >= (50 + (cols + 3 if img else 0))
     if img and wide:
-        top = (LOGO_ROWS - len(WORDMARK)) // 2
         out = sys.stdout
-        out.write("\n" * LOGO_ROWS + f"\033[{LOGO_ROWS}A\0337  " + img + "\0338")
-        for i in range(LOGO_ROWS):
-            out.write(f"\033[{LOGO_COLS + 4}C" if 0 <= i - top < len(WORDMARK) else "")
-            if 0 <= i - top < len(WORDMARK):
-                out.write(_wordmark_lines()[i - top])
+        letters = _wordmark_lines()
+        # Reserve the rows, draw the image from the top-left, come back, then
+        # write CLOVER beside it on the rows that hit the image's middle.
+        out.write("\n" * rows + f"\033[{rows}A\0337  " + img + "\0338")
+        for i in range(rows):
+            j = i - top
+            if 0 <= j < len(letters):
+                out.write(f"\033[{cols + 5}C" + letters[j])
             out.write("\n")
         out.flush()
     elif wide or (unicode_ok() and _cols() >= 50):
