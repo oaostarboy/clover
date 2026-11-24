@@ -41,7 +41,7 @@ else
 fi
 S="${CLOVER_PKG_SHARE:-}"
 if [ -z "$S" ]; then
-  for c in "$2/Clover.app" "$H/Applications/Clover.app" "/Applications/Clover.app"; do
+  for c in "$2/Applications/Clover.app" "$3/Applications/Clover.app" "$2/Clover.app" "$H/Applications/Clover.app" "/Applications/Clover.app"; do
     [ -f "$c/Contents/Resources/installer/install.sh" ] && S="$c/Contents/Resources/installer" && break
   done
 fi
