@@ -297,7 +297,7 @@ def _lucky_env(monkeypatch, **env):
 
 
 def test_windows_terminal_gets_truecolor_gradient(monkeypatch):
-    lucky = _lucky_env(monkeypatch, WT_SESSION="x", TERM="xterm")
+    lucky = _lucky_env(monkeypatch, WT_SESSION="x", TERM="vt100")
     assert "38;2;" in lucky.gradient("CLOVER")
 
 
@@ -318,7 +318,13 @@ def test_no_color_prints_plain(monkeypatch):
     assert lucky.gradient("CLOVER") == "CLOVER"
 
 
-def test_basic_terminal_falls_back_to_basic_green(monkeypatch):
+def test_plain_xterm_term_gets_256_gradient(monkeypatch):
     lucky = _lucky_env(monkeypatch, TERM="xterm")
+    out = lucky.gradient("CLOVER")
+    assert "38;5;" in out and "38;2;" not in out
+
+
+def test_basic_terminal_falls_back_to_basic_green(monkeypatch):
+    lucky = _lucky_env(monkeypatch, TERM="vt100")
     out = lucky.gradient("CLOVER")
     assert "38;5;" not in out and "38;2;" not in out and "\033[" in out

@@ -109,7 +109,9 @@ def color_depth() -> int:
         return 1 << 24
     if os.name == "nt" and _modern_conhost():
         return 1 << 24
-    if prog == "Apple_Terminal" or "256color" in term:
+    # Plain TERM=xterm (what xterm itself exports) handles 256 colours on every
+    # xterm built this century; rxvt/screen/tmux-256color say so in the name.
+    if prog == "Apple_Terminal" or "256color" in term or term.startswith("xterm"):
         return 256
     return 8
 
