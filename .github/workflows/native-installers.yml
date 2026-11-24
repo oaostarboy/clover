@@ -25,15 +25,14 @@ jobs:
           & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=$ver "/DBRANCH=${{ inputs.branch || 'onboarding/tui-first-pass' }}" "/DOUTFILE=$o" packaging\windows\clover.nsi
           if ($LASTEXITCODE) { exit 1 }
           Get-Item $o | Format-List Name,Length
-      - name: Silent install on the runner
-        shell: pwsh
+      - name: Silent install on the runner (from cmd, like a user)
+        shell: cmd
         run: |
-          $exe = (Get-ChildItem out\*.exe)[0].FullName
-          $p = Start-Process $exe -ArgumentList '/S' -Wait -PassThru
-          "installer exit: $($p.ExitCode)"
-          Get-ChildItem "$env:LOCALAPPDATA\Clover Installer" | Format-Table Name,Length
-          Get-Content "$env:LOCALAPPDATA\Clover Installer\install.log" -Tail 60
-          Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Clover\Clover.lnk"
+          for %%f in (out\*.exe) do start /wait "" "%%f" /S
+          echo installer exit: %ERRORLEVEL%
+          dir "%LOCALAPPDATA%\Clover Installer"
+          type "%LOCALAPPDATA%\Clover Installer\install.log"
+          if exist "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Clover\Clover.lnk" (echo start-menu shortcut: yes) else (echo start-menu shortcut: NO)
       - name: clover --version in a fresh shell
         shell: cmd
         run: |
