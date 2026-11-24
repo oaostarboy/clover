@@ -2862,7 +2862,7 @@ install_browser_use_cli() {
     # on the user's PATH is a side install — resolution prefers the managed
     # copy, so it must be provisioned regardless.
     if [ -x "$CLOVER_HOME/bin/browser-use" ]; then
-        log_success "Browser Use CLI already installed"
+        log_success "Browser helper is ready"
         return 0
     fi
 
@@ -2871,7 +2871,7 @@ install_browser_use_cli() {
     # the browser tool resolves it — no reliance on the user's PATH.
     if run_with_timeout 600 env UV_NO_CONFIG=1 UV_TOOL_BIN_DIR="$CLOVER_HOME/bin" \
         "$UV_CMD" tool install browser-use >/dev/null 2>&1; then
-        log_success "Browser Use CLI installed"
+        log_success "Browser helper is ready"
     else
         log_warn "Browser Use CLI install failed — browser automation falls back to built-in tools."
         log_info "Install later with: $UV_CMD tool install browser-use  (or via 'clover tools')"
@@ -2928,7 +2928,7 @@ install_computer_use_driver() {
     esac
     if command -v cua-driver >/dev/null 2>&1; then
         if cua_driver_runtime_compatible; then
-            log_success "Computer Use driver (cua-driver) already installed and compatible"
+            log_success "Screen control is ready"
             return 0
         fi
         log_warn "Existing cua-driver is old or incomplete; repairing it"
@@ -2951,7 +2951,7 @@ install_computer_use_driver() {
     if run_with_timeout 660 /bin/bash -c \
         'curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh | /bin/bash' \
         >"$cua_log" 2>&1; then
-        log_success "Computer Use driver installed (enable via 'clover tools' → Computer Use)"
+        log_success "Screen control is ready"
     else
         log_warn "Computer Use driver install failed — it will install on demand when you enable the tool."
         log_info "Install later with: clover computer-use install"
