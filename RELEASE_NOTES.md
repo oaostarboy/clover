@@ -15,6 +15,10 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.11 | Clover C2.1.11 | 2026-11-24
+
+- Helper checklists show real steps within seconds, even when the agent didn't plan them ahead.
+
 ## 2.1.10.2 | Clover C2.1.10.2 | 2026-11-23
 
 - Several photos sent together in Telegram now arrive as one message, even when one photo is slow to load.
