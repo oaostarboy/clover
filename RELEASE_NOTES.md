@@ -15,6 +15,10 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.11.1 | Clover C2.1.11.1 | 2026-11-24
+
+- Helper checklists now tick off each step as the helper finishes it, not all at the end.
+
 ## 2.1.11 | Clover C2.1.11 | 2026-11-24
 
 - Helper checklists show real steps within seconds, even when the agent didn't plan them ahead.
