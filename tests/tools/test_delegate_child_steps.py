@@ -295,3 +295,12 @@ def test_child_todo_write_replaces_placeholder_row():
                              {"id": "s2", "content": "two", "status": "pending"},
                              {"id": "s3", "content": "three", "status": "pending"}])
     assert _rows(card, 1) == [("one", "in_progress"), ("two", "pending"), ("three", "pending")]
+
+
+def test_child_instruction_tells_helper_to_tick_as_it_goes():
+    from agent import ack_checklist as ac
+    for text in (ac.child_instruction(()  , placeholder=True),
+                 ac.child_instruction(("a", "b"))):
+        assert "one todo call per step change" in text
+        assert "merge=true" in text
+        assert "never batch several steps" in text.lower()

@@ -1108,6 +1108,17 @@ def seed_todos(steps: Sequence[str]) -> List[Dict[str, str]]:
     ]
 
 
+_TICK_RULE = (
+    "Keep the list live, one todo call per step change: the moment a step's "
+    "work is done, your very next call is todo (merge=true) marking it "
+    "completed and the next step in_progress, before any tool call for the "
+    "next step. Do this even when the step was quick. Never batch several "
+    "steps into one todo call and never mark a step completed before you "
+    "have done it. After the last step, call todo once more so every step "
+    "shows completed, then give your final answer."
+)
+
+
 def child_instruction(steps: Sequence[str], placeholder: bool = False) -> str:
     """What the helper is told about its pre-seeded todo list.
 
@@ -1121,18 +1132,14 @@ def child_instruction(steps: Sequence[str], placeholder: bool = False) -> str:
             "any other tool, call the todo tool with 3-6 short concrete steps for "
             "this task (plain words, 60 characters or less each), the first one "
             "in_progress. Reuse id s1 for the first real step so it replaces the "
-            "placeholder; use s2, s3... for the rest. Then keep it current "
-            "(merge=true): mark a step completed when it is done and the next one "
-            "in_progress. Do not mark work completed until you have done it."
+            "placeholder; use s2, s3... for the rest. "
+            + _TICK_RULE
         )
     listed = "; ".join(f"{i + 1}) {s}" for i, s in enumerate(steps))
     return (
         "Your todo list is already set up with these steps, which the user "
-        f"watches live: {listed}. Keep it current with the todo tool as you "
-        "work (merge=true): mark a step completed when it is done and the "
-        "next one in_progress. Keep each item's id when you rename or reorder "
-        "it. Add concrete steps you discover; do not mark work completed until "
-        "you have done it."
+        f"watches live: {listed}. Keep each item's id when you rename or "
+        "reorder it, and add concrete steps you discover. " + _TICK_RULE
     )
 
 
