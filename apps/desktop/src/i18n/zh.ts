@@ -2845,7 +2845,7 @@ export const zh: Translations = {
     applyRemote: '应用并重新连接',
     backToSetup: '返回',
     failedTitle: '安装失败',
-    settingUpTitle: '正在设置 Clover Cognition',
+    settingUpTitle: '正在设置 Clover',
     finishingTitle: '正在收尾',
     failedDesc:
       '某个安装步骤失败。在 Windows 上，如果另一个 Clover CLI 或桌面实例正在运行，可能会出现这种情况。请停止正在运行的 Clover 实例后重试。可查看下面的详情或 desktop 日志中的完整记录。',
@@ -2867,7 +2867,7 @@ export const zh: Translations = {
   },
 
   onboarding: {
-    headerTitle: '开始设置 Clover Cognition',
+    headerTitle: '开始设置 Clover',
     headerDesc: '连接模型提供方即可开始对话。大多数选项只需一次点击。',
     preparingInstall: 'Clover 正在完成安装。首次运行通常不到一分钟。',
     starting: '正在启动 Clover…',

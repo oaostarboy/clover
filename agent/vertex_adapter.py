@@ -1,4 +1,4 @@
-"""Vertex AI (Google Cloud) adapter for Clover Cognition.
+"""Vertex AI (Google Cloud) adapter for Clover.
 
 Provides authentication and configuration for Vertex AI's OpenAI-compatible
 endpoint. This allows Clover to use Gemini models via Google Cloud with

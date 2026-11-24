@@ -129,7 +129,7 @@ class PtyBridge:
             if sys.platform.startswith("win"):
                 raise PtyUnavailableError(
                     "Pseudo-terminals are unavailable on this platform. "
-                    "Clover Cognition supports Windows only via WSL."
+                    "Clover supports Windows only via WSL."
                 )
             if ptyprocess is None:
                 raise PtyUnavailableError(

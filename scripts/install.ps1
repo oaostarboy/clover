@@ -1,5 +1,5 @@
 # ============================================================================
-# Clover Cognition Installer for Windows
+# Clover Installer for Windows
 # ============================================================================
 # Installation script for Windows (PowerShell).
 # Uses uv for fast Python provisioning and package management.
@@ -4452,7 +4452,7 @@ function New-DesktopShortcuts {
                 $sc.TargetPath = $TargetExe
                 $sc.WorkingDirectory = $workDir
                 $sc.IconLocation = $iconLocation
-                $sc.Description = 'Clover Cognition'
+                $sc.Description = 'Clover'
                 $sc.Save()
                 Write-Success "Shortcut created: $lnkPath"
             } catch {

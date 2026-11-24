@@ -2113,7 +2113,7 @@ export const ar = defineLocale({
     reloadRetry: 'إعادة التحميل وإعادة المحاولة'
   },
   onboarding: {
-    headerTitle: 'لنُعِدّ لك Clover Cognition',
+    headerTitle: 'لنُعِدّ لك Clover',
     headerDesc: 'اربط مزوّد نماذج لبدء المحادثة. معظم الخيارات تتطلب نقرة واحدة.',
     preparingInstall: 'يُكمل Clover التثبيت. عادة ما يستغرق ذلك أقل من دقيقة في أول تشغيل.',
     starting: 'جار بدء Clover...',

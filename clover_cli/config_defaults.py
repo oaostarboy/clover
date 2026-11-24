@@ -1,4 +1,4 @@
-"""Default configuration data for Clover Cognition.
+"""Default configuration data for Clover.
 
 Pure-data leaf module: DEFAULT_CONFIG and OPTIONAL_ENV_VARS, extracted
 verbatim from clover_cli/config.py. Must not import from clover_cli.config.
@@ -2665,7 +2665,7 @@ DEFAULT_CONFIG = {
     # WhatsApp platform settings (gateway mode)
     "whatsapp": {
         # Reply prefix prepended to every outgoing WhatsApp message.
-        # Default (None) uses the built-in "☘ *Clover Cognition*" header.
+        # Default (None) uses the built-in "☘ *Clover*" header.
         # Set to "" (empty string) to disable the header entirely.
         # Supports \n for newlines, e.g. "🤖 *My Bot*\n──────\n"
     },

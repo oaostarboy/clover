@@ -101,7 +101,7 @@ def build_dashboard_parser(
     dashboard_parser = subparsers.add_parser(
         "dashboard",
         help="Start the web UI dashboard",
-        description="Launch the Clover Cognition web dashboard for managing config, API keys, and sessions",
+        description="Launch the Clover web dashboard for managing config, API keys, and sessions",
     )
     _add_server_runtime_args(dashboard_parser)
     dashboard_parser.add_argument(

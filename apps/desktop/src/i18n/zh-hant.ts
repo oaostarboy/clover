@@ -2266,7 +2266,7 @@ export const zhHant = defineLocale({
     applyRemote: '套用並重新連線',
     backToSetup: '返回',
     failedTitle: '安裝失敗',
-    settingUpTitle: '正在設定 Clover Cognition',
+    settingUpTitle: '正在設定 Clover',
     finishingTitle: '正在收尾',
     failedDesc:
       '某個安裝步驟失敗。在 Windows 上，如果另一個 Clover CLI 或桌面執行個體正在執行，可能會出現這種情況。請停止正在執行的 Clover 執行個體後重試。可查看下方的詳細資訊或 desktop 記錄中的完整記錄。',
@@ -2288,7 +2288,7 @@ export const zhHant = defineLocale({
   },
 
   onboarding: {
-    headerTitle: '開始設定 Clover Cognition',
+    headerTitle: '開始設定 Clover',
     headerDesc: '連線模型提供方即可開始聊天。大多數選項只需一次點擊。',
     preparingInstall: 'Clover 正在完成安裝。首次執行通常不到一分鐘。',
     starting: '正在啟動 Clover…',

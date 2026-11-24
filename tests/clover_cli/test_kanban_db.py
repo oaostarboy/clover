@@ -1216,7 +1216,7 @@ def test_resolve_clover_argv_module_actually_runs():
         f"`{' '.join(argv)} --version` failed (rc={r.returncode}); "
         f"stderr={r.stderr[:200]!r}"
     )
-    assert "Clover Cognition" in r.stdout, f"unexpected output: {r.stdout[:200]!r}"
+    assert "Clover" in r.stdout, f"unexpected output: {r.stdout[:200]!r}"
 
 
 # ---------------------------------------------------------------------------

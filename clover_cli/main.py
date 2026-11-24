@@ -36,7 +36,7 @@ Usage:
     clover honcho migrate                  # Step-by-step migration guide: OpenClaw native → Clover + Honcho
     clover --version           Show version and update status
     clover update              Pull the newest version
-    clover uninstall           Uninstall Clover Cognition
+    clover uninstall           Uninstall Clover
     clover acp                 Run as an ACP server for editor integration
     clover sessions browse     Interactive session picker with search
 
@@ -3728,14 +3728,14 @@ def cmd_whatsapp(args):
             print("    2. Send a message to the bot's WhatsApp number")
             print("    3. The agent will reply automatically")
             print()
-            print("  Tip: Agent responses are prefixed with '☘ Clover Cognition'")
+            print("  Tip: Agent responses are prefixed with '☘ Clover'")
         else:
             print("  Next steps:")
             print("    1. Start the gateway:  clover gateway")
             print("    2. Open WhatsApp → Message Yourself")
             print("    3. Type a message — the agent will reply")
             print()
-            print("  Tip: Agent responses are prefixed with '☘ Clover Cognition'")
+            print("  Tip: Agent responses are prefixed with '☘ Clover'")
             print("  so you can tell them apart from your own messages.")
         print()
         print("  Or install as a service: clover gateway install")
@@ -5844,7 +5844,7 @@ def cmd_version(args):
 
 
 def cmd_uninstall(args):
-    """Uninstall Clover Cognition (or just the Chat GUI with --gui)."""
+    """Uninstall Clover (or just the Chat GUI with --gui)."""
     # Machine-readable install snapshot for the desktop app's uninstall UI.
     # Must run before any TTY gate — it's called from a non-interactive child.
     if getattr(args, "gui_summary", False):
@@ -10845,7 +10845,7 @@ def _size_delta_label(saved_mb: float) -> str:
 
 
 def cmd_update(args):
-    """Update Clover Cognition to the latest version.
+    """Update Clover to the latest version.
 
     Thin wrapper around ``_cmd_update_impl``: installs hangup protection,
     runs the update, then restores stdio on the way out (even on
@@ -10857,7 +10857,7 @@ def cmd_update(args):
     )
 
     if is_managed():
-        managed_error("update Clover Cognition")
+        managed_error("update Clover")
         return
 
     # --plan is read-only and deployment-kind aware, so it runs BEFORE the
@@ -13001,7 +13001,7 @@ def cmd_memory(args):
 
 
 def cmd_acp(args):
-    """Launch Clover Cognition as an ACP server."""
+    """Launch Clover as an ACP server."""
     try:
         from acp_adapter.entry import main as acp_main
 

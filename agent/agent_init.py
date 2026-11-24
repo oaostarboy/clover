@@ -2892,7 +2892,7 @@ def init_agent(
             f"(this must be at least {MINIMUM_CONTEXT_LENGTH // 1000}K)."
         )
 
-    # Clover Clover 3/4 are chat models, not tool-call-tuned. The interactive
+    # Clover 3/4 are chat models, not tool-call-tuned. The interactive
     # CLI already warns via cli.py show_banner() (richer output + /model hint),
     # so skip platform=="cli" here to avoid emitting the warning twice per
     # startup. (Gateway/TUI/cron construct with quiet_mode=True and are already
@@ -2906,7 +2906,7 @@ def init_agent(
             _clover_warn = _check_clover_model_warning(agent.model or "")
             if _clover_warn:
                 _user_msg = (
-                    "⚠ Clover Cognition Clover 3 & 4 models are NOT agentic — they "
+                    "⚠ Clover 3 & 4 models are NOT agentic — they "
                     "lack reliable tool-calling for agent workflows (delegation, "
                     "cron, proactive tools). Consider an agentic model instead "
                     "(Claude, GPT, Gemini, Qwen-Coder, etc.)."

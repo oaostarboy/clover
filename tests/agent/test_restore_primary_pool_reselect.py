@@ -1,4 +1,4 @@
-# Copyright 2025 Clover Cognition (Licensed under the Apache License, Version 2.0)
+# Copyright 2025 Clover (Licensed under the Apache License, Version 2.0)
 """Test that _restore_primary_runtime re-selects from the credential pool
 instead of using a stale snapshot key.
 

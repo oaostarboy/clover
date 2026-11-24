@@ -2150,7 +2150,7 @@ class GatewaySlashCommandsMixin:
             "If I'm not back in a minute, run `clover gateway restart` on the computer."))
 
     async def _handle_version_command(self, event: MessageEvent) -> str:
-        """Handle /version — show the running Clover Cognition version."""
+        """Handle /version — show the running Clover version."""
         from clover_cli.slash_exec import CommandContext, execute_command
 
         return execute_command("version", CommandContext(surface="gateway")).text
@@ -7136,7 +7136,7 @@ class GatewaySlashCommandsMixin:
         return await self._handle_update_command(event, action="repair")
 
     async def _handle_update_command(self, event: MessageEvent, *, action: str = "update") -> str:
-        """Handle /update command — update Clover Cognition to the latest version.
+        """Handle /update command — update Clover to the latest version.
 
         Spawns ``clover update`` in a detached session (via ``setsid``) so it
         survives the gateway restart that ``clover update`` may trigger. Marker
@@ -7167,7 +7167,7 @@ class GatewaySlashCommandsMixin:
                 return t("gateway.update.platform_not_messaging")
 
         if action == "update" and is_managed():
-            return f"✗ {format_managed_message('update Clover Cognition')}"
+            return f"✗ {format_managed_message('update Clover')}"
 
         # Read-only pre-check (clover_cli.update_preflight) BEFORE anything is
         # written or spawned: when this install can't update, say why in one

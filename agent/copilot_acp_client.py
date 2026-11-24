@@ -548,7 +548,7 @@ class CopilotACPClient:
                     },
                     "clientInfo": {
                         "name": "clover-c1",
-                        "title": "Clover Cognition",
+                        "title": "Clover",
                         "version": "0.0.0",
                     },
                 },

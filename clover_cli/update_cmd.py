@@ -1918,7 +1918,7 @@ def _restore_state_db_from_snapshot(state_path: Path, snap_state: Path) -> bool:
 
 
 def _update_via_zip(args, *, had_desktop_app_before_update: bool = False) -> bool:
-    """Update Clover Cognition by downloading a ZIP archive.
+    """Update Clover by downloading a ZIP archive.
 
     Used on Windows when git file I/O is broken (antivirus, NTFS filter
     drivers causing 'Invalid argument' errors on file creation).
@@ -4895,7 +4895,7 @@ def _ensure_fhs_path_guard() -> None:
 
     path_line = 'export PATH="/usr/local/bin:$PATH"'
     path_comment = (
-        "# Clover Cognition — ensure /usr/local/bin is on PATH " "(RHEL non-login shells)"
+        "# Clover — ensure /usr/local/bin is on PATH " "(RHEL non-login shells)"
     )
     wrote_any = False
     for candidate in (".bashrc", ".bash_profile"):
@@ -4970,7 +4970,7 @@ def _ensure_acp_launcher() -> None:
                 continue
             shim = (
                 "#!/usr/bin/env bash\n"
-                "# Clover Cognition — ACP launcher (written by `clover update`).\n"
+                "# Clover — ACP launcher (written by `clover update`).\n"
                 "# ACP hosts (Zed, JetBrains, Buzz) resolve the agent by this\n"
                 "# command name on the login-shell PATH.\n"
                 f'exec "{clover_cmd}" acp "$@"\n'
@@ -8612,7 +8612,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         (get_clover_home() / UPDATE_REFUSAL_NAME).unlink(missing_ok=True)
     except OSError:
         pass
-    print("☘ Updating Clover Cognition...")
+    print("☘ Updating Clover...")
     print()
 
     # A killed git (an earlier `clover update` interrupted mid-run, a probe

@@ -1,7 +1,7 @@
 """
 Doctor command for clover CLI.
 
-Diagnoses issues with Clover Cognition setup.
+Diagnoses issues with Clover setup.
 """
 
 import os

@@ -142,7 +142,7 @@ def build_top_level_parser():
     """
     parser = argparse.ArgumentParser(
         prog="clover",
-        description="Clover Cognition - an agent that remembers you, and gets better at its job",
+        description="Clover - an agent that remembers you, and gets better at its job",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=_EPILOGUE,
     )
@@ -361,7 +361,7 @@ def build_top_level_parser():
     chat_parser = subparsers.add_parser(
         "chat",
         help="Interactive chat with the agent",
-        description="Start an interactive chat session with Clover Cognition",
+        description="Start an interactive chat session with Clover",
     )
     _query_group = chat_parser.add_mutually_exclusive_group()
     _query_group.add_argument(

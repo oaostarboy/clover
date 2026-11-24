@@ -17,7 +17,7 @@ def build_setup_parser(subparsers, *, cmd_setup: Callable) -> None:
     setup_parser = subparsers.add_parser(
         "setup",
         help="Interactive setup wizard",
-        description="Configure Clover Cognition with an interactive wizard. "
+        description="Configure Clover with an interactive wizard. "
         "To connect Claude Code in one step: clover setup claude. "
         "Run a specific section: "
         "clover setup model|tts|terminal|gateway|tools|telemetry|agent",

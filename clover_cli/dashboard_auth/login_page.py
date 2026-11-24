@@ -4,7 +4,7 @@ No React, no JavaScript dependency. Listed providers come from the
 registry; clicking a provider sends a GET to
 ``/auth/login?provider=<name>``.
 
-Visual styling mirrors the Clover Cognition design system (the
+Visual styling mirrors the Clover design system (the
 ``@clover/ui`` package the React dashboard uses): the same
 ``Collapse`` / ``Rules Compressed`` typeface, amber-on-dark colour
 tokens (``#170d02`` / ``#ffac02`` / ``#fff``), uppercase + wide-tracking
@@ -38,7 +38,7 @@ _LOGIN_HTML_TEMPLATE = """\
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in — Clover Cognition</title>
+<title>Sign in — Clover</title>
 <style>
   /* Brand fonts shipped by @clover/ui — same files the SPA loads. */
   @font-face {{
@@ -305,7 +305,7 @@ _LOGIN_HTML_TEMPLATE = """\
   <div class="brand">Clover<span class="dot"></span>Research</div>
   <div class="card">
     <h1>Sign in</h1>
-    <p class="subtitle">Choose a sign-in method to continue to the Clover Cognition dashboard.</p>
+    <p class="subtitle">Choose a sign-in method to continue to the Clover dashboard.</p>
     <div class="provider-list">
 {provider_buttons}
     </div>
@@ -325,7 +325,7 @@ _EMPTY_HTML = """\
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign-in unavailable — Clover Cognition</title>
+<title>Sign-in unavailable — Clover</title>
 <style>
   @font-face {
     font-family: 'Collapse';

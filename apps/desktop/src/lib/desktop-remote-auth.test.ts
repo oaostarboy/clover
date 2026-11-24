@@ -25,20 +25,20 @@ describe('deriveRemoteAuthProviderShape', () => {
 
   it('keeps OAuth copy for redirect providers and mixed deployments', () => {
     expect(
-      deriveRemoteAuthProviderShape([{ name: 'clover', displayName: 'Clover Cognition', supportsPassword: false }])
+      deriveRemoteAuthProviderShape([{ name: 'clover', displayName: 'Clover', supportsPassword: false }])
     ).toEqual({
       isPassword: false,
-      providerLabel: 'Clover Cognition'
+      providerLabel: 'Clover'
     })
 
     expect(
       deriveRemoteAuthProviderShape([
         { name: 'basic', displayName: 'Username & Password', supportsPassword: true },
-        { name: 'clover', displayName: 'Clover Cognition', supportsPassword: false }
+        { name: 'clover', displayName: 'Clover', supportsPassword: false }
       ])
     ).toEqual({
       isPassword: false,
-      providerLabel: 'Username & Password / Clover Cognition'
+      providerLabel: 'Username & Password / Clover'
     })
   })
 

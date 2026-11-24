@@ -201,7 +201,7 @@ def print_fast_version_info(*, check_updates: bool = True) -> None:
     except Exception:
         from clover_cli import __release_date__, __version__
 
-        print(f"Clover Cognition v{__version__} ({__release_date__})")
+        print(f"Clover v{__version__} ({__release_date__})")
 
     print(f"Install directory: {project_root_str()}")
 

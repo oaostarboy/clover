@@ -43,7 +43,7 @@ describe('DEFAULT_THEME', () => {
   it('has brand defaults', async () => {
     const { DEFAULT_THEME } = await importThemeWithCleanEnv()
 
-    expect(DEFAULT_THEME.brand.name).toBe('Clover Cognition')
+    expect(DEFAULT_THEME.brand.name).toBe('Clover')
     expect(DEFAULT_THEME.brand.prompt).toBe('❯')
     expect(DEFAULT_THEME.brand.tool).toBe('┊')
   })

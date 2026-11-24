@@ -1,5 +1,5 @@
 """
-Interactive setup wizard for Clover Cognition.
+Interactive setup wizard for Clover.
 
 Modular wizard with independently-runnable sections:
   1. Model & Provider — choose your AI provider and model
