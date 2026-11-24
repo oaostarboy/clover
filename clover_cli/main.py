@@ -4032,7 +4032,7 @@ def select_provider_and_model(args=None, *, short_list=False):
         try:
             active = resolve_provider("auto")
         except AuthError as exc:
-            if effective_provider == "auto":
+            if effective_provider == "auto" and not short_list:
                 warning = format_auth_error(exc)
                 print(f"Warning: {warning} Falling back to auto provider detection.")
             active = None  # no provider yet; default to first in list
@@ -4055,10 +4055,12 @@ def select_provider_and_model(args=None, *, short_list=False):
     else:
         active_label = provider_labels.get(active, active) if active else "none"
 
-    print()
-    print(f"  Current model:    {current_model}")
-    print(f"  Active provider:  {active_label}")
-    print()
+    if not (short_list and not active):
+        # First-run quick start has nothing to show yet; the pick comes first.
+        print()
+        print(f"  Current model:    {current_model}")
+        print(f"  Active provider:  {active_label}")
+        print()
 
     # Step 1: Provider selection.
     #
@@ -4162,7 +4164,7 @@ def select_provider_and_model(args=None, *, short_list=False):
         provider_idx = _prompt_provider_choice(
             [label for _, label, _ in ordered],
             default=0,
-            title="Pick the AI service Clover will use:",
+            title="Choose the AI that powers Clover:",
         )
         if provider_idx is not None and ordered[provider_idx][0] == "more":
             ordered = _full_ordered
@@ -4229,7 +4231,7 @@ def select_provider_and_model(args=None, *, short_list=False):
     elif selected_provider == "copilot":
         _model_flow_copilot(config, current_model)
     elif selected_provider == "custom":
-        _model_flow_custom(config)
+        _model_flow_custom(config, quick=short_list)
     elif (
         selected_provider.startswith("custom:")
         or selected_provider in _custom_provider_map

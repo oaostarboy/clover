@@ -469,13 +469,17 @@ def _prompt_api_key(var: dict):
 
 def _print_quick_done(provider_ready: bool) -> None:
     """Short end screen for the quick-start path."""
+    from clover_cli import lucky
+
+    lucky.leaf_step(3)
     print()
     if provider_ready:
-        print(color("✓ You're set. Clover is ready.", Colors.GREEN, Colors.BOLD))
+        lucky.flourish("You struck gold! Clover is ready.")
+        print(color("  Type clover to start.", Colors.DIM))
         print()
         print(f"   {color('clover', Colors.GREEN)}            Start chatting")
     else:
-        print(color("Almost there: no AI service is connected yet.", Colors.YELLOW, Colors.BOLD))
+        print(color("No luck yet? Add an AI service later with clover model.", Colors.YELLOW, Colors.BOLD))
         print()
         print(f"   {color('clover model', Colors.GREEN)}      Connect one now")
     print(f"   {color('clover setup --full', Colors.GREEN)}   Change tools, messaging and more")
@@ -967,8 +971,14 @@ def setup_model_provider(config: dict, *, quick: bool = False, short_list: bool 
     """
     from clover_cli.config import load_config, save_config
 
-    print_header("Connect an AI service")
-    print_info("Clover needs one AI service to think with. Pick one and sign in.")
+    if short_list:
+        from clover_cli import lucky
+
+        lucky.leaf_step(2)
+        lucky.screen("Pick your lucky charm", "Choose the AI that powers Clover.")
+    else:
+        print_header("Connect an AI service")
+        print_info("Clover needs one AI service to think with. Pick one and sign in.")
     if not short_list:
         print_info(f"   Guide: {_DOCS_BASE}/integrations/providers")
     print()
@@ -1758,10 +1768,19 @@ def _apply_default_agent_settings(config: dict, quiet: bool = False):
     print_info("  Run `clover setup agent` later to customize.")
 
 
-def setup_agent_name(config: dict) -> None:
+def setup_agent_name(config: dict, *, lucky_theme: bool = False) -> None:
     """Configure the agent's name across branding and agent config."""
-    print_header("Name your agent")
-    print_info("What should it be called? Press Enter to keep \"Clover\".")
+    if lucky_theme:
+        from clover_cli import lucky
+
+        lucky.leaf_step(1)
+        lucky.screen(
+            "Every clover needs a name",
+            "Name your agent. Press Enter to keep \"Clover\".",
+        )
+    else:
+        print_header("Name your agent")
+        print_info("What should it be called? Press Enter to keep \"Clover\".")
     print()
 
     branding_cfg = config.get("branding")
@@ -3009,40 +3028,11 @@ def _run_setup_wizard_impl(args):
         or active_provider is not None
     )
 
-    print()
-    print(
-        color(
-            "┌─────────────────────────────────────────────────────────┐",
-            Colors.MAGENTA,
-        )
-    )
-    print(
-        color(
-            "│             ☘ Clover Cognition Setup Wizard             │", Colors.MAGENTA
-        )
-    )
-    print(
-        color(
-            "├─────────────────────────────────────────────────────────┤",
-            Colors.MAGENTA,
-        )
-    )
-    print(
-        color(
-            "│  Two quick questions and you're ready to go.            │", Colors.MAGENTA
-        )
-    )
-    print(
-        color(
-            "│  Press Ctrl+C at any time to exit.                      │", Colors.MAGENTA
-        )
-    )
-    print(
-        color(
-            "└─────────────────────────────────────────────────────────┘",
-            Colors.MAGENTA,
-        )
-    )
+    from clover_cli import lucky
+
+    lucky.banner()
+    lucky.grow("Sprouting…")
+    print(color("  Press Ctrl+C at any time to exit.", Colors.DIM))
 
     migration_ran = False
 
@@ -3202,7 +3192,7 @@ def _run_quick_start(config: dict, clover_home) -> None:
     keeps its default. Each can be changed later with `clover setup <part>`.
     """
     _apply_default_agent_settings(config, quiet=True)
-    setup_agent_name(config)
+    setup_agent_name(config, lucky_theme=True)
     setup_model_provider(config, short_list=True)
     save_config(config)
     _print_setup_summary(config, clover_home, quick=True)

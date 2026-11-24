@@ -180,7 +180,7 @@ def test_quick_start_asks_only_name_and_provider(monkeypatch, tmp_path):
     from clover_cli.config import load_config
 
     calls = []
-    monkeypatch.setattr(setup_mod, "setup_agent_name", lambda c: calls.append("name"))
+    monkeypatch.setattr(setup_mod, "setup_agent_name", lambda c, **k: calls.append("name"))
     monkeypatch.setattr(
         setup_mod, "setup_model_provider",
         lambda c, short_list=False: calls.append(("model", short_list)),
