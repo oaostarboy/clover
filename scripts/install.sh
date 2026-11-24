@@ -849,7 +849,7 @@ check_git() {
 # whether to proceed rather than aborting the whole install (unlike git,
 # which is hard-required much earlier for clone_repo).
 check_cxx_compiler() {
-    log_info "Checking for a C++ compiler (needed to build native Node modules like node-pty)..."
+    log_info "Looking for a compiler (some browser parts need building)..."
 
     if command -v g++ &> /dev/null || command -v clang++ &> /dev/null; then
         log_success "C++ compiler found"
@@ -1150,7 +1150,7 @@ install_node() {
 }
 
 check_network_prerequisites() {
-    log_info "Checking internet connectivity for package install and web tools..."
+    log_info "Making sure the internet is reachable..."
 
     local url
     local failed=false
@@ -1190,7 +1190,7 @@ check_network_prerequisites() {
     rm -rf "$tmpdir"
 
     if [ "$failed" = false ]; then
-        log_success "Internet connectivity looks good"
+        log_success "Internet is up"
         return 0
     fi
 
@@ -1441,7 +1441,7 @@ adopt_non_git_install() {
 }
 
 clone_repo() {
-    log_info "Installing to $INSTALL_DIR..."
+    log_info "Clover will grow in $INSTALL_DIR"
 
     # An interrupted previous clone leaves a .git with no initial commit, where
     # the update path's `git stash` / `git checkout` abort with "You do not
@@ -2307,7 +2307,7 @@ SOUL_EOF
     else
         log_info "Syncing bundled skills to ~/.clover/skills/ ..."
         if "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/tools/skills_sync.py" 2>/dev/null; then
-            log_success "Skills synced to ~/.clover/skills/"
+            log_success "Starter skills planted"
         else
             # Fallback: simple directory copy if Python sync fails
             if [ -d "$INSTALL_DIR/skills" ] && [ ! "$(ls -A "$CLOVER_HOME/skills/" 2>/dev/null | grep -v '.bundled_manifest')" ]; then

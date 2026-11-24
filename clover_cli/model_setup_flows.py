@@ -702,7 +702,7 @@ def _model_flow_custom(config, quick=False):
         base_url = line_input(
             ("Web address: " if quick else f"API base URL [{current_url or 'e.g. https://api.example.com/v1'}]: ")
         ).strip()
-        api_key = masked_secret_prompt(
+        api_key = "" if quick else masked_secret_prompt(
             f"API key [{current_key[:8] + '...' if current_key else 'optional'}]: "
         ).strip()
     except (KeyboardInterrupt, EOFError):
@@ -765,6 +765,8 @@ def _model_flow_custom(config, quick=False):
             f"Verified endpoint via {probe.get('probed_url')} "
             f"({len(probe.get('models') or [])} model(s) visible)"
         )
+    elif quick:
+        print("  Couldn't see any models there yet. Clover will save it anyway.")
     else:
         print(
             f"Warning: could not verify this endpoint via {probe.get('probed_url')}. "
@@ -824,7 +826,7 @@ def _model_flow_custom(config, quick=False):
             if confirm in {"", "y", "yes"}:
                 model_name = detected_models[0]
             else:
-                model_name = line_input("Model name (e.g. gpt-4, llama-3-70b): ").strip()
+                model_name = line_input("Which model? (its name, e.g. llama3.2): " if quick else "Model name (e.g. gpt-4, llama-3-70b): ").strip()
         elif len(detected_models) > 1:
             print("  Available models:")
             for i, m in enumerate(detected_models, 1):
@@ -837,7 +839,7 @@ def _model_flow_custom(config, quick=False):
             elif pick:
                 model_name = pick
         else:
-            model_name = line_input("Model name (e.g. gpt-4, llama-3-70b): ").strip()
+            model_name = line_input("Which model? (its name, e.g. llama3.2): " if quick else "Model name (e.g. gpt-4, llama-3-70b): ").strip()
 
         default_name = _auto_provider_name(effective_url)
         if quick:
