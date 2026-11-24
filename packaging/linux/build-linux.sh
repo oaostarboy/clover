@@ -7,12 +7,12 @@ R="$(cd "$(dirname "$0")/../.." && pwd)"; P="$R/packaging/linux"
 W="$(mktemp -d "${TMPDIR:-/tmp}/cloverpkg.XXXX")"; mkdir -p "$OUT"
 stage() { # $1 = root, $2 = prefix (usr)
   install -d "$1/$2/bin" "$1/$2/share/clover-installer" "$1/$2/share/applications" "$1/$2/share/icons/hicolor/512x512/apps"
+  for z in 16 32 48 64 128 256 512; do install -d "$1/$2/share/icons/hicolor/${z}x${z}/apps"; install -m644 "$R/packaging/art/hicolor-$z.png" "$1/$2/share/icons/hicolor/${z}x${z}/apps/clover.png"; done
   install -m755 "$P/clover-launcher.sh" "$1/$2/bin/clover-installer"
   install -m755 "$P/clover-open.sh" "$1/$2/bin/clover-open"
   install -m755 "$R/scripts/install.sh" "$1/$2/share/clover-installer/install.sh"
   echo "$BRANCH" > "$1/$2/share/clover-installer/BRANCH"
   install -m644 "$P/clover.desktop" "$1/$2/share/applications/clover.desktop"
-  install -m644 "$R/apps/desktop/assets/icon.png" "$1/$2/share/icons/hicolor/512x512/apps/clover.png"
 }
 # ---- deb
 D="$W/deb"; stage "$D" usr; install -d "$D/DEBIAN"
@@ -60,7 +60,7 @@ fi
 # ---- AppImage
 A="$W/Clover.AppDir"; stage "$A" usr
 cp "$A/usr/share/applications/clover.desktop" "$A/clover.desktop"; sed -i 's/^Terminal=false/Terminal=true/;s#^Exec=.*#Exec=clover-installer#' "$A/clover.desktop"
-cp "$R/apps/desktop/assets/icon.png" "$A/clover.png"
+cp "$R/packaging/art/hicolor-256.png" "$A/clover.png"; cp "$A/clover.png" "$A/.DirIcon"
 cat > "$A/AppRun" <<'AR'
 #!/bin/sh
 H="$(dirname "$(readlink -f "$0")")"
