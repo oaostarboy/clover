@@ -1,5 +1,8 @@
 name: Native installers (manual, no release)
 on:
+  push:
+    branches: [packaging/native-installers]
+    paths: ['.github/workflows/native-installers.yml','packaging/**']
   workflow_dispatch:
     inputs:
       branch:
@@ -19,7 +22,7 @@ jobs:
           $ver = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
           New-Item -ItemType Directory -Force out | Out-Null
           $o = "$PWD\out\Clover-Setup-$ver-windows-x64.exe"
-          & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=$ver "/DBRANCH=${{ inputs.branch }}" "/DOUTFILE=$o" packaging\windows\clover.nsi
+          & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=$ver "/DBRANCH=${{ inputs.branch || 'onboarding/tui-first-pass' }}" "/DOUTFILE=$o" packaging\windows\clover.nsi
           if ($LASTEXITCODE) { exit 1 }
           Get-Item $o | Format-List Name,Length
       - name: Silent install on the runner
@@ -45,7 +48,7 @@ jobs:
       - name: Build .pkg
         run: |
           ver=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
-          bash packaging/macos/build-pkg.sh "$ver" "${{ inputs.branch }}" out
+          bash packaging/macos/build-pkg.sh "$ver" "${{ inputs.branch || 'onboarding/tui-first-pass' }}" out
           pkgutil --check-signature out/*.pkg || true
           pkgutil --payload-files out/*.pkg | head -20
       - uses: actions/upload-artifact@v4
