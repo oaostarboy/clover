@@ -67,7 +67,7 @@ def test_local_quick_start_asks_no_techy_questions(home, monkeypatch):
     monkeypatch.setattr(flows, "_prune_replaced_custom_model_config_credentials", lambda *a, **k: None)
     cfg = {}
     flows._model_flow_custom(cfg, quick=True)
-    assert len(asked) == 1 and asked[0].startswith("API base URL")
+    assert len(asked) == 1 and asked[0].startswith("Web address")
     assert cfg["model"]["base_url"] == "http://127.0.0.1:11434/v1"
 
 
@@ -92,3 +92,26 @@ def test_ci_disables_animation(monkeypatch):
 
     monkeypatch.setenv("CI", "1")
     assert lucky.animation_ok() is False
+
+
+def test_quick_start_never_prints_skipped_line(home, monkeypatch, capsys):
+    from clover_cli import setup as s
+
+    monkeypatch.setattr(s, "_curses_prompt_choice", lambda *a, **k: 0)
+    monkeypatch.setattr(s, "is_noninteractive", lambda: False)
+    s._IN_QUICK_START = True
+    try:
+        s.prompt_choice("pick", ["a", "b"], 0)
+    finally:
+        s._IN_QUICK_START = False
+    assert "Skipped (keeping current)" not in capsys.readouterr().out
+
+
+def test_quick_url_step_uses_plain_words(home, monkeypatch, capsys):
+    from clover_cli import model_setup_flows as flows
+
+    monkeypatch.setattr(flows, "line_input", lambda p: "")
+    monkeypatch.setattr("clover_cli.secret_prompt.masked_secret_prompt", lambda p: "")
+    flows._model_flow_custom({}, quick=True)
+    out = capsys.readouterr().out
+    assert "OpenAI-compatible" not in out and "web address" in out

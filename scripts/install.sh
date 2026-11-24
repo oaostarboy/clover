@@ -44,7 +44,7 @@ BOLD='\033[1m'
 
 # Configuration
 REPO_URL_SSH="git@github.com:oaostarboy/clover-c1.git"
-REPO_URL_HTTPS="https://github.com/oaostarboy/clover-c1.git"
+REPO_URL_HTTPS="${CLOVER_INSTALL_REPO:-https://github.com/oaostarboy/clover-c1.git}"
 CLOVER_HOME="${CLOVER_HOME:-$HOME/.clover}"
 # INSTALL_DIR is resolved AFTER arg parsing and OS detection so we can pick an
 # FHS-style layout for root installs.  Track whether the user gave us an
@@ -576,7 +576,7 @@ detect_os() {
             ;;
     esac
 
-    log_success "Detected: $OS ($DISTRO)"
+    log_success "Good soil found: $OS ($DISTRO)"
 }
 
 # ============================================================================
@@ -599,11 +599,11 @@ install_uv() {
     if [ -x "$_managed_uv" ]; then
         UV_CMD="$_managed_uv"
         UV_VERSION=$($UV_CMD --version 2>/dev/null)
-        log_success "Managed uv found ($UV_VERSION)"
+        log_success "Gardening tools ready ($UV_VERSION)"
         return 0
     fi
 
-    log_info "Installing managed uv into $CLOVER_HOME/bin ..."
+    log_info "Fetching gardening tools (just for Clover) ..."
     mkdir -p "$CLOVER_HOME/bin"
 
     # Two-stage: download the installer, then run it.  Piping
@@ -635,7 +635,7 @@ install_uv() {
         fi
         rm -f "$_uv_install_log"
         UV_VERSION=$($UV_CMD --version 2>/dev/null)
-        log_success "Managed uv installed ($UV_VERSION)"
+        log_success "Gardening tools ready ($UV_VERSION)"
     else
         log_error "Failed to install uv"
         log_info "Installer output:"
@@ -666,7 +666,7 @@ check_python() {
         return 0
     fi
 
-    log_info "Checking Python $PYTHON_VERSION..."
+    log_info "Looking for Python $PYTHON_VERSION..."
 
     # Let uv handle Python — it can download and manage Python versions
     # First check if a suitable Python is already available
@@ -776,7 +776,7 @@ attempt_install_git() {
 }
 
 check_git() {
-    log_info "Checking Git..."
+    log_info "Looking for Git..."
 
     # On fresh macOS /usr/bin/git is a stub that exits non-zero until CLT is installed.
     if command -v git &> /dev/null && git --version &> /dev/null; then
@@ -982,7 +982,7 @@ npm_supports_npmrc() {
 }
 
 check_node() {
-    log_info "Checking Node.js (for browser tools)..."
+    log_info "Looking for Node.js (for the browser tools)..."
 
     # Repair pre-existing Clover-managed installs where `npm install -g` lands
     # off PATH. No-op when there's no managed Node, so this is safe to run on
@@ -1574,15 +1574,15 @@ EOF
         # Try SSH first (for private repo access), fall back to HTTPS
         # GIT_SSH_COMMAND disables interactive prompts and sets a short timeout
         # so SSH fails fast instead of hanging when no key is configured.
-        log_info "Trying SSH clone..."
+        log_info "Planting the seed..."
         if GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=5" \
            git clone --depth 1 --branch "$BRANCH" "$REPO_URL_SSH" "$INSTALL_DIR" 2>/dev/null; then
-            log_success "Cloned via SSH"
+            log_success "Seed planted"
         else
             rm -rf "$INSTALL_DIR" 2>/dev/null  # Clean up partial SSH clone
-            log_info "SSH failed, trying HTTPS..."
+            log_info "Trying the other door..."
             if git clone --depth 1 --branch "$BRANCH" "$REPO_URL_HTTPS" "$INSTALL_DIR"; then
-                log_success "Cloned via HTTPS"
+                log_success "Seed planted"
             else
                 log_error "Failed to clone repository"
                 exit 1
@@ -1638,7 +1638,7 @@ EOF
         fi
     fi
 
-    log_success "Repository ready"
+    log_success "Clover is in the ground"
 }
 
 setup_venv() {
@@ -1660,7 +1660,7 @@ setup_venv() {
         return 0
     fi
 
-    log_info "Creating virtual environment with Python $PYTHON_VERSION..."
+    log_info "Making Clover its own garden (Python $PYTHON_VERSION)..."
 
     if [ -d "venv" ]; then
         log_info "Virtual environment already exists, recreating..."
@@ -1681,7 +1681,7 @@ setup_venv() {
         export UV_PYTHON="$INSTALL_DIR/venv/bin/python"
     fi
 
-    log_success "Virtual environment ready (Python $PYTHON_VERSION)"
+    log_success "Its own little garden is ready (Python $PYTHON_VERSION)"
 }
 
 run_locked_uv_sync() {
@@ -1709,7 +1709,7 @@ run_locked_uv_sync() {
 }
 
 install_deps() {
-    log_info "Installing dependencies..."
+    log_info "Watering the roots (installing what Clover needs)..."
 
     # Re-pin UV_PYTHON to the venv interpreter. setup_venv already does this,
     # but the bootstrap runs install stages (`venv`, `python-deps`) as separate
@@ -1981,7 +1981,7 @@ PY
 }
 
 setup_path() {
-    log_info "Setting up clover command..."
+    log_info "Adding the clover command..."
 
     if [ "$USE_VENV" = true ]; then
         CLOVER_BIN="$INSTALL_DIR/venv/bin/python"
@@ -2212,7 +2212,7 @@ EOF
 }
 
 copy_config_templates() {
-    log_info "Setting up configuration files..."
+    log_info "Setting up your settings files..."
 
     # Snapshot which sensitive subdirs already exist *before* mkdir -p below,
     # and whether they're already group/world accessible, so the chmod pass
@@ -2291,7 +2291,7 @@ SOUL_EOF
         log_success "Created ~/.clover/SOUL.md (edit to customize personality)"
     fi
 
-    log_success "Configuration directory ready: ~/.clover/"
+    log_success "Your Clover home is ready: ~/.clover/"
 
     # Seed bundled skills into ~/.clover/skills/ (manifest-based, one-time per skill)
     if [ "$NO_SKILLS" = true ]; then
@@ -2915,7 +2915,7 @@ install_computer_use_driver() {
 
 run_setup_wizard() {
     if [ "$RUN_SETUP" = false ]; then
-        log_info "Skipping setup wizard (--skip-setup)"
+        log_info "Skipping the quick chat (--skip-setup). Run 'clover setup' when you are ready."
         return 0
     fi
 
@@ -2928,12 +2928,12 @@ run_setup_wizard() {
     # but opening fails with ENXIO, so the wizard would proceed and
     # then crash on `< /dev/tty` below.
     if ! (: </dev/tty) 2>/dev/null; then
-        log_info "Setup wizard skipped (no terminal available). Run 'clover setup' after install."
+        log_info "No terminal here, so no quick chat. Run 'clover setup' when you are ready."
         return 0
     fi
 
     echo ""
-    log_info "Starting setup wizard..."
+    log_info "Time to pick your lucky charm..."
     echo ""
 
     cd "$INSTALL_DIR"
@@ -3096,10 +3096,10 @@ print_success() {
     echo ""
 
     # Show file locations
-    echo -e "${CYAN}${BOLD}Where everything lives${NC}"
+    echo -e "${CYAN}${BOLD}Where everything grows${NC}"
     echo ""
     echo -e "   ${YELLOW}Config:${NC}    $CLOVER_HOME/config.yaml"
-    echo -e "   ${YELLOW}API Keys:${NC}  $CLOVER_HOME/.env"
+    echo -e "   ${YELLOW}Secrets:${NC}   $CLOVER_HOME/.env"
     echo -e "   ${YELLOW}Data:${NC}      $CLOVER_HOME/cron/, sessions/, logs/"
     echo -e "   ${YELLOW}Code:${NC}      $INSTALL_DIR"
     echo ""

@@ -687,7 +687,11 @@ def _model_flow_custom(config, quick=False):
     current_url = get_env_value("OPENAI_BASE_URL") or ""
     current_key = get_env_value("OPENAI_API_KEY") or ""
 
-    print("Custom OpenAI-compatible endpoint configuration:")
+    if quick:
+        print("Where's your model running? Paste its web address.")
+        print("  Example: http://127.0.0.1:11434/v1  (Ollama on this computer)")
+    else:
+        print("Custom OpenAI-compatible endpoint configuration:")
     if current_url:
         print(f"  Current URL: {current_url}")
     if current_key:
@@ -696,7 +700,7 @@ def _model_flow_custom(config, quick=False):
 
     try:
         base_url = line_input(
-            f"API base URL [{current_url or 'e.g. https://api.example.com/v1'}]: "
+            ("Web address: " if quick else f"API base URL [{current_url or 'e.g. https://api.example.com/v1'}]: ")
         ).strip()
         api_key = masked_secret_prompt(
             f"API key [{current_key[:8] + '...' if current_key else 'optional'}]: "

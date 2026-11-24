@@ -321,6 +321,9 @@ def _curses_prompt_choice(question: str, choices: list, default: int = 0, descri
 
 
 
+_IN_QUICK_START = False
+
+
 def prompt_choice(question: str, choices: list, default: int = 0, description: str | None = None, *, quiet_default: bool = False) -> int:
     """Prompt for a choice from a list with arrow key navigation.
 
@@ -332,7 +335,7 @@ def prompt_choice(question: str, choices: list, default: int = 0, description: s
     idx = _curses_prompt_choice(question, choices, default, description=description)
     if idx >= 0:
         if idx == default:
-            if not quiet_default:
+            if not quiet_default and not _IN_QUICK_START:
                 print_info("  Skipped (keeping current)")
                 print()
             return default
@@ -3191,10 +3194,15 @@ def _run_quick_start(config: dict, clover_home) -> None:
     Everything else (local command backend, standard tools, agent settings)
     keeps its default. Each can be changed later with `clover setup <part>`.
     """
-    _apply_default_agent_settings(config, quiet=True)
-    setup_agent_name(config, lucky_theme=True)
-    setup_model_provider(config, short_list=True)
-    save_config(config)
+    global _IN_QUICK_START
+    _IN_QUICK_START = True
+    try:
+        _apply_default_agent_settings(config, quiet=True)
+        setup_agent_name(config, lucky_theme=True)
+        setup_model_provider(config, short_list=True)
+        save_config(config)
+    finally:
+        _IN_QUICK_START = False
     _print_setup_summary(config, clover_home, quick=True)
 
 
