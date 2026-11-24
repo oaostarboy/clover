@@ -1580,7 +1580,7 @@ EOF
             log_success "Seed planted"
         else
             rm -rf "$INSTALL_DIR" 2>/dev/null  # Clean up partial SSH clone
-            log_info "Trying the other door..."
+            log_info "Trying another way in..."
             if git clone --depth 1 --branch "$BRANCH" "$REPO_URL_HTTPS" "$INSTALL_DIR"; then
                 log_success "Seed planted"
             else
@@ -1772,7 +1772,7 @@ install_deps() {
         log_info "Termux note: matrix e2ee and local faster-whisper extras are excluded from .[termux-all] due to upstream Android wheel/toolchain blockers."
         log_info "Termux note: browser/WhatsApp tooling is not installed by default; see the Termux guide for optional follow-up steps."
 
-        log_success "All dependencies installed"
+        log_success "Everything it needs is in"
         return 0
     fi
 
@@ -1822,9 +1822,9 @@ install_deps() {
     # lockfile is stale, missing, or out-of-sync with the current
     # extras spec, NOT because they're equivalent in posture.
     if [ -f "uv.lock" ]; then
-        log_info "Trying tier: hash-verified (uv.lock) ..."
-        log_info "(this resolves + downloads the curated [all] set — first run on a"
-        log_info " fresh venv can take 1-5 minutes; uv prints progress below)"
+        log_info "Gathering everything Clover needs (checked for safety)..."
+        log_info "(first time can take a few minutes. Grab a coffee ☕)"
+        log_info " Progress shows below.)"
         # Stream uv's progress directly to the user instead of swallowing
         # it with `2>"$(mktemp)"`.  Two reasons:
         #   1. `--extra all --locked` against a fresh venv has to pull
@@ -1860,8 +1860,8 @@ install_deps() {
         # Runtime code does the same before its locked syncs
         # (clover_cli/managed_uv.py).
         if run_locked_uv_sync "$INSTALL_DIR/venv"; then
-            log_success "Main package installed (hash-verified via uv.lock)"
-            log_success "All dependencies installed"
+            log_success "Clover installed"
+            log_success "Everything it needs is in"
             return 0
         fi
         log_warn "uv.lock sync failed (see uv output above), falling back to PyPI resolve..."
@@ -1977,7 +1977,7 @@ PY
 
     log_success "Main package installed"
 
-    log_success "All dependencies installed"
+    log_success "Everything it needs is in"
 }
 
 setup_path() {
