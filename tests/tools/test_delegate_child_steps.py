@@ -266,3 +266,32 @@ def test_no_command_links_in_the_per_helper_card():
     ac.on_child_event("subagent.tool", delegation_id="dm", task_index=1, task_count=3, tool_name="terminal",
                       preview="ls /clover", args={"command": "ls /clover"}, tool_call_id="q", tool_count=1)
     assert not re.search(r"(?<![\w/])/[A-Za-z]", card.render())
+
+
+# -- placeholder-only checklist ------------------------------------------------
+
+def test_no_steps_tells_helper_to_plan_first(built):
+    root = _root()
+    dt.delegate_task(parent_agent=root, tasks=[{"goal": "check the first site thoroughly"},
+                                               {"goal": "check the second site thoroughly"}],
+                     handoff=_handoff(), background=True)
+    assert all(ac.child_instruction((), placeholder=True) in c for c in built.contexts)
+
+
+def test_explicit_steps_keep_the_old_instruction(built):
+    root = _root()
+    dt.delegate_task(parent_agent=root, tasks=[{"goal": "check the first site thoroughly", "steps": ["open it", "check"]},
+                                               {"goal": "check the second site thoroughly", "steps": ["read", "report"]}],
+                     handoff=_handoff(), background=True)
+    assert ac.child_instruction(("open it", "check")) in built.contexts[0]
+    assert ac.child_instruction((), placeholder=True) not in built.contexts[0]
+
+
+def test_child_todo_write_replaces_placeholder_row():
+    card = _card3()
+    assert _rows(card, 1) == [("b", "in_progress")]
+    ac.on_child_event("subagent.todo", delegation_id="dm", task_index=1,
+                      todos=[{"id": "s1", "content": "one", "status": "in_progress"},
+                             {"id": "s2", "content": "two", "status": "pending"},
+                             {"id": "s3", "content": "three", "status": "pending"}])
+    assert _rows(card, 1) == [("one", "in_progress"), ("two", "pending"), ("three", "pending")]
