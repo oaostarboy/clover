@@ -383,3 +383,21 @@ def test_basic_terminal_falls_back_to_basic_green(monkeypatch):
     lucky = _lucky_env(monkeypatch, TERM="vt100")
     out = lucky.gradient("CLOVER")
     assert "38;5;" not in out and "38;2;" not in out and "\033[" in out
+
+
+def test_wordmark_full_blocks_only_and_one_gradient_per_column(monkeypatch):
+    from clover_cli import lucky
+
+    assert not set("".join(lucky.WORDMARK)) - {"█", " "}
+    monkeypatch.setattr(lucky, "should_use_color", lambda: True)
+    monkeypatch.setattr(lucky, "color_depth", lambda: 24)
+    rows = lucky._wordmark_lines()
+    import re
+
+    cols = [re.findall(r"48;2;(\d+;\d+;\d+)m ", r) for r in rows]
+    # same column -> same colour in every row where it is filled
+    seen = {}
+    for r, line in enumerate(lucky.WORDMARK):
+        filled = [x for x, ch in enumerate(line) if ch == "█"]
+        for x, c in zip(filled, cols[r]):
+            assert seen.setdefault(x, c) == c

@@ -17,17 +17,18 @@ GRADIENT_START = (0x92, 0xF2, 0xBA)
 GRADIENT_END = (0x24, 0xAA, 0x6D)
 
 
-# "CLOVER" in solid block letters (only full / half blocks, no strokes).
+# "CLOVER" in solid block letters: full blocks and spaces only (half blocks
+# leave seams between rows in many fonts).
 _GLYPHS = {
-    "C": ("▄████▄", "██    ", "██    ", "██    ", "▀████▀"),
+    "C": ("██████", "██    ", "██    ", "██    ", "██████"),
     "L": ("██    ", "██    ", "██    ", "██    ", "██████"),
-    "O": ("▄████▄", "██  ██", "██  ██", "██  ██", "▀████▀"),
-    "V": ("██  ██", "██  ██", "██  ██", "▀█▄▄█▀", " ▀██▀ "),
+    "O": ("██████", "██  ██", "██  ██", "██  ██", "██████"),
+    "V": ("██  ██", "██  ██", "██  ██", " ████ ", "  ██  "),
     "E": ("██████", "██    ", "████  ", "██    ", "██████"),
-    "R": ("█████▄", "██  ██", "█████▀", "██ ▀█▄", "██  ▀█"),
+    "R": ("█████ ", "██  ██", "█████ ", "██ ██ ", "██  ██"),
 }
 WORDMARK = tuple(
-    "  ".join(_GLYPHS[ch][r] for ch in "CLOVER").rstrip() for r in range(5)
+    " ".join(_GLYPHS[ch][r] for ch in "CLOVER").rstrip() for r in range(5)
 )
 
 def _rgb_at(t: float) -> tuple[int, int, int]:
@@ -36,18 +37,20 @@ def _rgb_at(t: float) -> tuple[int, int, int]:
 
 
 def _paint(line: str, row: int, rows: int, width: int) -> str:
-    """Diagonal logo gradient across a block of art (top-left light, bottom-right deep)."""
+    """One left-to-right gradient: every cell in a column gets the same colour."""
     if not should_use_color():
         return line
     if color_depth() < 256:
         return color(line, Colors.GREEN, Colors.BOLD)
+    # Filled cells are painted as a background-coloured space: a font's block
+    # glyph can leave hairline seams between cells, a cell background never does.
     out = []
     for x, ch in enumerate(line):
         if ch == " ":
-            out.append(ch)
+            out.append(Colors.RESET + ch)
             continue
-        r, g, b = _rgb_at((x / max(width - 1, 1) + row / max(rows - 1, 1)) / 2)
-        out.append(f"{_fg(r, g, b)}{ch}")
+        r, g, b = _rgb_at(x / max(width - 1, 1))
+        out.append(f"{_bg(r, g, b)} ")
     return "".join(out) + Colors.RESET
 
 
@@ -109,6 +112,12 @@ def _fg(r: int, g: int, b: int) -> str:
     if color_depth() == 256:
         return f"\033[38;5;{_to256(r, g, b)}m"
     return f"\033[38;2;{r};{g};{b}m"
+
+
+def _bg(r: int, g: int, b: int) -> str:
+    if color_depth() == 256:
+        return f"\033[48;5;{_to256(r, g, b)}m"
+    return f"\033[48;2;{r};{g};{b}m"
 
 
 def animation_ok() -> bool:
@@ -606,7 +615,7 @@ def logo_image() -> str:
             chunks = [b64[i : i + 4096] for i in range(0, len(b64), 4096)]
             out = []
             for i, ch in enumerate(chunks):
-                head = "a=T,f=100,c=16,r=8,q=2," if i == 0 else ""
+                head = "a=T,f=100,c=20,r=10,q=2," if i == 0 else ""
                 out.append(f"\033_G{head}m={1 if i < len(chunks) - 1 else 0};{ch}\033\\")
             return "".join(out)
         if proto == "iterm":
@@ -614,7 +623,7 @@ def logo_image() -> str:
 
             raw = _data("clover-logo.png")
             b64 = base64.b64encode(raw).decode()
-            return f"\033]1337;File=inline=1;size={len(raw)};width=16;height=8;preserveAspectRatio=1:{b64}\a"
+            return f"\033]1337;File=inline=1;size={len(raw)};width=20;height=10;preserveAspectRatio=1:{b64}\a"
         if proto == "sixel":
             return _data("clover-logo.six").decode("ascii")
     except Exception:
@@ -622,14 +631,25 @@ def logo_image() -> str:
     return ""
 
 
+LOGO_COLS, LOGO_ROWS = 20, 10
+
+
 def banner() -> None:
-    """Welcome: the real logo where the terminal can show images, then CLOVER, then the rail."""
+    """Welcome lockup: real logo on the left, CLOVER beside it, then the rail."""
     print()
     img = logo_image() if _tty() and should_use_color() else ""
-    if img:
-        sys.stdout.write("  " + img + "\n")
-        sys.stdout.flush()
-    if unicode_ok() and _cols() >= 50:
+    wide = unicode_ok() and _cols() >= (50 + (LOGO_COLS + 2 if img else 0))
+    if img and wide:
+        top = (LOGO_ROWS - len(WORDMARK)) // 2
+        out = sys.stdout
+        out.write("\n" * LOGO_ROWS + f"\033[{LOGO_ROWS}A\0337  " + img + "\0338")
+        for i in range(LOGO_ROWS):
+            out.write(f"\033[{LOGO_COLS + 4}C" if 0 <= i - top < len(WORDMARK) else "")
+            if 0 <= i - top < len(WORDMARK):
+                out.write(_wordmark_lines()[i - top])
+            out.write("\n")
+        out.flush()
+    elif wide or (unicode_ok() and _cols() >= 50):
         for line in _wordmark_lines():
             print("  " + line)
     else:

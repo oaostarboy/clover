@@ -508,16 +508,15 @@ function Write-Banner {
     Write-Host ""
     if ($script:RailUnicode -and $script:RailColor) {
         $rows = @(
-        'UFFFFU  FF      UFFFFU  FF  FF  FFFFFF  FFFFFU',
-        'FF      FF      FF  FF  FF  FF  FF      FF  FF',
-        'FF      FF      FF  FF  FF  FF  FFFF    FFFFFD',
-        'FF      FF      FF  FF  DFUUFD  FF      FF DFU',
-        'DFFFFD  FFFFFF  DFFFFD   DFFD   FFFFFF  FF  DF'
+        'FFFFFF FF     FFFFFF FF  FF FFFFFF FFFFF',
+        'FF     FF     FF  FF FF  FF FF     FF  FF',
+        'FF     FF     FF  FF FF  FF FFFF   FFFFF',
+        'FF     FF     FF  FF  FFFF  FF     FF FF',
+        'FFFFFF FFFFFF FFFFFF   FF   FFFFFF FF  FF'
         )
-        $greens = @('Green','Green','Green','DarkGreen','DarkGreen')
-        for ($i = 0; $i -lt $rows.Count; $i++) {
-            $line = $rows[$i].Replace('U', [string][char]0x2584).Replace('F', [string][char]0x2588).Replace('D', [string][char]0x2580)
-            Write-Host "  $line" -ForegroundColor $greens[$i]
+        foreach ($r in $rows) {
+            $line = $r.Replace('F', [string][char]0x2588)
+            Write-Host "  $line" -ForegroundColor Green
         }
     } else {
         Write-Host "  Clover" -ForegroundColor Green
