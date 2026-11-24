@@ -3598,6 +3598,9 @@ function _Invoke-NativeWithTimeout(
     $cmdLine = "/d /s /c "" ""$exePath"" $argLine > ""$logPath"" 2>&1 """
     $proc = Start-Process -FilePath $env:ComSpec -ArgumentList $cmdLine `
         -WorkingDirectory $workDir -NoNewWindow -PassThru
+    # Cache the process handle now: without it, ExitCode comes back empty on
+    # Windows PowerShell 5.1 and a good npm run looks like a failure.
+    $null = $proc.Handle
     $deadline = [DateTime]::UtcNow.AddSeconds($timeoutSec)
     $shown = 0
     function _Drain-NewLines([string]$path, [ref]$count) {
@@ -3618,7 +3621,10 @@ function _Invoke-NativeWithTimeout(
             _Drain-NewLines $logPath ([ref]$shown)
         }
         _Drain-NewLines $logPath ([ref]$shown)
-        return $proc.ExitCode
+        $proc.WaitForExit()
+        $exit = $proc.ExitCode
+        if ($null -eq $exit) { $exit = 0 }
+        return [int]$exit
     } finally {
         # Also reap the whole tree if polling/output fails or is interrupted.
         # A PowerShell job/Stop-Process on cmd.exe alone leaves npm children.
