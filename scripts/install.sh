@@ -266,21 +266,31 @@ print_banner() {
     rail_gap
 }
 
+PROBLEM_SEEN=false
+SHOW_DETAILS=false
+[ -n "${CLOVER_VERBOSE:-}" ] && SHOW_DETAILS=true
 log_info() {
+    # Details only when asked for (CLOVER_VERBOSE=1) or after something went wrong.
+    [ "$SHOW_DETAILS" = true ] || [ "$PROBLEM_SEEN" = true ] || return 0
     printf '%s%s%s  %s%s%s\n' "$R_G" "$S_BAR" "$R_N" "$R_D" "$1" "$R_N"
 }
 
+LAST_OK=""
 log_success() {
+    [ "$1" = "$LAST_OK" ] && return 0
+    LAST_OK="$1"
     printf '%s%s%s %s\n' "$R_G" "$S_DONE" "$R_N" "$1"
     rail_gap
 }
 
 log_warn() {
+    PROBLEM_SEEN=true
     printf '%s%s%s  %s\n' "$R_Y" "$S_WARN" "$R_N" "$1"
     rail_gap
 }
 
 log_error() {
+    PROBLEM_SEEN=true
     printf '%s%s%s  %s\n' "$R_R" "$S_ERR" "$R_N" "$1"
 }
 
@@ -1042,7 +1052,7 @@ check_node() {
     if command -v node &> /dev/null && command -v npm &> /dev/null \
         && node_satisfies_build "$(node --version)"; then
         if npm_supports_npmrc "$(npm --version 2>/dev/null)"; then
-            log_success "Node.js $(node --version) found"
+            log_success "Web helpers are ready"
             HAS_NODE=true
             return 0
         fi
@@ -1056,7 +1066,7 @@ check_node() {
     if [ -x "$CLOVER_HOME/node/bin/node" ] && [ -x "$CLOVER_HOME/node/bin/npm" ] \
         && node_satisfies_build "$("$CLOVER_HOME/node/bin/node" --version)"; then
         export PATH="$CLOVER_HOME/node/bin:$PATH"
-        log_success "Node.js $("$CLOVER_HOME/node/bin/node" --version) found (Clover-managed)"
+        log_success "Web helpers are ready"$CLOVER_HOME/node/bin/node" --version) found (Clover-managed)"
         HAS_NODE=true
         return 0
     fi
@@ -1079,7 +1089,7 @@ install_node() {
         if pkg install -y nodejs >/dev/null; then
             local installed_ver
             installed_ver=$(node --version 2>/dev/null)
-            log_success "Node.js $installed_ver installed via pkg"
+            log_success "Web helpers are ready"
             HAS_NODE=true
         else
             log_warn "Failed to install Node.js via pkg"
@@ -1184,7 +1194,7 @@ install_node() {
 
     local installed_ver
     installed_ver=$("$CLOVER_HOME/node/bin/node" --version 2>/dev/null)
-    log_success "Node.js $installed_ver installed to ~/.clover/node/"
+    log_success "Web helpers are ready"
     HAS_NODE=true
 }
 
@@ -1229,7 +1239,7 @@ check_network_prerequisites() {
     rm -rf "$tmpdir"
 
     if [ "$failed" = false ]; then
-        log_success "Internet is up"
+        log_success "Online and ready"
         return 0
     fi
 
@@ -1720,7 +1730,7 @@ setup_venv() {
         export UV_PYTHON="$INSTALL_DIR/venv/bin/python"
     fi
 
-    log_success "Its own little garden is ready (Python $PYTHON_VERSION)"
+    log_success "Its own little garden is ready"
 }
 
 run_locked_uv_sync() {
@@ -2665,7 +2675,7 @@ configure_browser_env_from_system_browser() {
         echo "# Clover Cognition browser tools — explicit browser override."
         echo "AGENT_BROWSER_EXECUTABLE_PATH=$browser_path"
     } >> "$env_file"
-    log_success "Configured browser tools to use $browser_path"
+    log_success "Web browsing is ready"
 }
 
 install_node_deps() {
@@ -2725,7 +2735,7 @@ install_node_deps() {
         strip_snap_browser_override
         DETECTED_BROWSER_EXECUTABLE="$(find_system_browser 2>/dev/null || true)"
         if [ -n "$DETECTED_BROWSER_EXECUTABLE" ]; then
-            log_success "Using explicit browser override: $DETECTED_BROWSER_EXECUTABLE"
+            log_success "Web browsing is ready"
             log_info "Skipping bundled Chromium download (AGENT_BROWSER_EXECUTABLE_PATH is set)."
         else
             case "$DISTRO" in
@@ -3069,7 +3079,7 @@ maybe_start_gateway() {
             fi
             nohup $CLOVER_CMD gateway > "$CLOVER_HOME/logs/gateway.log" 2>&1 &
             GATEWAY_PID=$!
-            log_success "Gateway started (PID $GATEWAY_PID). Logs: ~/.clover/logs/gateway.log"
+            log_success "Gateway started"
             log_info "To stop: kill $GATEWAY_PID"
             log_info "To restart later: clover gateway"
             if [ "$DISTRO" = "termux" ]; then
@@ -3591,7 +3601,7 @@ install_desktop() {
         log_error "Desktop build completed but no app was found under $desktop_dir/release/"
         return 1
     fi
-    log_success "Desktop app built: $app"
+    log_success "Desktop app is ready"
 
     # Linux: Electron's chrome-sandbox helper needs root:root 4755 or the
     # sandboxed renderer will abort on startup.  Check the file is a regular
