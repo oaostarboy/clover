@@ -2955,7 +2955,7 @@ install_computer_use_driver() {
     else
         log_warn "Computer Use driver install failed — it will install on demand when you enable the tool."
         log_info "Install later with: clover computer-use install"
-        tail -n 5 "$cua_log" >&2 || true
+        if [ -n "${CLOVER_VERBOSE:-}${CLOVER_INSTALL_VERBOSE:-}" ]; then tail -n 5 "$cua_log" >&2 || true; fi
     fi
     rm -f "$cua_log"
 }

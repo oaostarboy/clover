@@ -159,6 +159,16 @@ def enable_vt() -> bool:
         return False
 
 
+def _modern_conhost() -> bool:
+    """Windows 10 1809+ console with ANSI on can draw box glyphs (Consolas has them)."""
+    try:
+        if sys.getwindowsversion().build < 17763:  # type: ignore[attr-defined]
+            return False
+        return bool(sys.stdout.isatty()) and enable_vt()
+    except Exception:
+        return False
+
+
 def unicode_ok() -> bool:
     """Can this terminal draw box characters? (same idea as is-unicode-supported)"""
     if os.environ.get("CLOVER_ASCII"):
@@ -170,6 +180,7 @@ def unicode_ok() -> bool:
             or os.environ.get("TERM_PROGRAM")
             or os.environ.get("ConEmuANSI") == "ON"
             or os.environ.get("TERM") == "xterm-256color"
+            or _modern_conhost()
         )
     if os.environ.get("TERM") == "linux":
         return False

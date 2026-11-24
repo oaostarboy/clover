@@ -3997,16 +3997,18 @@ function Install-CuaDriver {
         # lock (600s stale window), so the ceiling sits above that -- matching
         # Clover' _CUA_INSTALLER_TIMEOUT (660s).
         $job = Start-Job -ScriptBlock {
-            Invoke-RestMethod -UseBasicParsing "https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.ps1" | Invoke-Expression
+            $ErrorActionPreference = "Continue"
+            Invoke-RestMethod -UseBasicParsing "https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.ps1" | Invoke-Expression *>&1 | Out-String
         }
         if (Wait-Job $job -Timeout 660) {
-            Receive-Job $job -ErrorAction SilentlyContinue | Out-Null
+            $cuaOut = Receive-Job $job -ErrorAction SilentlyContinue 2>&1 | Out-String
+            if ($script:ShowDetails -and $cuaOut) { Write-Info ("cua-driver: " + $cuaOut.Trim()) }
             Remove-Job $job -Force -ErrorAction SilentlyContinue
             $installedCuaDriver = Get-Command cua-driver -ErrorAction SilentlyContinue
             if ($installedCuaDriver -and (Test-CuaDriverRuntimeContract -DriverPath $installedCuaDriver.Source)) {
                 Write-Success "Computer Use driver installed (enable via 'clover tools' -> Computer Use)"
             } else {
-                Write-Warn "Computer Use driver install did not produce a compatible runtime -- repair it before enabling the tool."
+                Write-Info "Computer Use driver is not available on this PC yet, so that tool stays off."
                 Write-Info "Install later with: clover computer-use install"
             }
         } else {

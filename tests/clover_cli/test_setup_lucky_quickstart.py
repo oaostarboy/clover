@@ -214,7 +214,11 @@ def test_windows_uses_msvcrt_path_and_unicode_rules(monkeypatch):
     for k in ("WT_SESSION", "TERM_PROGRAM", "ConEmuANSI", "CLOVER_ASCII"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("TERM", "")
-    assert lucky.unicode_ok() is False  # old conhost -> ASCII
+    monkeypatch.setattr(lucky, "_modern_conhost", lambda: False)
+    assert lucky.unicode_ok() is False  # really old console -> ASCII
+    monkeypatch.setattr(lucky, "_modern_conhost", lambda: True)
+    assert lucky.unicode_ok() is True  # Windows 10+ conhost with ANSI on
+    monkeypatch.setattr(lucky, "_modern_conhost", lambda: False)
     monkeypatch.setenv("WT_SESSION", "x")
     assert lucky.unicode_ok() is True  # Windows Terminal
     monkeypatch.setattr(lucky.os, "name", "posix")
