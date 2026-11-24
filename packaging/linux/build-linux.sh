@@ -21,7 +21,7 @@ cat > "$D/DEBIAN/control" <<C
 Package: clover
 Version: $VER
 Architecture: amd64
-Maintainer: Clover Cognition <support@cloverai.ca>
+Maintainer: Clover <support@cloverai.ca>
 Depends: bash, curl, git, ca-certificates, xz-utils, tar, libatomic1, build-essential, python3
 Recommends: xterm | x-terminal-emulator
 Section: utils
