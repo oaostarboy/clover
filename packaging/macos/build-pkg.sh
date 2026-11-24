@@ -31,10 +31,10 @@ cat > "$W/scripts/postinstall" <<'PI'
 U="${CLOVER_PKG_USER:-$(stat -f%Su /dev/console)}"
 [ -z "$U" -o "$U" = root ] && exit 0
 H="${CLOVER_PKG_HOME:-$(dscl . -read /Users/$U NFSHomeDirectory | awk '{print $2}')}"
-S=/usr/local/share/clover-installer
-B="$(cat $S/BRANCH)"
+S="${CLOVER_PKG_SHARE:-/usr/local/share/clover-installer}"
+B="$(cat "$S/BRANCH")"
 LOG="$H/Library/Logs/clover-pkg-install.log"; mkdir -p "$H/Library/Logs"; chown "$U" "$H/Library/Logs" 2>/dev/null
-sudo -u "$U" env HOME="$H" bash "$S/install.sh" --branch "$B" --skip-setup >"$LOG" 2>&1
+sudo -u "$U" env HOME="$H" env CLOVER_HOME="${CLOVER_HOME:-$H/.clover}" bash "$S/install.sh" --branch "$B" --skip-setup >"$LOG" 2>&1
 RC=$?
 chown "$U" "$LOG" 2>/dev/null
 if [ $RC -eq 0 ] && [ -z "${CLOVER_PKG_NO_OPEN:-}" ]; then sudo -u "$U" open /Applications/Clover.app 2>/dev/null; fi
