@@ -508,24 +508,19 @@ function Write-Banner {
     Write-Host ""
     if ($script:RailUnicode -and $script:RailColor) {
         $rows = @(
-        '     UFFU  UFFU     ',
-        '    FFFFFFFFFFFF    ',
-        ' UFFUFFFFFFFFFFUFFU ',
-        'FFFFFFFFFFFFFFFFFFFF',
-        ' DFFFFFFUDDUFFFFFFD ',
-        ' UFFFFFFDUUDFFFFFFU ',
-        'FFFFFFFFFFFFFFFFFFFF',
-        ' DFFDFFFFFFFFFFDFFD ',
-        '    FFFFFFFFFFFF    ',
-        '     DFFD  DFFD     '
+        'UFFFFU  FF      UFFFFU  FF  FF  FFFFFF  FFFFFU',
+        'FF      FF      FF  FF  FF  FF  FF      FF  FF',
+        'FF      FF      FF  FF  FF  FF  FFFF    FFFFFD',
+        'FF      FF      FF  FF  DFUUFD  FF      FF DFU',
+        'DFFFFD  FFFFFF  DFFFFD   DFFD   FFFFFF  FF  DF'
         )
-        $greens = @('Green','Green','Green','Green','Green','DarkGreen','DarkGreen','DarkGreen','DarkGreen','DarkGreen')
+        $greens = @('Green','Green','Green','DarkGreen','DarkGreen')
         for ($i = 0; $i -lt $rows.Count; $i++) {
             $line = $rows[$i].Replace('U', [string][char]0x2584).Replace('F', [string][char]0x2588).Replace('D', [string][char]0x2580)
             Write-Host "  $line" -ForegroundColor $greens[$i]
         }
     } else {
-        Write-Host "  C L O V E R" -ForegroundColor Green
+        Write-Host "  Clover" -ForegroundColor Green
     }
     Write-Host ""
     Write-RailText (Get-RailGlyph 'start') "Feeling lucky? Let's grow your Clover." 'Green' 'White'

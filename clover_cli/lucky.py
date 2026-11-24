@@ -17,28 +17,17 @@ GRADIENT_START = (0x92, 0xF2, 0xBA)
 GRADIENT_END = (0x24, 0xAA, 0x6D)
 
 
-# Traced from the official mark (assets/clover-mark.svg): four petals + dot.
-MARK = (
-    '     ▄██▄  ▄██▄     ',
-    '    ████████████    ',
-    ' ▄██▄██████████▄██▄ ',
-    '████████████████████',
-    ' ▀██████▄▀▀▄██████▀ ',
-    ' ▄██████▀▄▄▀██████▄ ',
-    '████████████████████',
-    ' ▀██▀██████████▀██▀ ',
-    '    ████████████    ',
-    '     ▀██▀  ▀██▀     ',
-)
-
-# "CLOVER" in block letters (figlet ansi_shadow).
-WORDMARK = (
-    ' ██████╗██╗      ██████╗ ██╗   ██╗███████╗██████╗',
-    '██╔════╝██║     ██╔═══██╗██║   ██║██╔════╝██╔══██╗',
-    '██║     ██║     ██║   ██║██║   ██║█████╗  ██████╔╝',
-    '██║     ██║     ██║   ██║╚██╗ ██╔╝██╔══╝  ██╔══██╗',
-    '╚██████╗███████╗╚██████╔╝ ╚████╔╝ ███████╗██║  ██║',
-    ' ╚═════╝╚══════╝ ╚═════╝   ╚═══╝  ╚══════╝╚═╝  ╚═╝',
+# "CLOVER" in solid block letters (only full / half blocks, no strokes).
+_GLYPHS = {
+    "C": ("▄████▄", "██    ", "██    ", "██    ", "▀████▀"),
+    "L": ("██    ", "██    ", "██    ", "██    ", "██████"),
+    "O": ("▄████▄", "██  ██", "██  ██", "██  ██", "▀████▀"),
+    "V": ("██  ██", "██  ██", "██  ██", "▀█▄▄█▀", " ▀██▀ "),
+    "E": ("██████", "██    ", "████  ", "██    ", "██████"),
+    "R": ("█████▄", "██  ██", "█████▀", "██ ▀█▄", "██  ▀█"),
+}
+WORDMARK = tuple(
+    "  ".join(_GLYPHS[ch][r] for ch in "CLOVER").rstrip() for r in range(5)
 )
 
 def _rgb_at(t: float) -> tuple[int, int, int]:
@@ -66,22 +55,6 @@ def _cols() -> int:
     import shutil
 
     return shutil.get_terminal_size((80, 24)).columns
-
-
-def art(side: list[str] | tuple[str, ...] | None = None, *, indent: int = 2) -> list[str]:
-    """The clover mark, optionally with lines of text to its right (vertically centred)."""
-    w = max(len(l) for l in MARK)
-    rows = len(MARK)
-    side = list(side or [])
-    top = max((rows - len(side)) // 2, 0)
-    out = []
-    for i, l in enumerate(MARK):
-        line = " " * indent + _paint(l.ljust(w), i, rows, w)
-        j = i - top
-        if 0 <= j < len(side):
-            line += "   " + side[j]
-        out.append(line)
-    return out
 
 
 def _wordmark_lines() -> list[str]:
@@ -595,16 +568,72 @@ def leaf_step(done: int, total: int = 3) -> None:
     return None
 
 
+def image_protocol() -> str | None:
+    """Inline-image protocol this terminal speaks: kitty, iterm, sixel, or None.
+
+    CLOVER_IMAGE=kitty|iterm|sixel|none overrides detection.
+    """
+    env = os.environ
+    forced = env.get("CLOVER_IMAGE", "").lower()
+    if forced:
+        return forced if forced in ("kitty", "iterm", "sixel") else None
+    if not should_use_color() or env.get("CLOVER_ASCII") or env.get("TERM") == "dumb":
+        return None
+    prog, term = env.get("TERM_PROGRAM", ""), env.get("TERM", "")
+    if term == "xterm-kitty" or env.get("KITTY_WINDOW_ID") or prog == "ghostty":
+        return "kitty"
+    if prog in ("iTerm.app", "WezTerm"):
+        return "iterm"
+    if env.get("WT_SESSION") or term in ("foot", "foot-extra") or term.startswith("mlterm"):
+        return "sixel"
+    return None
+
+
+def _data(name: str) -> bytes:
+    from pathlib import Path
+
+    return (Path(__file__).parent / "data" / name).read_bytes()
+
+
+def logo_image() -> str:
+    """Escape sequence drawing the real Clover logo, or '' when unsupported."""
+    proto = image_protocol()
+    try:
+        if proto == "kitty":
+            import base64
+
+            b64 = base64.b64encode(_data("clover-logo.png")).decode()
+            chunks = [b64[i : i + 4096] for i in range(0, len(b64), 4096)]
+            out = []
+            for i, ch in enumerate(chunks):
+                head = "a=T,f=100,c=16,r=8,q=2," if i == 0 else ""
+                out.append(f"\033_G{head}m={1 if i < len(chunks) - 1 else 0};{ch}\033\\")
+            return "".join(out)
+        if proto == "iterm":
+            import base64
+
+            raw = _data("clover-logo.png")
+            b64 = base64.b64encode(raw).decode()
+            return f"\033]1337;File=inline=1;size={len(raw)};width=16;height=8;preserveAspectRatio=1:{b64}\a"
+        if proto == "sixel":
+            return _data("clover-logo.six").decode("ascii")
+    except Exception:
+        return ""
+    return ""
+
+
 def banner() -> None:
-    """Welcome: the clover mark next to the CLOVER block letters, then the rail opens."""
-    if unicode_ok():
-        wide = _cols() >= 80
-        side = _wordmark_lines() if wide else [gradient("C L O V E R")]
-        print()
-        grow_mark(side)
+    """Welcome: the real logo where the terminal can show images, then CLOVER, then the rail."""
+    print()
+    img = logo_image()
+    if img:
+        sys.stdout.write("  " + img + "\n")
+        sys.stdout.flush()
+    if unicode_ok() and _cols() >= 50:
+        for line in _wordmark_lines():
+            print("  " + line)
     else:
-        print()
-        print("  " + gradient("C L O V E R"))
+        print("  " + gradient("Clover") if should_use_color() else "  Clover")
     print()
     intro("Feeling lucky? Let's grow your Clover.", spacer=False)
 
@@ -649,74 +678,9 @@ def grow(message: str = "Planting the seed…") -> None:
     sys.stdout.flush()
 
 
-def mark_quadrants(n: int) -> list[str]:
-    """The clover mark with only the first *n* petals (0-4) drawn.
-
-    Petals fill clockwise from the top-left: TL, TR, BR, BL. Cut from the
-    official mark, so the finished state is exactly MARK.
-    """
-    half_r, half_c = len(MARK) // 2, len(MARK[0]) // 2
-    keep = [
-        (0, 0),  # top-left
-        (0, 1),  # top-right
-        (1, 1),  # bottom-right
-        (1, 0),  # bottom-left
-    ][: max(0, min(n, 4))]
-    out = []
-    for r, line in enumerate(MARK):
-        row = []
-        for c, ch in enumerate(line):
-            quad = (0 if r < half_r else 1, 0 if c < half_c else 1)
-            row.append(ch if quad in keep else " ")
-        out.append("".join(row))
-    return out
-
-
-def grow_mark(side: list[str] | None = None) -> None:
-    """The clover fills in petal by petal, then a short confetti burst. Static when animation is off."""
-    side = list(side or [])
-    w = max(len(l) for l in MARK)
-
-    def frame(n: int) -> list[str]:
-        rows = mark_quadrants(n)
-        top = max((len(rows) - len(side)) // 2, 0)
-        lines = []
-        for i, l in enumerate(rows):
-            line = "  " + _paint(l.ljust(w), i, len(rows), w)
-            j = i - top
-            if n == 4 and 0 <= j < len(side):
-                line += "   " + side[j]
-            lines.append(line)
-        return lines
-
-    if not animation_ok() or not unicode_ok():
-        for line in frame(4):
-            print(line)
-        return
-    height = len(MARK)
-    for n in range(1, 5):
-        if n > 1:
-            sys.stdout.write(f"\033[{height}A")
-        for line in frame(n):
-            sys.stdout.write("\033[2K" + line + "\n")
-        sys.stdout.flush()
-        if _wait(0.22):
-            sys.stdout.write(f"\033[{height}A")
-            for line in frame(4):
-                sys.stdout.write("\033[2K" + line + "\n")
-            return
-    confetti = "🍀 ✦ 🍀 ✧ 🍀 ✦ 🍀"
-    sys.stdout.write("  " + gradient(confetti) + "\n")
-    sys.stdout.flush()
-    _wait(0.35)
-    sys.stdout.write("\033[1A\033[2K")
-
-
 def flourish(message: str, extra: list[str] | None = None) -> None:
-    """Finish: close the rail with the win message, grow the full clover, then next steps."""
+    """Finish: close the rail with the win message, then next steps."""
     outro(message)
-    print()
-    grow_mark()
     print()
     for line in extra or []:
         print("   " + line)
