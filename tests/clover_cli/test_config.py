@@ -104,6 +104,25 @@ class TestEnsureCloverHome:
             ensure_clover_home()
             assert soul_path.read_text(encoding="utf-8") == DEFAULT_SOUL_MD
 
+    def test_upgrades_pre_rename_default_soul_md(self, tmp_path):
+        # The product is just "Clover" now. A SOUL.md still holding the
+        # auto-seeded "You are Clover Cognition, ..." default (em-dash or the
+        # ASCII install.ps1 twin) was never edited, so it upgrades in place.
+        from clover_cli.default_soul import DEFAULT_SOUL_MD
+
+        assert DEFAULT_SOUL_MD.startswith("You are Clover, ")
+        old = DEFAULT_SOUL_MD.replace("You are Clover, ", "You are Clover Cognition, ", 1)
+        for i, seeded in enumerate((old, old.replace("\u2014", "--"), old + " Always rhyme.")):
+            # Fresh home each time: ensure_clover_home() runs once per path.
+            home = tmp_path / f"h{i}"
+            home.mkdir()
+            soul_path = home / "SOUL.md"
+            soul_path.write_text(seeded, encoding="utf-8")
+            with patch.dict(os.environ, {"CLOVER_HOME": str(home)}):
+                ensure_clover_home()
+            expected = seeded if seeded.endswith("Always rhyme.") else DEFAULT_SOUL_MD
+            assert soul_path.read_text(encoding="utf-8") == expected
+
     def test_does_not_upgrade_user_customized_soul_md(self, tmp_path):
         # A SOUL.md that merely starts with the old default but was edited by
         # the user carries real intent and must never be silently overwritten.
