@@ -4169,6 +4169,7 @@ def select_provider_and_model(args=None, *, short_list=False):
             default=0,
             title=lucky_title,
             rail=True,
+            back=True,
         )
         if provider_idx is not None and ordered[provider_idx][0] == "more":
             ordered = _full_ordered
@@ -4794,7 +4795,7 @@ def _aux_flow_custom_endpoint(task: str, task_cfg: dict) -> None:
     print(f"{display_name}: custom ({short_url})" + (f" · {model}" if model else ""))
 
 
-def _prompt_provider_choice(choices, *, default=0, title="Select provider:", rail=False):
+def _prompt_provider_choice(choices, *, default=0, title="Select provider:", rail=False, back=False):
     """Show provider selection menu with curses arrow-key navigation.
 
     Falls back to a numbered list when curses is unavailable (e.g. piped
@@ -4806,7 +4807,7 @@ def _prompt_provider_choice(choices, *, default=0, title="Select provider:", rai
     if rail:
         from clover_cli import lucky
 
-        return lucky.select(title, list(choices), default)
+        return lucky.select(title, list(choices), default, back=back)
     try:
         from clover_cli.setup import _curses_prompt_choice
 

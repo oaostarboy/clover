@@ -470,7 +470,26 @@ def _prompt_api_key(var: dict):
         print_warning("  Skipped (configure later with 'clover setup')")
 
 
-def _print_quick_done(provider_ready: bool) -> None:
+def _offer_first_chat(config: dict) -> None:
+    """'Say hi now?' - start a real chat whose first message greets the new name."""
+    from clover_cli import lucky
+
+    name = str((config.get("branding") or {}).get("agent_name") or "Clover")
+    if not lucky.offer_hi(name):
+        return
+    import shutil
+    import subprocess
+
+    exe = shutil.which("clover") or sys.argv[0]
+    first = f"Hi! I just named you {name}. Say hello and tell me one thing you can help with."
+    cmd = [exe, "chat", "-q", first] if shutil.which("clover") else [sys.executable, "-m", "clover_cli.main", "chat", "-q", first]
+    try:
+        subprocess.call(cmd)
+    except Exception:
+        print(f"   Start it yourself: clover chat -q \"{first}\"")
+
+
+def _print_quick_done(provider_ready: bool, config: dict | None = None) -> None:
     """Short end screen for the quick-start path."""
     from clover_cli import lucky
 
@@ -484,6 +503,7 @@ def _print_quick_done(provider_ready: bool) -> None:
                 f"{color('clover doctor', Colors.GREEN)}         Check that everything works",
             ],
         )
+        _offer_first_chat(config or {})
     else:
         lucky.rail("No luck yet? Add an AI service later with clover model.")
         lucky.gap()
@@ -513,7 +533,7 @@ def _print_setup_summary(config: dict, clover_home, quick: bool = False):
         _mc = config.get("model") if isinstance(config, dict) else None
         if isinstance(_mc, dict) and _mc.get("base_url") and _mc.get("default"):
             _provider_ready = True
-        _print_quick_done(_provider_ready)
+        _print_quick_done(_provider_ready, config)
         return
     if not _provider_ready:
         print()
@@ -1795,6 +1815,7 @@ def setup_agent_name(config: dict, *, lucky_theme: bool = False) -> None:
                 lucky.leaf_title(1, "Name it"),
                 f"Every clover needs a name. Enter keeps \"{current_name}\".",
                 default=current_name,
+                preview=lucky.greeting,
             )
         else:
             name_input = prompt("Agent name", current_name)
@@ -3072,8 +3093,6 @@ def _run_setup_wizard_impl(args):
         # is preserved for backwards compatibility but is a no-op here.
     else:
         # ── First-Time Setup ──
-        print()
-
         # --reconfigure / --quick on a fresh install are meaningless — fall
         # through to the normal first-time flow.
         if reconfigure_requested or quick_requested:
@@ -3091,16 +3110,16 @@ def _run_setup_wizard_impl(args):
             # full walkthrough so each imported section is reviewed.
             setup_mode = 2
         else:
-            setup_mode = prompt_choice(
+            _mode_idx = lucky.select(
                 "How do you want to set up Clover?",
                 [
-                    "Quick start — pick an AI service, name your agent, done (recommended)",
-                    "Customize everything — also choose tools, messaging and where commands run",
-                    "Blank Slate — everything off except the bare minimum",
+                    "Quick start · pick an AI, name it, done (best for most)",
+                    "Customize everything · tools, messaging, where commands run",
+                    "Blank Slate · everything off but the bare minimum",
                 ],
                 0,
-                quiet_default=True,
-            ) + 1
+            )
+            setup_mode = (_mode_idx if _mode_idx is not None else 0) + 1
 
         if setup_mode == 1:
             _run_setup_steps(
@@ -3196,6 +3215,12 @@ def _run_setup_wizard_impl(args):
     _print_setup_summary(config, clover_home)
 
 
+def _lucky_mod():
+    from clover_cli import lucky
+
+    return lucky
+
+
 def _run_quick_start(config: dict, clover_home) -> None:
     """Shortest first-run path: name the agent, connect one AI service.
 
@@ -3206,8 +3231,16 @@ def _run_quick_start(config: dict, clover_home) -> None:
     _IN_QUICK_START = True
     try:
         _apply_default_agent_settings(config, quiet=True)
-        setup_agent_name(config, lucky_theme=True)
-        setup_model_provider(config, short_list=True)
+        step = 0
+        while step < 2:
+            try:
+                if step == 0:
+                    setup_agent_name(config, lucky_theme=True)
+                else:
+                    setup_model_provider(config, short_list=True)
+                step += 1
+            except _lucky_mod().GoBack:
+                step = max(step - 1, 0)
         save_config(config)
     finally:
         _IN_QUICK_START = False

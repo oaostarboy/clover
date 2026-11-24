@@ -27,7 +27,7 @@ def test_quick_provider_menu_shows_no_warning_before_pick(home, monkeypatch, cap
 
     seen = {}
 
-    def fake_pick(choices, *, default=0, title="", rail=False):
+    def fake_pick(choices, *, default=0, title="", rail=False, back=False):
         seen["before"] = capsys.readouterr().out
         return None  # user cancels
 
@@ -154,3 +154,113 @@ def test_ascii_fallback_has_no_box_characters(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert out.isascii() or "🍀" in out
     assert not any(c in out for c in "┌│└◆◇●○")
+
+
+def _keys(monkeypatch, lucky, seq):
+    it = iter(seq)
+    monkeypatch.setattr(lucky, "_read_key", lambda: next(it))
+    monkeypatch.setattr(lucky, "_can_key", lambda: True)
+
+    class _NoRaw:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(lucky, "_raw", _NoRaw)
+    monkeypatch.setattr(lucky, "_tty", lambda: False)
+
+
+def test_select_arrows_pick_index(monkeypatch, capsys):
+    from clover_cli import lucky
+
+    _keys(monkeypatch, lucky, ["down", "down", "up", "enter"])
+    assert lucky.select("t", ["a", "b", "c"], 0) == 1
+
+
+def test_select_esc_skips_and_back_raises(monkeypatch, capsys):
+    from clover_cli import lucky
+
+    _keys(monkeypatch, lucky, ["esc"])
+    assert lucky.select("t", ["a", "b"], 0) is None
+    _keys(monkeypatch, lucky, ["left"])
+    with pytest.raises(lucky.GoBack):
+        lucky.select("t", ["a", "b"], 0, back=True)
+
+
+def test_ask_types_live_preview_and_default(monkeypatch, capsys):
+    from clover_cli import lucky
+
+    _keys(monkeypatch, lucky, list("Ada") + ["backspace", "a", "enter"])
+    assert lucky.ask("n", default="Clover", preview=lucky.greeting) == "Ada"
+    _keys(monkeypatch, lucky, ["enter"])
+    assert lucky.ask("n", default="Clover") == ""
+
+
+def test_ask_esc_goes_back_only_when_empty(monkeypatch, capsys):
+    from clover_cli import lucky
+
+    _keys(monkeypatch, lucky, ["esc"])
+    with pytest.raises(lucky.GoBack):
+        lucky.ask("n", back=True)
+
+
+def test_windows_uses_msvcrt_path_and_unicode_rules(monkeypatch):
+    from clover_cli import lucky
+
+    monkeypatch.setattr(lucky.os, "name", "nt")
+    assert lucky._use_windows_keys() is True
+    for k in ("WT_SESSION", "TERM_PROGRAM", "ConEmuANSI", "CLOVER_ASCII"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("TERM", "")
+    assert lucky.unicode_ok() is False  # old conhost -> ASCII
+    monkeypatch.setenv("WT_SESSION", "x")
+    assert lucky.unicode_ok() is True  # Windows Terminal
+    monkeypatch.setattr(lucky.os, "name", "posix")
+    assert lucky._use_windows_keys() is False
+
+
+def test_markers_are_box_drawing_joints_on_the_rail(monkeypatch):
+    from clover_cli import lucky
+
+    monkeypatch.delenv("CLOVER_ASCII", raising=False)
+    monkeypatch.setattr(lucky, "unicode_ok", lambda: True)
+    for name in ("active", "done"):
+        assert lucky.S(name).startswith("├")  # same cell family as │, no gap
+    assert "◇" not in lucky.S("done") and "◆" not in lucky.S("active")
+
+
+def test_mark_grows_petal_by_petal_and_ends_as_official_mark():
+    from clover_cli import lucky
+
+    assert lucky.mark_quadrants(4) == list(lucky.MARK)
+    assert all(l.strip() == "" for l in lucky.mark_quadrants(0))
+    filled = [sum(c != " " for l in lucky.mark_quadrants(n) for c in l) for n in range(5)]
+    assert filled == sorted(filled) and len(set(filled)) == 5
+
+
+def test_no_anim_env_and_no_color_emit_no_escapes(monkeypatch, capsys):
+    from clover_cli import lucky
+
+    monkeypatch.setenv("CLOVER_NO_ANIM", "1")
+    assert lucky.animation_ok() is False
+    monkeypatch.setenv("NO_COLOR", "1")
+    lucky.grow_mark()
+    lucky.flourish("done")
+    assert "\033" not in capsys.readouterr().out
+
+
+def test_installer_default_path_has_no_jargon():
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[2] / "scripts"
+    sh = (root / "install.sh").read_text()
+    ps = (root / "install.ps1").read_text()
+    for text in (sh, ps):
+        assert "uv ready" not in text
+        assert "is on your PATH" not in text
+    shown = re.findall(r'log_success "([^"]*)"', sh)
+    assert not [s for s in shown if re.search(r"\(\$|launcher|PATH|venv|Virtual environment|\.yaml|\.env", s)]
+    assert "◇" not in sh

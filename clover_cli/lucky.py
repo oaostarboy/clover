@@ -103,7 +103,7 @@ def truecolor_ok() -> bool:
 
 def animation_ok() -> bool:
     """True only for a real, coloured TTY outside CI."""
-    if not should_use_color() or os.environ.get("CI"):
+    if not should_use_color() or os.environ.get("CI") or os.environ.get("CLOVER_NO_ANIM"):
         return False
     try:
         return bool(sys.stdin.isatty())
@@ -140,14 +140,35 @@ def screen(headline: str, instruction: str) -> None:
 # answer as one dim line, ┌ to open and └ to close. Re-implemented here.
 
 
+def enable_vt() -> bool:
+    """Turn on ANSI escape handling in the Windows console (no-op elsewhere)."""
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+
+        k = ctypes.windll.kernel32
+        ok = False
+        for h in (-11, -12):  # stdout, stderr
+            handle = k.GetStdHandle(h)
+            mode = ctypes.c_uint32()
+            if k.GetConsoleMode(handle, ctypes.byref(mode)):
+                ok = bool(k.SetConsoleMode(handle, mode.value | 0x0004)) or ok
+        return ok
+    except Exception:
+        return False
+
+
 def unicode_ok() -> bool:
     """Can this terminal draw box characters? (same idea as is-unicode-supported)"""
     if os.environ.get("CLOVER_ASCII"):
         return False
     if os.name == "nt":
+        # Windows Terminal / VS Code / ConEmu draw box glyphs; old conhost does not.
         return bool(
             os.environ.get("WT_SESSION")
             or os.environ.get("TERM_PROGRAM")
+            or os.environ.get("ConEmuANSI") == "ON"
             or os.environ.get("TERM") == "xterm-256color"
         )
     if os.environ.get("TERM") == "linux":
@@ -165,8 +186,10 @@ def S(name: str) -> str:
         "bar": _g("│", "|"),
         "start": _g("┌", "T"),
         "end": _g("└", "-"),
-        "active": _g("◆", "*"),
-        "done": _g("◇", "o"),
+        # Box-drawing joints (same font cell family as │) so the rail never breaks.
+        "active": _g("├─", "+-"),
+        "done": _g("├─", "+-"),
+        "tick": _g("✓", "v"),
         "on": _g("●", ">"),
         "off": _g("○", " "),
         "clover": _g("🍀", "*"),
@@ -216,8 +239,8 @@ def outro(text: str) -> None:
 
 
 def step_open(title: str) -> int:
-    mark = color(S("active"), Colors.GREEN) if should_use_color() else S("active")
-    print(f"{mark}  {color(title, Colors.BOLD) if should_use_color() else title}")
+    mark = color(S("active"), Colors.GREEN, Colors.BOLD) if should_use_color() else S("active")
+    print(f"{mark} {color(title, Colors.BOLD) if should_use_color() else title}")
     return 1
 
 
@@ -225,25 +248,72 @@ def step_done(title: str, answer: str = "", *, redraw: int = 0) -> None:
     """Collapse an active step to ◇ title + dim answer. *redraw* = lines to erase first."""
     if redraw and _tty():
         sys.stdout.write(f"\033[{redraw}A\033[J")
-    mark = color(S("done"), Colors.GREEN) if should_use_color() else S("done")
-    print(f"{mark}  {title}")
+    mark = color(S("done"), Colors.DIM) if should_use_color() else S("done")
+    print(f"{mark} {color(title, Colors.DIM) if should_use_color() else title}")
     if answer:
-        rail(answer, dim=True)
+        tick = color(S("tick"), Colors.GREEN) if should_use_color() else S("tick")
+        print(f"{_bar()}  {tick} {answer}")
     gap()
 
 
-def ask(title: str, hint: str = "", default: str = "") -> str:
-    """Text input on the rail. Returns the typed text, or *default* when empty."""
+def ask(title: str, hint: str = "", default: str = "", *, preview=None, back: bool = False) -> str:
+    """Text input on the rail. Returns the typed text ('' means keep *default*).
+
+    *preview* is a function text -> str shown live under the input as you type.
+    With back=True, Esc raises GoBack.
+    """
     n = step_open(title)
     if hint:
         n += rail(hint, dim=True)
-    from clover_cli.cli_output import line_input
+    if not _can_key():
+        from clover_cli.cli_output import line_input
 
-    raw = line_input(f"{_bar()}  ")
-    n += 1
-    typed = (raw or "").strip()
-    answer = typed or default
-    step_done(title, answer, redraw=n)
+        raw = line_input(f"{_bar()}  ")
+        n += 1
+        typed = (raw or "").strip()
+        step_done(title, typed or default, redraw=n)
+        return typed
+
+    buf: list[str] = []
+    top = n  # lines above the input line (title + hint)
+
+    def draw() -> None:
+        text = "".join(buf)
+        shown = text if buf else (color(default, Colors.DIM) if default else "")
+        sys.stdout.write(f"\r\033[2K{_bar()}  {shown}")
+        if preview:
+            sys.stdout.write("\n\033[2K" + f"{_bar()}  " + color(preview(text.strip() or default), Colors.GREEN))
+            sys.stdout.write("\033[1A\r")
+            # put the cursor back after the typed text
+            sys.stdout.write(f"{_bar()}  {text}")
+        sys.stdout.flush()
+
+    enable_vt()
+    went_back = False
+    with _raw():
+        draw()
+        while True:
+            key = _read_key()
+            if key == "enter":
+                break
+            if key == "ctrl-c":
+                sys.stdout.write("\r\033[J\n")
+                raise KeyboardInterrupt
+            if key in ("esc", "left") and back and not buf:
+                went_back = True
+                break
+            if key == "backspace":
+                if buf:
+                    buf.pop()
+            elif len(key) == 1 and key.isprintable():
+                buf.append(key)
+            draw()
+    sys.stdout.write("\r")
+    if went_back:
+        sys.stdout.write(f"\033[{top}A\033[J")
+        raise GoBack()
+    typed = "".join(buf).strip()
+    step_done(title, typed or default, redraw=top)
     return typed
 
 
@@ -271,44 +341,89 @@ def _row(label: str, active: bool) -> str:
     return f"{_bar()}  {mark} {text}{tail}"
 
 
+class GoBack(Exception):
+    """Raised when the user steps back (Esc / left arrow) to the previous step."""
+
+
+def _use_windows_keys() -> bool:
+    return os.name == "nt"
+
+
 def _read_key() -> str:
-    import select
+    """One key press: up, down, left, enter, esc, ctrl-c, backspace, or the character."""
+    if _use_windows_keys():
+        import msvcrt  # type: ignore[import-not-found]
+
+        ch = msvcrt.getwch()
+        if ch in ("\x00", "\xe0"):
+            return {"H": "up", "P": "down", "K": "left", "M": "right"}.get(msvcrt.getwch(), "")
+        return {"\r": "enter", "\n": "enter", "\x1b": "esc", "\x03": "ctrl-c", "\x08": "backspace"}.get(ch, ch)
+    import select as _sel
 
     ch = os.read(0, 1)
     if ch == b"\x1b":
-        if not select.select([0], [], [], 0.05)[0]:
+        if not _sel.select([0], [], [], 0.05)[0]:
             return "esc"
         rest = os.read(0, 2)
-        return {b"[A": "up", b"[B": "down", b"OA": "up", b"OB": "down"}.get(rest, "")
+        return {b"[A": "up", b"[B": "down", b"[D": "left", b"[C": "right", b"OA": "up", b"OB": "down"}.get(rest, "")
     if ch in (b"\r", b"\n"):
         return "enter"
     if ch == b"\x03":
         return "ctrl-c"
     if ch == b"\x04":
         return "esc"
-    if ch in (b"k",):
-        return "up"
-    if ch in (b"j",):
-        return "down"
+    if ch in (b"\x7f", b"\x08"):
+        return "backspace"
+    if ch and ch[0] >= 0xC0:  # start of a multi-byte character
+        need = 1 if ch[0] < 0xE0 else 2 if ch[0] < 0xF0 else 3
+        ch += os.read(0, need)
     return ch.decode("utf-8", "ignore")
 
 
-def select(title: str, choices: list[str], default: int = 0, hint: str = "") -> int | None:
-    """Rail-style single choice: arrows + Enter, Esc to skip. Numbered fallback off a TTY.
+class _raw:
+    """Keys one at a time, no echo (termios on Unix, msvcrt on Windows)."""
 
-    Returns the chosen index, or None when skipped.
+    def __enter__(self):
+        self._old = None
+        if _use_windows_keys():
+            enable_vt()
+            return self
+        import termios
+        import tty
+
+        self._old = termios.tcgetattr(0)
+        tty.setcbreak(0)
+        return self
+
+    def __exit__(self, *exc):
+        if self._old is not None:
+            import termios
+
+            termios.tcsetattr(0, termios.TCSADRAIN, self._old)
+        return False
+
+
+def _can_key() -> bool:
+    try:
+        return _tty() and sys.stdin.isatty()
+    except Exception:
+        return False
+
+
+def keys_hint(back: bool = False) -> str:
+    if unicode_ok():
+        return "↑↓ pick · Enter ok" + (" · Esc back" if back else " · Esc skip")
+    return "up/down pick, Enter ok" + (", Esc back" if back else ", Esc skip")
+
+
+def select(title: str, choices: list[str], default: int = 0, hint: str = "", *, back: bool = False) -> int | None:
+    """Rail-style single choice: arrows + Enter. Works on Linux, macOS and Windows.
+
+    Returns the chosen index, or None when skipped. With back=True, Esc/left raises GoBack.
+    Numbered fallback only when input is not a real terminal.
     """
     n = step_open(title)
-    interactive = False
-    try:
-        interactive = _tty() and sys.stdin.isatty() and os.name != "nt"
-        if interactive:
-            import termios  # noqa: F401
-            import tty  # noqa: F401
-    except Exception:
-        interactive = False
-
-    if not interactive:
+    if not _can_key():
         for i, c in enumerate(choices, 1):
             print(f"{_bar()}  {i}) {c}")
         n += len(choices)
@@ -330,15 +445,8 @@ def select(title: str, choices: list[str], default: int = 0, hint: str = "") -> 
             step_done(title, _split_hint(choices[idx])[0], redraw=n if _tty() else 0)
             return idx
 
-    import termios
-    import tty
-
-    help_line = hint or "↑↓ move · Enter pick · Esc skip"
-    if not unicode_ok():
-        help_line = "up/down move, Enter pick, Esc skip"
+    help_line = hint or keys_hint(back)
     idx = default
-    fd = 0
-    old = termios.tcgetattr(fd)
 
     def draw(first: bool) -> None:
         if not first:
@@ -349,28 +457,32 @@ def select(title: str, choices: list[str], default: int = 0, hint: str = "") -> 
         sys.stdout.flush()
 
     result: int | None = None
+    went_back = False
     sys.stdout.write("\033[?25l")
     try:
-        tty.setcbreak(fd)
-        draw(True)
-        while True:
-            key = _read_key()
-            if key == "up":
-                idx = (idx - 1) % len(choices)
-            elif key == "down":
-                idx = (idx + 1) % len(choices)
-            elif key == "enter":
-                result = idx
-                break
-            elif key in ("esc", "ctrl-c"):
-                break
-            elif key.isdigit() and 1 <= int(key) <= len(choices):
-                idx = int(key) - 1
-            draw(False)
+        with _raw():
+            draw(True)
+            while True:
+                key = _read_key()
+                if key == "up":
+                    idx = (idx - 1) % len(choices)
+                elif key == "down":
+                    idx = (idx + 1) % len(choices)
+                elif key == "enter":
+                    result = idx
+                    break
+                elif key in ("esc", "left", "ctrl-c"):
+                    went_back = back and key != "ctrl-c"
+                    break
+                elif key.isdigit() and 1 <= int(key) <= len(choices):
+                    idx = int(key) - 1
+                draw(False)
     finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
         sys.stdout.write("\033[?25h")
     n += len(choices) + 1
+    if went_back:
+        sys.stdout.write(f"\033[{n}A\033[J")
+        raise GoBack()
     step_done(
         title,
         _split_hint(choices[result])[0] if result is not None else "Skipped for now",
@@ -420,8 +532,8 @@ class working:
             self._stop.set()
             self._thread.join()
             sys.stdout.write("\r\033[K")
-            mark = color(S("done"), Colors.GREEN)
-            print(f"{mark}  {self.done}")
+            mark = color(S("done"), Colors.DIM)
+            print(f"{mark} {color(self.done, Colors.DIM)}")
             gap()
         return False
 
@@ -441,7 +553,7 @@ def banner() -> None:
         wide = _cols() >= 80
         side = _wordmark_lines() if wide else [gradient("C L O V E R")]
         print()
-        _reveal(art(side), 0.045)
+        grow_mark(side)
     else:
         print()
         print("  " + gradient("C L O V E R"))
@@ -489,11 +601,98 @@ def grow(message: str = "Planting the seed…") -> None:
     sys.stdout.flush()
 
 
+def mark_quadrants(n: int) -> list[str]:
+    """The clover mark with only the first *n* petals (0-4) drawn.
+
+    Petals fill clockwise from the top-left: TL, TR, BR, BL. Cut from the
+    official mark, so the finished state is exactly MARK.
+    """
+    half_r, half_c = len(MARK) // 2, len(MARK[0]) // 2
+    keep = [
+        (0, 0),  # top-left
+        (0, 1),  # top-right
+        (1, 1),  # bottom-right
+        (1, 0),  # bottom-left
+    ][: max(0, min(n, 4))]
+    out = []
+    for r, line in enumerate(MARK):
+        row = []
+        for c, ch in enumerate(line):
+            quad = (0 if r < half_r else 1, 0 if c < half_c else 1)
+            row.append(ch if quad in keep else " ")
+        out.append("".join(row))
+    return out
+
+
+def grow_mark(side: list[str] | None = None) -> None:
+    """The clover fills in petal by petal, then a short confetti burst. Static when animation is off."""
+    side = list(side or [])
+    w = max(len(l) for l in MARK)
+
+    def frame(n: int) -> list[str]:
+        rows = mark_quadrants(n)
+        top = max((len(rows) - len(side)) // 2, 0)
+        lines = []
+        for i, l in enumerate(rows):
+            line = "  " + _paint(l.ljust(w), i, len(rows), w)
+            j = i - top
+            if n == 4 and 0 <= j < len(side):
+                line += "   " + side[j]
+            lines.append(line)
+        return lines
+
+    if not animation_ok() or not unicode_ok():
+        for line in frame(4):
+            print(line)
+        return
+    height = len(MARK)
+    for n in range(1, 5):
+        if n > 1:
+            sys.stdout.write(f"\033[{height}A")
+        for line in frame(n):
+            sys.stdout.write("\033[2K" + line + "\n")
+        sys.stdout.flush()
+        if _wait(0.22):
+            sys.stdout.write(f"\033[{height}A")
+            for line in frame(4):
+                sys.stdout.write("\033[2K" + line + "\n")
+            return
+    confetti = "🍀 ✦ 🍀 ✧ 🍀 ✦ 🍀"
+    sys.stdout.write("  " + gradient(confetti) + "\n")
+    sys.stdout.flush()
+    _wait(0.35)
+    sys.stdout.write("\033[1A\033[2K")
+
+
 def flourish(message: str, extra: list[str] | None = None) -> None:
-    """Finish: close the rail with the win message, then the next step."""
+    """Finish: close the rail with the win message, grow the full clover, then next steps."""
     outro(message)
+    print()
+    grow_mark()
+    print()
     for line in extra or []:
         print("   " + line)
+
+
+def offer_hi(name: str) -> bool:
+    """Ask 'Say hi now?'. Returns True only on a real terminal when the user says yes."""
+    if not _can_key() or os.environ.get("CI"):
+        return False
+    print(color(f"   Say hi to {name} now? ", Colors.BOLD) + color("Y/n", Colors.DIM), end=" ")
+    sys.stdout.flush()
+    try:
+        with _raw():
+            key = _read_key()
+    except Exception:
+        return False
+    print()
+    return key.lower() in ("y", "enter", "")
+
+
+def greeting(name: str) -> str:
+    """Live preview line for the name step."""
+    shown = name.strip() or "Clover"
+    return f"Hi, I'm {shown} {S('clover')}"
 
 
 def _reveal(lines: list[str], delay: float) -> None:

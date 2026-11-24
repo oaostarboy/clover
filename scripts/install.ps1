@@ -457,34 +457,135 @@ function Get-WindowsArch {
 
 # ============================================================================
 
+# --- Side rail look (same as the setup wizard) --------------------------
+# Idea from clack (bombshell-dev/clack, MIT). Glyphs are built from char codes
+# so this file stays plain ASCII and works in Windows PowerShell 5.1 too.
+$script:RailUnicode = $false
+try {
+    if (-not $env:CLOVER_ASCII -and ($env:WT_SESSION -or $env:TERM_PROGRAM -or $env:ConEmuANSI -eq 'ON')) {
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $script:RailUnicode = $true
+    }
+} catch { $script:RailUnicode = $false }
+$script:RailColor = -not $env:NO_COLOR
+$script:ShowDetails = [bool]($env:CLOVER_VERBOSE -or $env:CLOVER_INSTALL_VERBOSE)
+$script:LastRailLine = ''
+$script:ProblemSeen = $false
+
+function Get-RailGlyph {
+    param([string]$Name)
+    if ($script:RailUnicode) {
+        switch ($Name) {
+            'bar'   { return [string][char]0x2502 }
+            'start' { return [string][char]0x250C }
+            'end'   { return [string][char]0x2514 }
+            'done'  { return ([string][char]0x251C + [string][char]0x2500) }
+            'warn'  { return [string][char]0x25B2 }
+            'err'   { return [string][char]0x25A0 }
+        }
+    }
+    switch ($Name) {
+        'bar' { return '|' } 'start' { return 'T' } 'end' { return '-' }
+        'done' { return '+-' } 'warn' { return '!' } 'err' { return 'x' }
+    }
+}
+
+function Write-RailText {
+    param([string]$Glyph, [string]$Text, [string]$GlyphColor = 'Green', [string]$TextColor = '')
+    if ($script:RailColor) {
+        Write-Host $Glyph -NoNewline -ForegroundColor $GlyphColor
+        if ($TextColor) { Write-Host " $Text" -ForegroundColor $TextColor } else { Write-Host " $Text" }
+    } else {
+        Write-Host "$Glyph $Text"
+    }
+}
+
+function Write-RailGap {
+    if ($script:RailColor) { Write-Host (Get-RailGlyph 'bar') -ForegroundColor Green } else { Write-Host (Get-RailGlyph 'bar') }
+}
+
 function Write-Banner {
     Write-Host ""
-    Write-Host "+---------------------------------------------------------+" -ForegroundColor Magenta
-    Write-Host "|             * Clover Cognition Installer                    |" -ForegroundColor Magenta
-    Write-Host "+---------------------------------------------------------+" -ForegroundColor Magenta
-    Write-Host "|  An open source AI agent by Anthony Nguyen.              |" -ForegroundColor Magenta
-    Write-Host "+---------------------------------------------------------+" -ForegroundColor Magenta
+    if ($script:RailUnicode -and $script:RailColor) {
+        $rows = @(
+        '     UFFU  UFFU     ',
+        '    FFFFFFFFFFFF    ',
+        ' UFFUFFFFFFFFFFUFFU ',
+        'FFFFFFFFFFFFFFFFFFFF',
+        ' DFFFFFFUDDUFFFFFFD ',
+        ' UFFFFFFDUUDFFFFFFU ',
+        'FFFFFFFFFFFFFFFFFFFF',
+        ' DFFDFFFFFFFFFFDFFD ',
+        '    FFFFFFFFFFFF    ',
+        '     DFFD  DFFD     '
+        )
+        $greens = @('Green','Green','Green','Green','Green','DarkGreen','DarkGreen','DarkGreen','DarkGreen','DarkGreen')
+        for ($i = 0; $i -lt $rows.Count; $i++) {
+            $line = $rows[$i].Replace('U', [string][char]0x2584).Replace('F', [string][char]0x2588).Replace('D', [string][char]0x2580)
+            Write-Host "  $line" -ForegroundColor $greens[$i]
+        }
+    } else {
+        Write-Host "  C L O V E R" -ForegroundColor Green
+    }
     Write-Host ""
+    Write-RailText (Get-RailGlyph 'start') "Feeling lucky? Let's grow your Clover." 'Green' 'White'
+    Write-RailGap
+    Write-RailText (Get-RailGlyph 'bar') "It brings its own Python, Node and tools. Nothing else on this computer gets touched." 'Green' 'DarkGray'
+    Write-RailGap
 }
+
+# Plain words for what a normal person sees. Unlisted success lines are only
+# shown with CLOVER_VERBOSE=1. Details (Write-Info) are hidden unless something
+# went wrong or CLOVER_VERBOSE=1.
+$script:PlainWords = @(
+    @('^(Managed )?uv ', 'Gardening tools ready'),
+    @('^Python', 'Python is ready'),
+    @('^Found fallback|^Using system Python', 'Python is ready'),
+    @('^Git', 'Git is ready'),
+    @('^Node', 'Web helpers are ready'),
+    @('^npm ', 'Web helpers are ready'),
+    @('^(ripgrep|rg)', 'Fast search is ready'),
+    @('^ffmpeg', 'Sound tools are ready'),
+    @('^(Repository ready|Downloaded and extracted|Matched this copy)', 'Seed planted'),
+    @('^Virtual environment', 'Its own little garden is ready'),
+    @('^(Main package|All dependencies|Baseline imports|Console entry)', 'Clover is planted'),
+    @('^(Added to user PATH|clover command ready|Set CLOVER_HOME)', 'You can now type clover anywhere'),
+    @('^(Created .*\.env|Created .*config\.yaml|Created .*SOUL|Configuration directory)', 'Your Clover home is ready'),
+    @('^Skills', 'Starter skills planted'),
+    @('^(Playwright|Agent-browser)', 'Web browsing is ready'),
+    @('dependencies installed', 'Web helpers are ready')
+)
 
 function Write-Info {
     param([string]$Message)
-    Write-Host "-> $Message" -ForegroundColor Cyan
+    if (-not ($script:ShowDetails -or $script:ProblemSeen)) { return }
+    Write-RailText (Get-RailGlyph 'bar') $Message 'Green' 'DarkGray'
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "[OK] $Message" -ForegroundColor Green
+    $plain = $null
+    foreach ($rule in $script:PlainWords) {
+        if ($Message -match $rule[0]) { $plain = $rule[1]; break }
+    }
+    if ($script:ShowDetails) { $plain = $Message }
+    if (-not $plain -or $plain -eq $script:LastRailLine) { return }
+    $script:LastRailLine = $plain
+    Write-RailText (Get-RailGlyph 'done') $plain 'Green'
+    Write-RailGap
 }
 
 function Write-Warn {
     param([string]$Message)
-    Write-Host "[!] $Message" -ForegroundColor Yellow
+    $script:ProblemSeen = $true
+    Write-RailText (Get-RailGlyph 'warn') $Message 'Yellow' 'Yellow'
+    Write-RailGap
 }
 
 function Write-Err {
     param([string]$Message)
-    Write-Host "[X] $Message" -ForegroundColor Red
+    $script:ProblemSeen = $true
+    Write-RailText (Get-RailGlyph 'err') $Message 'Red' 'Red'
 }
 
 function Invoke-NativeWithRelaxedErrorAction {
@@ -4591,55 +4692,24 @@ function Start-GatewayIfConfigured {
 }
 
 function Write-Completion {
+    Write-RailText (Get-RailGlyph 'end') "You struck gold! Clover is planted and ready." 'Green' 'Green'
     Write-Host ""
-    Write-Host "+---------------------------------------------------------+" -ForegroundColor Green
-    Write-Host "|              [OK] Installation Complete!                |" -ForegroundColor Green
-    Write-Host "+---------------------------------------------------------+" -ForegroundColor Green
+    Write-Host "     Next: name it and pick its brain. Takes a minute."
     Write-Host ""
-    
-    # Show file locations
-    Write-Host "* Your files:" -ForegroundColor Cyan
+    Write-Host "        clover setup" -ForegroundColor Green
     Write-Host ""
-    Write-Host "   Config:    " -NoNewline -ForegroundColor Yellow
-    Write-Host "$CloverHome\config.yaml"
-    Write-Host "   API Keys:  " -NoNewline -ForegroundColor Yellow
-    Write-Host "$CloverHome\.env"
-    Write-Host "   Data:      " -NoNewline -ForegroundColor Yellow
-    Write-Host "$CloverHome\cron\, sessions\, logs\"
-    Write-Host "   Code:      " -NoNewline -ForegroundColor Yellow
-    Write-Host "$CloverHome\clover-c1\"
+    Write-Host "     If your terminal says clover is not found, open a new PowerShell window first." -ForegroundColor Cyan
     Write-Host ""
-    
-    Write-Host "---------------------------------------------------------" -ForegroundColor Cyan
+    Write-Host "     Later: clover chat  -  clover update stay fresh  -  clover doctor fix stuff" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "* Commands:" -ForegroundColor Cyan
+    Write-Host "     Your stuff lives in $CloverHome" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "   clover              " -NoNewline -ForegroundColor Green
-    Write-Host "Start chatting"
-    Write-Host "   clover setup        " -NoNewline -ForegroundColor Green
-    Write-Host "Configure API keys & settings"
-    Write-Host "   clover config       " -NoNewline -ForegroundColor Green
-    Write-Host "View/edit configuration"
-    Write-Host "   clover config edit  " -NoNewline -ForegroundColor Green
-    Write-Host "Open config in editor"
-    Write-Host "   clover gateway      " -NoNewline -ForegroundColor Green
-    Write-Host "Start messaging gateway (Telegram, Discord, etc.)"
-    Write-Host "   clover update       " -NoNewline -ForegroundColor Green
-    Write-Host "Update to latest version"
-    Write-Host ""
-    
-    Write-Host "---------------------------------------------------------" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "[*] Restart your terminal for PATH changes to take effect" -ForegroundColor Yellow
-    Write-Host ""
-    
     if (-not $HasNode) {
         Write-Host "Note: Node.js could not be installed automatically." -ForegroundColor Yellow
         Write-Host "Browser tools need Node.js. Install manually:" -ForegroundColor Yellow
         Write-Host "  https://nodejs.org/en/download/" -ForegroundColor Yellow
         Write-Host ""
     }
-    
     if (-not $HasRipgrep) {
         Write-Host "Note: ripgrep (rg) was not installed. For faster file search:" -ForegroundColor Yellow
         Write-Host "  winget install BurntSushi.ripgrep.MSVC" -ForegroundColor Yellow
