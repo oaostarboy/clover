@@ -22,7 +22,8 @@ Package: clover
 Version: $VER
 Architecture: amd64
 Maintainer: Clover Cognition <support@cloverai.ca>
-Depends: bash, curl, git, ca-certificates, xz-utils, tar, libatomic1
+Depends: bash, curl, git, ca-certificates, xz-utils, tar, libatomic1, build-essential
+
 Recommends: xterm | x-terminal-emulator
 Section: utils
 Priority: optional
@@ -42,7 +43,7 @@ Release: 1
 Summary: Clover double-click installer
 License: MIT
 BuildArch: x86_64
-Requires: bash, curl, git, xz, tar, libatomic
+Requires: bash, curl, git, xz, tar, libatomic, gcc-c++, make
 AutoReqProv: no
 %description
 Adds a Clover icon to the app menu. First launch installs Clover for your user.
