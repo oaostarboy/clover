@@ -6,14 +6,13 @@ VER="$1"; BRANCH="$2"; OUT="$3"
 R="$(cd "$(dirname "$0")/../.." && pwd)"; P="$R/packaging/linux"
 W="$(mktemp -d "${TMPDIR:-/tmp}/cloverpkg.XXXX")"; mkdir -p "$OUT"
 stage() { # $1 = root, $2 = prefix (usr)
-  install -d "$1/$2/bin" "$1/$2/share/clover-installer" "$1/$2/share/applications" "$1/$2/share/icons/hicolor/512x512/apps" "$1/$2/share/icons/hicolor/scalable/apps"
+  install -d "$1/$2/bin" "$1/$2/share/clover-installer" "$1/$2/share/applications" "$1/$2/share/icons/hicolor/512x512/apps"
   install -m755 "$P/clover-launcher.sh" "$1/$2/bin/clover-installer"
   install -m755 "$P/clover-open.sh" "$1/$2/bin/clover-open"
   install -m755 "$R/scripts/install.sh" "$1/$2/share/clover-installer/install.sh"
   echo "$BRANCH" > "$1/$2/share/clover-installer/BRANCH"
   install -m644 "$P/clover.desktop" "$1/$2/share/applications/clover.desktop"
   install -m644 "$R/apps/desktop/assets/icon.png" "$1/$2/share/icons/hicolor/512x512/apps/clover.png"
-  install -m644 "$R/assets/clover-mark.svg" "$1/$2/share/icons/hicolor/scalable/apps/clover.svg"
 }
 # ---- deb
 D="$W/deb"; stage "$D" usr; install -d "$D/DEBIAN"
