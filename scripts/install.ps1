@@ -3667,6 +3667,11 @@ function _Run-NpmInstall(
             Write-Success "$label dependencies installed"
             return $true
         }
+        if ($scope -eq 'tui' -and -not $script:ShowDetails) {
+            # Optional piece: one plain line; npm details only with CLOVER_VERBOSE=1.
+            Write-Warn "Fancy terminal view skipped, Clover still works."
+            return $false
+        }
         if ($code -eq 124) {
             Write-Warn "$label npm ci timed out after $timeoutSec seconds. Cause unknown; inspect the retained phase/debug logs."
         } else {

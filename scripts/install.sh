@@ -2824,14 +2824,18 @@ install_node_deps() {
         tui_npm_log="$(mktemp)"
         if ! run_with_timeout "$NODE_DEPS_TIMEOUT" npm install --silent \
                 >"$tui_npm_log" 2>&1; then
-            log_error "TUI npm install failed or timed out; TUI dependencies were not installed"
-            if [ -s "$tui_npm_log" ]; then
-                log_error "npm output:"
-                cat "$tui_npm_log" >&2
+            if [ -n "${CLOVER_VERBOSE:-}${CLOVER_INSTALL_VERBOSE:-}" ]; then
+                log_error "TUI npm install failed or timed out; TUI dependencies were not installed"
+                if [ -s "$tui_npm_log" ]; then
+                    log_error "npm output:"
+                    cat "$tui_npm_log" >&2
+                fi
+            else
+                log_warn "Fancy terminal view skipped, Clover still works."
             fi
             rm -f "$tui_npm_log"
             restore_dirty_lockfiles "$INSTALL_DIR"
-            return 1
+            return 0
         fi
         rm -f "$tui_npm_log"
         log_success "Chat screen is ready"
