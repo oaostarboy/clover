@@ -535,7 +535,7 @@ function Write-Banner {
 }
 
 # Plain words for what a normal person sees. Unlisted success lines are only
-# shown with CLOVER_VERBOSE=1. Details (Write-Info) are hidden unless something
+# shown with CLOVER_VERBOSE=1. Details (Write-Info) are hidden unless
 # went wrong or CLOVER_VERBOSE=1.
 $script:PlainWords = @(
     @('^(Managed )?uv ', 'Gardening tools ready'),
@@ -558,7 +558,7 @@ $script:PlainWords = @(
 
 function Write-Info {
     param([string]$Message)
-    if (-not ($script:ShowDetails -or $script:ProblemSeen)) { return }
+    if (-not $script:ShowDetails) { return }
     Write-RailText (Get-RailGlyph 'bar') $Message 'Green' 'DarkGray'
 }
 

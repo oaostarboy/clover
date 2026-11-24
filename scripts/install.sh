@@ -270,8 +270,8 @@ PROBLEM_SEEN=false
 SHOW_DETAILS=false
 [ -n "${CLOVER_VERBOSE:-}" ] && SHOW_DETAILS=true
 log_info() {
-    # Details only when asked for (CLOVER_VERBOSE=1) or after something went wrong.
-    [ "$SHOW_DETAILS" = true ] || [ "$PROBLEM_SEEN" = true ] || return 0
+    # Details only when asked for (CLOVER_VERBOSE=1). Warnings and errors always show.
+    [ "$SHOW_DETAILS" = true ] || return 0
     printf '%s%s%s  %s%s%s\n' "$R_G" "$S_BAR" "$R_N" "$R_D" "$1" "$R_N"
 }
 
@@ -2338,7 +2338,7 @@ SOUL_EOF
         log_success "Personality file is ready"
     fi
 
-    log_success "Your Clover home is ready: ~/.clover/"
+    log_success "Your Clover home is ready"
 
     # Seed bundled skills into ~/.clover/skills/ (manifest-based, one-time per skill)
     if [ "$NO_SKILLS" = true ]; then
