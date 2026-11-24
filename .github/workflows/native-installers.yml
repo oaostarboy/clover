@@ -56,10 +56,17 @@ jobs:
           & packaging\windows\shot.ps1 "$PWD\shots\02-install-output.png"
           Get-Process cmd -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           $c = "$env:LOCALAPPDATA\clover\clover-c1\venv\Scripts\clover.exe"
-          Start-Process cmd.exe -ArgumentList '/k', "mode con cols=100 lines=40 & `"$c`" setup"
+          $wt = Get-Command wt.exe -ErrorAction SilentlyContinue
+          if ($wt) {
+            "terminal: Windows Terminal ($($wt.Source))"
+            Start-Process wt.exe -ArgumentList 'cmd.exe', '/k', "chcp 65001 >nul & `"$c`" setup"
+          } else {
+            "terminal: wt.exe not on this runner, using conhost with UTF-8 code page"
+            Start-Process cmd.exe -ArgumentList '/k', "chcp 65001 >nul & mode con cols=100 lines=40 & `"$c`" setup"
+          }
           Start-Sleep 20
           & packaging\windows\shot.ps1 "$PWD\shots\03-setup-first-screen.png"
-          Get-Process cmd -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-Process cmd,WindowsTerminal -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: windows-screenshots, path: shots/*.png }

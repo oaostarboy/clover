@@ -18,8 +18,13 @@ RequestExecutionLevel user
 BrandingText "Clover ${VERSION}"
 !define MUI_ICON "..\..\apps\desktop\assets\icon.ico"
 !define MUI_UNICON "..\..\apps\desktop\assets\icon.ico"
-!define MUI_WELCOMEPAGE_TITLE "Welcome to Clover"
-!define MUI_WELCOMEPAGE_TEXT "This sets up Clover on your PC. It takes a few minutes and needs the internet.$\r$\n$\r$\nWhen the files are in place, a window opens to finish the install and start your lucky setup."
+!define MUI_WELCOMEFINISHPAGE_BITMAP "sidebar.bmp"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "sidebar.bmp"
+!define MUI_HEADERIMAGE
+!define MUI_HEADERIMAGE_BITMAP "header.bmp"
+!define MUI_HEADERIMAGE_RIGHT
+!define MUI_WELCOMEPAGE_TITLE "Let's plant some luck"
+!define MUI_WELCOMEPAGE_TEXT "Clover is about to move in. It takes a few minutes and needs the internet.$\r$\n$\r$\nWhen it is ready, a window opens and you pick your lucky charm."
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"
