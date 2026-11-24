@@ -3803,7 +3803,18 @@ def _is_profile_api_key_provider(provider_id: str) -> bool:
         return False
 
 
-def select_provider_and_model(args=None):
+# Popular first-run choices (same order the desktop onboarding leads with).
+# Slugs come from the provider registry; only the short labels live here.
+_SHORT_LIST_PROVIDERS = (
+    ("fireworks", "Fireworks AI (fast open models, API key)"),
+    ("openai-codex", "ChatGPT or Codex subscription (sign in)"),
+    ("openrouter", "OpenRouter (many models, one API key)"),
+    ("anthropic", "Anthropic Claude (subscription or API key)"),
+    ("custom", "Local model or your own URL (Ollama, LM Studio...)"),
+)
+
+
+def select_provider_and_model(args=None, *, short_list=False):
     """Core provider selection + model picking logic.
 
     Shared by ``cmd_model`` (``clover model``) and the setup wizard
@@ -4133,10 +4144,37 @@ def select_provider_and_model(args=None):
     ordered.append(("aux-config", "Configure auxiliary models...", []))
     ordered.append(("cancel", "Leave unchanged", []))
 
-    provider_idx = _prompt_provider_choice(
-        [label for _, label, _ in ordered],
-        default=default_idx,
-    )
+    if short_list:
+        # First-run: show the few popular choices; the full registry list
+        # stays one step away under "More providers...".
+        _full_ordered = ordered
+        _by_key = {k: (k, lbl, m) for k, lbl, m in _full_ordered}
+        _top: list[tuple[str, str, list[str]]] = []
+        for _key, _label in _SHORT_LIST_PROVIDERS:
+            if _key == "openai-codex":
+                _top.append(("openai-codex", _label, []))
+            elif _key in _by_key:
+                _top.append((_key, _label, _by_key[_key][2]))
+        _top.append(("more", "More providers...", []))
+        _top.append(("cancel", "Skip for now", []))
+        ordered = _top
+        default_idx = 0
+        provider_idx = _prompt_provider_choice(
+            [label for _, label, _ in ordered],
+            default=0,
+            title="Pick the AI service Clover will use:",
+        )
+        if provider_idx is not None and ordered[provider_idx][0] == "more":
+            ordered = _full_ordered
+            provider_idx = _prompt_provider_choice(
+                [label for _, label, _ in ordered],
+                default=default_idx,
+            )
+    else:
+        provider_idx = _prompt_provider_choice(
+            [label for _, label, _ in ordered],
+            default=default_idx,
+        )
     if provider_idx is None or ordered[provider_idx][0] == "cancel":
         print("No change.")
         return

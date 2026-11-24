@@ -162,3 +162,30 @@ def test_setup_summary_local_browser_unavailable_without_chromium(
 
     assert "Browser Automation (Local browser)" not in output
     assert "agent-browser install --with-deps" in output
+
+
+def test_short_provider_list_slugs_exist_in_registry():
+    """Every quick-start provider must be a real registry entry (or custom)."""
+    from clover_cli.main import _SHORT_LIST_PROVIDERS
+    from clover_cli.models import CANONICAL_PROVIDERS
+
+    known = {p.slug for p in CANONICAL_PROVIDERS} | {"custom"}
+    assert {slug for slug, _ in _SHORT_LIST_PROVIDERS} <= known
+
+
+def test_quick_start_asks_only_name_and_provider(monkeypatch, tmp_path):
+    """Quick start applies defaults, names the agent, picks a provider, stops."""
+    monkeypatch.setenv("CLOVER_HOME", str(tmp_path))
+    from clover_cli import setup as setup_mod
+    from clover_cli.config import load_config
+
+    calls = []
+    monkeypatch.setattr(setup_mod, "setup_agent_name", lambda c: calls.append("name"))
+    monkeypatch.setattr(
+        setup_mod, "setup_model_provider",
+        lambda c, short_list=False: calls.append(("model", short_list)),
+    )
+    for fn in ("setup_terminal_backend", "setup_gateway", "setup_tools"):
+        monkeypatch.setattr(setup_mod, fn, lambda *a, **k: calls.append(fn))
+    setup_mod._run_quick_start(load_config(), tmp_path)
+    assert calls == ["name", ("model", True)]

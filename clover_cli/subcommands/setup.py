@@ -54,6 +54,12 @@ def build_setup_parser(subparsers, *, cmd_setup: Callable) -> None:
         "compatibility — a bare 'clover setup' now does this.",
     )
     setup_parser.add_argument(
+        "--full",
+        action="store_true",
+        help="First run: skip the quick start and walk through every option "
+        "(AI service, where commands run, messaging, tools).",
+    )
+    setup_parser.add_argument(
         "--quick",
         action="store_true",
         help="On existing installs: only prompt for items that are missing "
