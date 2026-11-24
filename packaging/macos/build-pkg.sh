@@ -33,7 +33,7 @@ U="${CLOVER_PKG_USER:-$(stat -f%Su /dev/console)}"
 H="${CLOVER_PKG_HOME:-$(dscl . -read /Users/$U NFSHomeDirectory | awk '{print $2}')}"
 S="${CLOVER_PKG_SHARE:-/usr/local/share/clover-installer}"
 B="$(cat "$S/BRANCH")"
-LOG="$H/Library/Logs/clover-pkg-install.log"; mkdir -p "$H/Library/Logs"; chown "$U" "$H/Library/Logs" 2>/dev/null
+LOG="$H/Library/Logs/clover-pkg-install.log"; sudo -u "$U" mkdir -p "$H/Library/Logs"
 sudo -u "$U" env HOME="$H" env CLOVER_HOME="${CLOVER_HOME:-$H/.clover}" bash "$S/install.sh" --branch "$B" --skip-setup >"$LOG" 2>&1
 RC=$?
 chown "$U" "$LOG" 2>/dev/null
