@@ -477,15 +477,19 @@ def _print_quick_done(provider_ready: bool) -> None:
     lucky.leaf_step(3)
     print()
     if provider_ready:
-        lucky.flourish("You struck gold! Clover is ready.")
-        print(color("  Type clover to start.", Colors.DIM))
+        lucky.flourish(
+            "You struck gold! Clover is ready.",
+            [
+                color("Type ", Colors.DIM) + color("clover", Colors.GREEN, Colors.BOLD) + color(" to start chatting.", Colors.DIM),
+            ],
+        )
         print()
-        print(f"   {color('clover', Colors.GREEN)}            Start chatting")
+        print(lucky.rule())
     else:
         print(color("No luck yet? Add an AI service later with clover model.", Colors.YELLOW, Colors.BOLD))
         print()
         print(f"   {color('clover model', Colors.GREEN)}      Connect one now")
-    print(f"   {color('clover setup --full', Colors.GREEN)}   Change tools, messaging and more")
+    print(f"   {color('clover setup --full', Colors.GREEN)}   Add tools, Telegram and more")
     print(f"   {color('clover doctor', Colors.GREEN)}         Check that everything works")
     print()
 

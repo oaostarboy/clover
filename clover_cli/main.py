@@ -3803,14 +3803,14 @@ def _is_profile_api_key_provider(provider_id: str) -> bool:
         return False
 
 
-# Popular first-run choices (same order the desktop onboarding leads with).
+# Popular first-run choices. ChatGPT sign-in leads: most people already have it.
 # Slugs come from the provider registry; only the short labels live here.
 _SHORT_LIST_PROVIDERS = (
-    ("fireworks", "Fireworks AI (fast open models, API key)"),
-    ("openai-codex", "ChatGPT or Codex subscription (sign in)"),
-    ("openrouter", "OpenRouter (many models, one API key)"),
-    ("anthropic", "Anthropic Claude (subscription or API key)"),
-    ("custom", "Local model or your own URL (Ollama, LM Studio...)"),
+    ("openai-codex", "ChatGPT subscription  ·  just sign in"),
+    ("anthropic", "Claude  ·  subscription or API key"),
+    ("openrouter", "OpenRouter  ·  lots of models, one key"),
+    ("fireworks", "Fireworks AI  ·  fast open models, API key"),
+    ("custom", "My own model  ·  Ollama, LM Studio, your own URL"),
 )
 
 
