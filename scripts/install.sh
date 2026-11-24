@@ -216,16 +216,24 @@ done
 
 print_banner() {
     echo ""
-    echo -e "${GREEN}${BOLD}"
-    echo "┌─────────────────────────────────────────────────────────┐"
-    echo "│           ☘  C L O V E R   C O G N I T I O N            │"
-    echo "├─────────────────────────────────────────────────────────┤"
-    echo "│         Feeling lucky? Let's grow your Clover.          │"
-    echo "│                Built by Anthony Nguyen.                 │"
-    echo "└─────────────────────────────────────────────────────────┘"
-    echo -e "${NC}"
-    echo -e "${CYAN}   Bringing its own Python, Node, and tools.${NC}"
-    echo -e "${CYAN}   Nothing already on this machine gets touched.${NC}"
+    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    printf '  \033[38;2;%sm%s\033[0m\n' '146;242;186' '     ▄██▄  ▄██▄     '
+    printf '  \033[38;2;%sm%s\033[0m\n' '134;234;177' '    ████████████    '
+    printf '  \033[38;2;%sm%s\033[0m\n' '122;226;169' ' ▄██▄██████████▄██▄     ██████╗██╗      ██████╗ ██╗   ██╗███████╗██████╗'
+    printf '  \033[38;2;%sm%s\033[0m\n' '109;218;160' '████████████████████   ██╔════╝██║     ██╔═══██╗██║   ██║██╔════╝██╔══██╗'
+    printf '  \033[38;2;%sm%s\033[0m\n' '97;210;152' ' ▀██████▄▀▀▄██████▀    ██║     ██║     ██║   ██║██║   ██║█████╗  ██████╔╝'
+    printf '  \033[38;2;%sm%s\033[0m\n' '85;202;143' ' ▄██████▀▄▄▀██████▄    ██║     ██║     ██║   ██║╚██╗ ██╔╝██╔══╝  ██╔══██╗'
+    printf '  \033[38;2;%sm%s\033[0m\n' '73;194;135' '████████████████████   ╚██████╗███████╗╚██████╔╝ ╚████╔╝ ███████╗██║  ██║'
+    printf '  \033[38;2;%sm%s\033[0m\n' '60;186;126' ' ▀██▀██████████▀██▀     ╚═════╝╚══════╝ ╚═════╝   ╚═══╝  ╚══════╝╚═╝  ╚═╝'
+    printf '  \033[38;2;%sm%s\033[0m\n' '48;178;118' '    ████████████    '
+    printf '  \033[38;2;%sm%s\033[0m\n' '36;170;109' '     ▀██▀  ▀██▀     '
+    else
+        echo "  C L O V E R"
+    fi
+    echo ""
+    echo -e "  ${GREEN}${BOLD}Feeling lucky?${NC} Let's grow your Clover."
+    echo -e "  ${CYAN}It brings its own Python, Node and tools. Nothing else on this computer gets touched.${NC}"
+    echo -e "  ${GREEN}──────────────────────────────────────────────────────────────${NC}"
     echo ""
 }
 
@@ -1580,7 +1588,7 @@ EOF
             log_success "Seed planted"
         else
             rm -rf "$INSTALL_DIR" 2>/dev/null  # Clean up partial SSH clone
-            log_info "Trying another way in..."
+            log_info "Still planting..."
             if git clone --depth 1 --branch "$BRANCH" "$REPO_URL_HTTPS" "$INSTALL_DIR"; then
                 log_success "Seed planted"
             else
@@ -3088,57 +3096,35 @@ write_bootstrap_marker() {
 
 print_success() {
     echo ""
-    echo -e "${GREEN}${BOLD}"
-    echo "┌─────────────────────────────────────────────────────────┐"
-    echo "│            🍀 You struck gold! Clover is in.            │"
-    echo "└─────────────────────────────────────────────────────────┘"
-    echo -e "${NC}"
-    echo ""
-
-    # Show file locations
-    echo -e "${CYAN}${BOLD}Where everything grows${NC}"
-    echo ""
-    echo -e "   ${YELLOW}Config:${NC}    $CLOVER_HOME/config.yaml"
-    echo -e "   ${YELLOW}Secrets:${NC}   $CLOVER_HOME/.env"
-    echo -e "   ${YELLOW}Data:${NC}      $CLOVER_HOME/cron/, sessions/, logs/"
-    echo -e "   ${YELLOW}Code:${NC}      $INSTALL_DIR"
-    echo ""
-
-    echo -e "${CYAN}─────────────────────────────────────────────────────────${NC}"
-    echo ""
-    echo -e "${CYAN}${BOLD}Worth knowing${NC}"
-    echo ""
-    echo -e "   ${GREEN}clover${NC}              Start talking"
-    echo -e "   ${GREEN}clover setup${NC}        Name it, pick an AI, and you are lucky to go"
-    echo -e "   ${GREEN}clover config${NC}       See how it is set up"
-    echo -e "   ${GREEN}clover config edit${NC}  Change it by hand"
-    echo -e "   ${GREEN}clover gateway${NC}      Reach it from Telegram, Discord, Slack, and more"
-    echo -e "   ${GREEN}clover update${NC}       Get the latest"
-    echo ""
-
-    echo -e "${CYAN}─────────────────────────────────────────────────────────${NC}"
-    echo ""
-    if [ "$DISTRO" = "termux" ]; then
-        echo -e "${YELLOW}⚡ 'clover' was linked into $(get_command_link_display_dir), which is already on PATH in Termux.${NC}"
-        echo ""
-    elif [ "$ROOT_FHS_LAYOUT" = true ]; then
-        echo -e "${YELLOW}⚡ 'clover' was linked into /usr/local/bin and is ready to use — no shell reload needed.${NC}"
-        echo ""
+    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    printf '  \033[38;2;%sm%s\033[0m%b\n' '146;242;186' '     ▄██▄  ▄██▄     ' ''
+    printf '  \033[38;2;%sm%s\033[0m%b\n' '134;234;177' '    ████████████    ' ''
+    printf '  \033[38;2;%sm%s\033[0m%b\n' '122;226;169' ' ▄██▄██████████▄██▄ ' ''
+    printf '  \033[38;2;%sm%s\033[0m%b\n' '109;218;160' '████████████████████' '   \033[1;38;2;146;242;186m🍀 YOU STRUCK GOLD!\033[0m'
+    printf '  \033[38;2;%sm%s\033[0m%b\n' '97;210;152' ' ▀██████▄▀▀▄██████▀ ' ''
+    printf '  \033[38;2;%sm%s\033[0m%b\n' '85;202;143' ' ▄██████▀▄▄▀██████▄ ' '   \033[38;2;36;170;109mClover is planted and ready.\033[0m'
+    printf '  \033[38;2;%sm%s\033[0m%b\n' '73;194;135' '████████████████████' ''
+    printf '  \033[38;2;%sm%s\033[0m%b\n' '60;186;126' ' ▀██▀██████████▀██▀ ' ''
+    printf '  \033[38;2;%sm%s\033[0m%b\n' '48;178;118' '    ████████████    ' ''
+    printf '  \033[38;2;%sm%s\033[0m%b\n' '36;170;109' '     ▀██▀  ▀██▀     ' ''
     else
-        echo -e "${YELLOW}One more step. Reload your shell:${NC}"
-        echo ""
-        LOGIN_SHELL="$(basename "${SHELL:-/bin/bash}")"
-        if [ "$LOGIN_SHELL" = "zsh" ]; then
-            echo "   source ~/.zshrc"
-        elif [ "$LOGIN_SHELL" = "bash" ]; then
-            echo "   source ~/.bashrc"
-        elif [ "$LOGIN_SHELL" = "fish" ]; then
-            echo "   source ~/.config/fish/config.fish"
-        else
-            echo "   source ~/.bashrc   # or ~/.zshrc"
-        fi
+        echo "  You struck gold! Clover is planted and ready."
+    fi
+    echo ""
+    echo -e "  ${GREEN}──────────────────────────────────────────────────────────────${NC}"
+    echo ""
+    echo -e "  ${BOLD}Next:${NC} name it and pick its brain. Takes a minute."
+    echo ""
+    echo -e "     ${GREEN}${BOLD}clover setup${NC}"
+    echo ""
+    if [ "$DISTRO" != "termux" ] && [ "$ROOT_FHS_LAYOUT" != true ]; then
+        echo -e "  ${CYAN}If your terminal says \"clover: not found\", open a new terminal window first.${NC}"
         echo ""
     fi
+    echo -e "  ${CYAN}Later:${NC} ${GREEN}clover${NC} chat  ·  ${GREEN}clover update${NC} stay fresh  ·  ${GREEN}clover doctor${NC} fix stuff"
+    echo ""
+    echo -e "  ${CYAN}Your stuff lives in $CLOVER_HOME${NC}"
+    echo ""
 
     # Show Node.js warning if auto-install failed
     if [ "$HAS_NODE" = false ]; then
