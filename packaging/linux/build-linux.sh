@@ -23,7 +23,6 @@ Version: $VER
 Architecture: amd64
 Maintainer: Clover Cognition <support@cloverai.ca>
 Depends: bash, curl, git, ca-certificates, xz-utils, tar, libatomic1, build-essential
-
 Recommends: xterm | x-terminal-emulator
 Section: utils
 Priority: optional
