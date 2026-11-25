@@ -287,9 +287,15 @@ function NameStep({ ctx }: { ctx: OnboardingContext }) {
 
 const POLL_MS = 2000
 
+/** The relay says 429 when too many new installs come from one network. */
+export const isBusyError = (e: unknown) => /\b429\b/.test(e instanceof Error ? e.message : String(e ?? ''))
+
+export const BUSY_LINE = 'Lots of people are connecting right now. Try again in a minute.'
+
 function PhoneStep() {
   const [status, setStatus] = useState<null | PhonePairingStatus>(null)
   const [failed, setFailed] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [code, setCode] = useState<null | PhonePairingCode>(null)
   const [expiresAt, setExpiresAt] = useState(0)
   const [now, setNow] = useState(Date.now())
@@ -306,7 +312,8 @@ function PhoneStep() {
       setCode(res)
       setExpiresAt(Date.now() + (res.expires_in ?? 600) * 1000)
       setNow(Date.now())
-    } catch {
+    } catch (e) {
+      setBusy(isBusyError(e))
       setFailed(true)
     }
   }, [])
@@ -315,6 +322,7 @@ function PhoneStep() {
 
   const retry = () => {
     setFailed(false)
+    setBusy(false)
     setStatus(null)
     setAttempt(n => n + 1)
   }
@@ -334,7 +342,12 @@ function PhoneStep() {
           void newCode()
         }
       })
-      .catch(() => live && setFailed(true))
+      .catch(e => {
+        if (live) {
+          setBusy(isBusyError(e))
+          setFailed(true)
+        }
+      })
 
     return () => {
       live = false
@@ -375,7 +388,7 @@ function PhoneStep() {
     <StepShell step={3}>
       <h2 className="text-4xl font-semibold tracking-tight">{COPY.phoneTitle}</h2>
       <p className="mt-3 text-base leading-7 text-(--ui-text-secondary)">
-        {unavailable ? 'Phone link isn’t ready on this computer yet.' : COPY.phoneLine}
+        {unavailable ? (busy ? BUSY_LINE : 'Phone link isn’t ready on this computer yet.') : COPY.phoneLine}
       </p>
 
       {!unavailable && (
