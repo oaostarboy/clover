@@ -14,6 +14,8 @@ ENROLLMENT_ENABLED = "true"
 # iOS Build 54's flow client drops the socket on its opening request burst (send queue capped at 16).
 # Serve phones the plain gateway protocol until a fixed iOS build ships, then remove this.
 PHONE_FLOW = "off"
+# New phones allowed per network (IP) per UTC day. Code default is 10; raised so a whole office can connect.
+MAX_ENROLLMENTS_PER_IP_DAY = "50"
 
 [[durable_objects.bindings]]
 name = "INSTALLATIONS"
