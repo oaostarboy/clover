@@ -31,38 +31,26 @@ while time.time()-t0 < 900:
     time.sleep(10)
 log("console", con and con.window_text(), "after", int(time.time()-t0)); shot("03-console-appeared")
 
-import psutil
-def setup_proc():
-    for pr in psutil.process_iter(["name","cmdline"]):
-        try:
-            c=" ".join(pr.info["cmdline"] or [])
-            if "setup" in c and ("clover" in c.lower()) and "install.ps1" not in c and "drive.py" not in c and "powershell" not in c.lower(): return c
-        except Exception: pass
+
+import psutil, ctypes
 t0=time.time()
-while time.time()-t0<1500 and not setup_proc():
-    time.sleep(15); 
-    if int(time.time()-t0)%60<15: shot(f"03b-installing-{int(time.time()-t0)}")
-log("setup proc:", setup_proc(), int(time.time()-t0)); time.sleep(6)
-def focus():
-    c=find_console()
-    if c:
-        try: c.set_focus()
-        except Exception as e: log("focus err", e)
-    time.sleep(1)
-def key(k, n):
-    focus(); pyautogui.press(k) if isinstance(k,str) else None; time.sleep(2.5); shot(n)
-def typ(t, n):
-    focus(); pyautogui.write(t, interval=0.12); time.sleep(1.5); shot(n)
-shot("05-setup-first")
-key("enter","06-after-quickstart")
-typ("Luna","07-name-typed")
-key("enter","08-provider-list")
-key("esc","09-esc-back")
-key("enter","10-reenter")
-for i in range(4): pyautogui.press("down"); time.sleep(.3)
-shot("11-own-model-highlight")
-key("enter","12-url-prompt")
-typ("http://127.0.0.1:11434/v1","13-url-typed")
-key("enter","14-after-url"); time.sleep(10); shot("15-after-url-wait")
-key("enter","16-next"); time.sleep(8); shot("17-next-wait")
+def clover_exe():
+    for root in (os.path.expandvars(r"%LOCALAPPDATA%\clover"), os.path.expandvars(r"%USERPROFILE%\.clover")):
+        for f in ("clover-c1\\venv\\Scripts\\clover.exe",):
+            if os.path.exists(os.path.join(root,f)): return os.path.join(root,f)
+while time.time()-t0<1800 and not clover_exe():
+    time.sleep(20)
+    if p.poll() is not None and not clover_exe() and time.time()-t0>60:
+        pass
+    if int(time.time()-t0)%120<20: shot(f"03b-installing-{int(time.time()-t0)}")
+log("clover.exe:", clover_exe(), int(time.time()-t0))
+log("LOCALAPPDATA clover:", os.listdir(os.path.expandvars(r"%LOCALAPPDATA%\clover")) if os.path.exists(os.path.expandvars(r"%LOCALAPPDATA%\clover")) else None)
+time.sleep(30)
 log("windows", wins())
+# find all consoles, show each and screenshot
+for k,w in enumerate(Desktop(backend="win32").windows()):
+    if w.is_visible() and w.class_name() in ("ConsoleWindowClass","CASCADIA_HOSTING_WINDOW_CLASS"):
+        log("console", k, w.window_text())
+        try:
+            w.restore(); w.set_focus(); time.sleep(2); shot(f"05-console-{k}")
+        except Exception as e: log("err", e)
