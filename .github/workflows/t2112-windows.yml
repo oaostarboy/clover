@@ -1,0 +1,41 @@
+name: t2112 windows e2e
+on: { push: { branches: [test/2112-windows] } }
+jobs:
+  win:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        shell: pwsh
+        run: pip install pywinauto pyautogui psutil pillow
+      - name: download release + sha
+        shell: pwsh
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download v2.1.12 -R oaostarboy/clover -D dl
+          Get-ChildItem dl | Format-Table Name,Length
+          $sums = Get-Content dl\SHA256SUMS
+          foreach ($l in $sums) { $h,$n = $l -split '\s+',2; $n=$n.Trim('* '); if ($n -like '*windows*') { $a=(Get-FileHash dl\$n -Algorithm SHA256).Hash.ToLower(); "expected $h actual $a match=$($h -eq $a)" } }
+      - name: drive interactive installer + setup
+        shell: pwsh
+        continue-on-error: true
+        run: python -u t2112\drive.py
+      - name: windows terminal attempt + clover version
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Get-Command wt.exe -ErrorAction SilentlyContinue | Format-List Source
+          $c = "$env:LOCALAPPDATA\clover\clover-c1\venv\Scripts\clover.exe"
+          & $c --version
+          Get-Content "$env:USERPROFILE\.clover\config.yaml" -ErrorAction SilentlyContinue | Select-String -NotMatch 'key|token'
+          $env:PATH = "$env:LOCALAPPDATA\clover\clover-c1\venv\Scripts;$env:PATH"
+          clover chat -q "say hi in 5 words" 2>&1 | Select-Object -First 15
+          "branding grep:"; Get-ChildItem "$env:LOCALAPPDATA\Clover Installer\install.log" -ErrorAction SilentlyContinue
+      - name: uninstall
+        shell: pwsh
+        continue-on-error: true
+        run: python -u t2112\uninst.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: shots, path: shots/*.png }
