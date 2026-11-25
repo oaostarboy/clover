@@ -1012,11 +1012,20 @@ def setup_model_provider(config: dict, *, quick: bool = False, short_list: bool 
     # Delegate to the shared clover model flow — handles provider picker,
     # credential prompting, model selection, and config persistence.
     from clover_cli.main import select_provider_and_model
+    from clover_cli.lucky import GoBack, GoBackToProviders
+
     try:
         if short_list:
-            select_provider_and_model(short_list=True)
+            while True:
+                try:
+                    select_provider_and_model(short_list=True)
+                    break
+                except GoBackToProviders:
+                    continue  # Esc inside a provider step: show the list again
         else:
             select_provider_and_model()
+    except GoBack:
+        raise  # Esc / left arrow on the provider list: back to the name step
     except (SystemExit, KeyboardInterrupt):
         print()
         print_info("Provider setup skipped.")

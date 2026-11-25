@@ -4173,12 +4173,16 @@ def select_provider_and_model(args=None, *, short_list=False):
         )
         if provider_idx is not None and ordered[provider_idx][0] == "more":
             ordered = _full_ordered
-            provider_idx = _prompt_provider_choice(
-                [label for _, label, _ in ordered],
-                default=default_idx,
-                title="All providers",
-                rail=True,
-            )
+            try:
+                provider_idx = _prompt_provider_choice(
+                    [label for _, label, _ in ordered],
+                    default=default_idx,
+                    title="All providers",
+                    rail=True,
+                    back=True,
+                )
+            except _lucky.GoBack:
+                raise _lucky.GoBackToProviders() from None
     else:
         provider_idx = _prompt_provider_choice(
             [label for _, label, _ in ordered],

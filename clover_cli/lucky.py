@@ -375,6 +375,10 @@ class GoBack(Exception):
     """Raised when the user steps back (Esc / left arrow) to the previous step."""
 
 
+class GoBackToProviders(GoBack):
+    """Step back from inside a provider flow to the provider list."""
+
+
 def _use_windows_keys() -> bool:
     return os.name == "nt"
 
