@@ -31,16 +31,16 @@ export const COPY = {
   welcomeTitle: 'Hi, I’m Clover 🍀',
   welcomeLine: 'Your own AI helper. It chats, remembers, and gets things done, on your computer and your phone.',
   start: 'Start',
-  aiTitle: 'Let’s get Clover thinking',
+  aiTitle: 'Pick your AI',
   aiLine: 'Sign in with a subscription you already have, or pick another AI.',
   aiOther: 'Use another AI',
   aiKeyHint: 'Paste a key from the AI company. It stays on this computer.',
-  nameTitle: 'Give your Clover a name',
+  nameTitle: 'Name your Clover',
   nameLine: 'Pick anything you like. You can change it later.',
   namePlaceholder: 'Luna',
   phoneTitle: 'Connect your phone',
   phoneLine: 'Open Clover on your iPhone and scan this code. Can’t scan? Copy the code and type it in.',
-  phoneSkip: 'Skip, do it later',
+  phoneSkip: 'Skip',
   phoneLater: 'You can do this any time in Settings → Phone.',
   next: 'Continue',
   back: 'Back'
@@ -204,7 +204,7 @@ function AiStep({ ctx }: { ctx: OnboardingContext }) {
             }}
             type="button"
           >
-            Skip for now
+            Skip
           </button>
         )}
       </div>

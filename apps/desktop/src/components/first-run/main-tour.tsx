@@ -124,7 +124,7 @@ export function MainTour() {
         <div className="fr-step w-[26rem] max-w-[90vw] rounded-2xl border border-(--ui-stroke-secondary) bg-(--ui-chat-bubble-background) p-7 text-center shadow-2xl">
           <div className="text-2xl font-semibold tracking-tight">{TOUR_FINISH}</div>
           <p className="mt-2 text-sm leading-6 text-(--ui-text-secondary)">
-            Clover is ready. Ask it anything. Reopen this welcome any time from Settings → About &amp; help.
+            You’re ready. Ask Clover anything. Settings → About has “Show welcome again” if you want this back.
           </p>
           <Button className="mt-5 px-6" onClick={end} size="lg">
             Let’s go
