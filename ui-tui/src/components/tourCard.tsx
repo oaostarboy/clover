@@ -1,11 +1,16 @@
 import { Box, Text } from '@clover/ink'
 import { useStore } from '@nanostores/react'
+import { useMemo } from 'react'
 
 import { $tour, TOUR_STEPS, type TourStep } from '../app/tourStore.js'
+import { INLINE_MODE } from '../config/env.js'
+import { type LogoSpec, logoSpec } from '../lib/logoSpec.js'
 import type { Theme } from '../theme.js'
 
-// Block letters + flat 4-point star. Same shapes as `clover setup` so the
-// first thing you see in the app matches the first thing setup showed.
+import { LogoImage } from './logoImage.js'
+
+// Block letters for the wordmark only (same shapes as `clover setup`). The
+// star is the real logo image (see logoImage.tsx), never block art.
 const GLYPHS: Record<string, string[]> = {
   C: ['██████', '██    ', '██    ', '██    ', '██████'],
   E: ['██████', '██    ', '████  ', '██    ', '██████'],
@@ -17,19 +22,8 @@ const GLYPHS: Record<string, string[]> = {
 
 export const WORDMARK = [0, 1, 2, 3, 4].map(r => [...'CLOVER'].map(ch => GLYPHS[ch]![r]).join(' ').trimEnd())
 
-export const STAR = [
-  '     ██     ',
-  '    ████    ',
-  '   ██████   ',
-  ' ██████████ ',
-  '   ██████   ',
-  '    ████    ',
-  '     ██     '
-]
-
 // Brand greens (same pair `clover setup` paints with), light → deep.
 const GREEN_B = '#24AA6D'
-const GREENS = ['#92F2BA', '#7BE3A9', '#63D498', '#4DC588', '#38B778', '#24AA6D', '#24AA6D']
 
 const unicodeOk = () =>
   process.env.TERM !== 'linux' &&
@@ -37,7 +31,7 @@ const unicodeOk = () =>
 
 const glyph = (s: string) => (unicodeOk() ? s : s.replace(/█/g, '#'))
 
-export const lockupWidth = STAR[0]!.length + 3 + WORDMARK[0]!.length
+export const lockupWidth = (spec: LogoSpec | null) => (spec ? spec.cols + 3 : 0) + WORDMARK[0]!.length
 
 interface Copy {
   body: string
@@ -51,30 +45,26 @@ export const STEP_COPY: Record<(typeof TOUR_STEPS)[number], Copy> = {
   stop: { body: 'Ask for something long ("write a long poem"), then press Ctrl+C to stop it.', title: 'Stop a reply' }
 }
 
-export function Lockup({ cols, t }: { cols: number; t: Theme }) {
-  const shades = GREENS
+export function Lockup({ cols }: { cols: number; t: Theme }) {
+  const spec = useMemo(() => logoSpec(), [])
 
-  if (cols < lockupWidth + 6) {
-    return (
-      <Text bold color={GREEN_B}>
-        {glyph(WORDMARK.join('\n'))}
-      </Text>
-    )
+  const word = (
+    <Text bold color={GREEN_B}>
+      {glyph(WORDMARK.join('\n'))}
+    </Text>
+  )
+
+  // Letters only: no image support, or too narrow to fit image + letters.
+  if (!spec || INLINE_MODE || cols < lockupWidth(spec) + 6) {
+    return word
   }
 
   return (
-    <Box flexDirection="column">
-      {STAR.map((row, i) => {
-        const j = i - 1 // letters sit on the star's middle five rows
-        const letters = j >= 0 && j < WORDMARK.length ? WORDMARK[j]! : ''
-
-        return (
-          <Text key={i}>
-            <Text color={shades[i]}>{glyph(row)}</Text>
-            <Text color={GREENS[Math.min(i, GREENS.length - 1)]}>{'   ' + glyph(letters)}</Text>
-          </Text>
-        )
-      })}
+    <Box flexDirection="row">
+      <LogoImage spec={spec} />
+      <Box flexDirection="column" marginLeft={3} paddingTop={Math.max(0, (spec.rows - WORDMARK.length) >> 1)}>
+        {word}
+      </Box>
     </Box>
   )
 }

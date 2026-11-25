@@ -55,7 +55,7 @@ import { type GatewayRpc, type StateSetter, type TranscriptRow } from './interfa
 import { $overlayState, patchOverlayState } from './overlayStore.js'
 import { $goodVibesTick } from './petFlashStore.js'
 import { scrollWithSelectionBy } from './scroll.js'
-import { $tour, openTour } from './tourStore.js'
+import { $tour, openTour, setIntroMode } from './tourStore.js'
 import { turnController } from './turnController.js'
 import { patchTurnState, useTurnSelector } from './turnStore.js'
 import { $uiState, getUiState, patchUiState } from './uiStore.js'
@@ -594,11 +594,16 @@ export function useMainApp(gw: GatewayClient) {
 
     void rpc<OnboardingStatusResponse>('onboarding.status', { session_id: ui.sid }).then(r => {
       if (r?.show) {
+        setIntroMode('first')
         openTour()
-      } else if (r?.hint) {
-        sys('new: /tour — a 1-minute hands-on walk through Clover 🍀')
+      } else {
+        setIntroMode('returning')
+
+        if (r?.hint) {
+          sys('new: /tour — a 1-minute hands-on walk through Clover 🍀')
+        }
       }
-    })
+    }).catch(() => setIntroMode('returning'))
   }, [rpc, sys, ui.sid])
 
   // Finishing or skipping counts as "seen" so it never auto-opens again.

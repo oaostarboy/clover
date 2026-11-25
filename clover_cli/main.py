@@ -2901,6 +2901,18 @@ def _launch_tui(
     os.close(active_session_fd)
     env["CLOVER_TUI_ACTIVE_SESSION_FILE"] = active_session_file
     env.setdefault("NODE_ENV", "development" if tui_dev else "production")
+    # Real Clover star for the TUI welcome: detect the image protocol here (we
+    # still own the tty) with the same code `clover setup` uses.
+    try:
+        from clover_cli import lucky as _lucky
+
+        _proto = _lucky.image_protocol()
+        if _proto:
+            _cols, _rows, _top, _shift = _lucky.logo_box(_proto, _lucky.cell_px())
+            env["CLOVER_LOGO"] = f"{_proto};{_cols};{_rows};{_lucky.SIXEL_PX}"
+            env["CLOVER_LOGO_DIR"] = str(Path(_lucky.__file__).parent / "data")
+    except Exception:
+        logger.debug("Image-protocol detection for the TUI logo failed", exc_info=True)
 
     wt_info = None
     if worktree:
