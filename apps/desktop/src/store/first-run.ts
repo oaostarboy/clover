@@ -111,6 +111,8 @@ const extraDefault = INSTALL_KIND === 'existing'
 
 /** The floating pet (and its pop-out). */
 export const $extraPet = persistentAtom<boolean>('clover.desktop.extra.pet', extraDefault, Codecs.bool)
+/** The animated leaf-glyph art behind the chat. */
+export const $extraBackdrop = persistentAtom<boolean>('clover.desktop.extra.backdrop', extraDefault, Codecs.bool)
 /** The star map page (memory + skills graph). */
 export const $extraStarmap = persistentAtom<boolean>('clover.desktop.extra.starmap', extraDefault, Codecs.bool)
 /** The HUD chat bar and its in-game overlay. */
@@ -140,6 +142,7 @@ export function adoptExistingProfile() {
   $extraPet.set(true)
   $extraStarmap.set(true)
   $extraHud.set(true)
+  $extraBackdrop.set(true)
   $extraWindowControls.set(true)
   markWelcomeNotNeeded()
 }
