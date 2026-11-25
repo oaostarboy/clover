@@ -129,6 +129,7 @@ def test_install_ps1_repository_stage_recovers_from_autostash_conflict(
             str(tmp_path / "clover-home"),
         ],
         cwd=tmp_path,
+        env=os.environ | {"CLOVER_VERBOSE": "1"},
         capture_output=True,
         text=True,
     )

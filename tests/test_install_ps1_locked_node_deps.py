@@ -350,7 +350,9 @@ Write-Host 'RESULT:true'
 $script:captured = $null
 function Start-Process { param($FilePath,$ArgumentList,$WorkingDirectory,[switch]$NoNewWindow,[switch]$PassThru)
     $script:captured = @{exe=$FilePath; args=$ArgumentList; cwd=$WorkingDirectory}
-    return [pscustomobject]@{HasExited=$true; ExitCode=37; Id=12345}
+    $p = [pscustomobject]@{HasExited=$true; ExitCode=37; Id=12345; Handle=1}
+    $p | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { } 
+    return $p
 }
 $env:ComSpec = 'C:\Windows\System32\cmd.exe'
 $code = _Invoke-NativeWithTimeout 'C:\node space 中文\npm.cmd' 'ci --workspaces=false' 'C:\repo space 中文' 'C:\log space 中文\out.log' 3
