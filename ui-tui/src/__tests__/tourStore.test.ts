@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { $tour, advanceTour, closeTour, openTour, backTourStep, skipTourStep, slashTourEvent, tourDid } from '../app/tourStore.js'
+import { $tour, advanceTour, backTourStep, closeTour, openTour, skipTourStep, slashTourEvent, tourDid } from '../app/tourStore.js'
 
 describe('tour', () => {
   beforeEach(() => closeTour())
