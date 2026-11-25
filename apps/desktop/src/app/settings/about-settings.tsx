@@ -5,8 +5,9 @@ import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { type Translations, useI18n } from '@/i18n'
-import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, RefreshCw } from '@/lib/icons'
+import { AlertTriangle, CheckCircle2, ExternalLink, Info, Loader2, RefreshCw } from '@/lib/icons'
 import { cn } from '@/lib/utils'
+import { showWelcomeAgain } from '@/store/first-run'
 import {
   $desktopVersion,
   $updateApply,
@@ -120,6 +121,7 @@ export function AboutSettings() {
                       href={INSTALLER_URL}
                       onClick={event => {
                         event.preventDefault()
+
                         if (INSTALLER_URL) {
                           void window.cloverDesktop?.openExternal?.(INSTALLER_URL)?.catch(() => {})
                         }
@@ -136,6 +138,25 @@ export function AboutSettings() {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="mx-auto mt-4 w-full max-w-2xl">
+        <SectionHeading icon={Info} title="Help" />
+        <ListRow
+          action={
+            <Button
+              onClick={() => {
+                showWelcomeAgain()
+              }}
+              size="sm"
+              variant="secondary"
+            >
+              Show welcome again
+            </Button>
+          }
+          description="Replay the quick setup and the tour of the main screen."
+          title="Welcome"
+        />
       </div>
 
       <div className="mx-auto mt-4 w-full max-w-2xl">
@@ -191,6 +212,7 @@ export function AboutSettings() {
                 href={RELEASE_NOTES_URL}
                 onClick={event => {
                   event.preventDefault()
+
                   if (RELEASE_NOTES_URL) {
                     void window.cloverDesktop?.openExternal?.(RELEASE_NOTES_URL)?.catch(() => {})
                   }

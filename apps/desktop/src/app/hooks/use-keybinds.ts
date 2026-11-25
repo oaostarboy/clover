@@ -28,6 +28,7 @@ import {
   findPrevious as findPreviousMatch,
   openFindBar
 } from '@/store/find-in-page'
+import { $extraHud } from '@/store/first-run'
 import { toggleHud } from '@/store/hud'
 import { $capture, $comboIndex, endCapture, setBinding } from '@/store/keybinds'
 import {
@@ -226,6 +227,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
         const composer = document.querySelector<HTMLElement>(
           '[data-slot="composer-rich-input"], [data-slot="composer-input"], textarea'
         )
+
         composer?.focus?.()
       })
     },
@@ -258,7 +260,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'view.toggleTabStrip': () => void toggleTargetZoneTabStrip(),
     'view.showFiles': showFiles,
     'view.showBrowser': openBrowserTab,
-    'view.toggleHud': () => toggleHud(hudTargetSessionId()),
+    'view.toggleHud': () => $extraHud.get() && toggleHud(hudTargetSessionId()),
     'view.showTerminal': () => togglePaneVisible('terminal'),
     // Create first so the pane's open-effect ensure sees a non-empty set and
     // doesn't also spawn one — net effect is exactly one fresh terminal.

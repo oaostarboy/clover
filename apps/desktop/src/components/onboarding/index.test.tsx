@@ -101,7 +101,7 @@ describe('onboarding Picker', () => {
 })
 
 describe('Existing-Config First-Run Desktop Tour', () => {
-  it('renders desktop tour when configured is true and tour is not completed', () => {
+  it('never forces the old tour on someone who is already set up', () => {
     $desktopOnboarding.set({
       configured: true,
       flow: { status: 'idle' },
@@ -123,9 +123,8 @@ describe('Existing-Config First-Run Desktop Tour', () => {
       />
     )
 
-    expect(screen.getByText('Chat-first sidebar & drawers')).toBeTruthy()
-    expect(screen.getByText('Config Detected:')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy()
+    expect(screen.queryByText('Chat-first sidebar & drawers')).toBeNull()
+    expect(screen.queryByText('Config Detected:')).toBeNull()
   })
 
   it('navigates tour steps and completes on final step', () => {
