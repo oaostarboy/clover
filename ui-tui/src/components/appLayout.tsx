@@ -28,7 +28,7 @@ import { ActiveWidgetSlot, AmbientDock, AmbientRail, useAmbientRailWidth } from 
 import { AgentsOverlay } from './agentsOverlay.js'
 import { GoodVibesHeart, StatusRule, StickyPromptTracker, TranscriptScrollbar } from './appChrome.js'
 import { FloatingOverlays, PromptZone } from './appOverlays.js'
-import { Banner, Panel, SessionPanel } from './branding.js'
+import { Panel } from './branding.js'
 import { FpsOverlay } from './fpsOverlay.js'
 import { HelpHint } from './helpHint.js'
 import { Journey } from './journey.js'
@@ -37,7 +37,7 @@ import { PetKitty, PetSprite } from './petSprite.js'
 import { QueuedMessages } from './queuedMessages.js'
 import { LiveTodoPanel, StreamingAssistant } from './streamingAssistant.js'
 import { TextInput, type TextInputMouseApi } from './textInput.js'
-import { TourCard } from './tourCard.js'
+import { ReturningHeader, TourCard } from './tourCard.js'
 
 // Box geometry, kept here so the transcript's reservation math matches the
 // rendered overlay exactly.
@@ -209,16 +209,7 @@ const TranscriptPane = memo(function TranscriptPane({
 
               {row.msg.kind === 'intro' ? (
                 introMode !== 'returning' || tourOpen ? null : <Box flexDirection="column" paddingTop={1}>
-                  <Banner maxWidth={Math.max(1, composer.cols - 2)} t={ui.theme} />
-
-                  {row.msg.info && (
-                    <SessionPanel
-                      info={row.msg.info}
-                      maxWidth={Math.max(1, composer.cols - 2)}
-                      sid={ui.sid}
-                      t={ui.theme}
-                    />
-                  )}
+                  <ReturningHeader cols={composer.cols} info={row.msg.info} t={ui.theme} />
                 </Box>
               ) : row.msg.kind === 'panel' && row.msg.panelData ? (
                 <Panel sections={row.msg.panelData.sections} t={ui.theme} title={row.msg.panelData.title} />

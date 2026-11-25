@@ -31,3 +31,13 @@ describe('welcome logo', () => {
     expect($introMode.get()).toBe('first')
   })
 })
+
+import { headerSummary } from '../components/tourCard.js'
+
+describe('returning-user header', () => {
+  it('is one short summary line', () => {
+    const line = headerSummary({ model: 'ollama/qwen3b', skills: { a: ['x', 'y'], b: ['z'] }, tools: { t: ['1', '2'] } })
+    expect(line).toBe('qwen3b · 2 tools · 3 skills · /help')
+    expect(line).not.toContain('\n')
+  })
+})

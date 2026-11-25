@@ -5,7 +5,9 @@ import { useMemo } from 'react'
 import { $tour, TOUR_STEPS, type TourStep } from '../app/tourStore.js'
 import { INLINE_MODE } from '../config/env.js'
 import { type LogoSpec, logoSpec } from '../lib/logoSpec.js'
+import { flat } from '../lib/text.js'
 import type { Theme } from '../theme.js'
+import type { SessionInfo } from '../types.js'
 
 import { LogoImage } from './logoImage.js'
 
@@ -47,6 +49,10 @@ export const STEP_COPY: Record<(typeof TOUR_STEPS)[number], Copy> = {
 
 export function Lockup({ cols }: { cols: number; t: Theme }) {
   const spec = useMemo(() => logoSpec(), [])
+
+  if (cols < WORDMARK[0]!.length + 2) {
+    return <Text bold color={GREEN_B}>CLOVER</Text>
+  }
 
   const word = (
     <Text bold color={GREEN_B}>
@@ -142,3 +148,28 @@ export function TourCard({ cols, t }: { cols: number; t: Theme }) {
 }
 
 export type { TourStep }
+
+export const headerSummary = (info: Pick<SessionInfo, 'model' | 'skills' | 'tools'>) => {
+  const model = (info.model || '').split('/').pop() || 'no model'
+  const tools = flat(info.tools ?? {}).length
+  const skills = flat(info.skills ?? {}).length
+
+  return `${model} · ${tools} tools · ${skills} skills · /help`
+}
+
+/** Same clean header as first run, for returning users: star + letters, tagline, one line. */
+export function ReturningHeader({ cols, info, t }: { cols: number; info?: SessionInfo; t: Theme }) {
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Lockup cols={cols} t={t} />
+      <Text color={t.color.muted}>Clover · your AI buddy 🍀</Text>
+      {info && <Text color={t.color.muted}>{headerSummary(info)}</Text>}
+      {typeof info?.update_behind === 'number' && info.update_behind > 0 && (
+        <Text color={t.color.warn}>
+          ! {info.update_behind} behind - run {info.update_command || 'clover update'}
+        </Text>
+      )}
+      {info?.install_warning && <Text color={t.color.warn} wrap="wrap">! {info.install_warning}</Text>}
+    </Box>
+  )
+}
