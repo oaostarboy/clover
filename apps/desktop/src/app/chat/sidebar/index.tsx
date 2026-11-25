@@ -154,6 +154,7 @@ import type { SidebarNavItem } from '../../types'
 import { SidebarCronJobsSection } from './cron-jobs-section'
 import { SidebarFilterMenu } from './filter-menu'
 import { SidebarLoadMoreRow } from './load-more-row'
+import { SidebarCorner } from './more-menu'
 import { orderByIds, reconcileOrderIds, resolveManualSessionOrderIds, sameIds } from './order'
 import { filterSessionsByProfileScope } from './profile-scope'
 import { ProfileRail } from './profile-switcher'
@@ -446,7 +447,8 @@ export function ChatSidebar({
   // Window-local presentation only: expanding the rail retains the same
   // sessions, projects, filters and contributed navigation underneath it.
   const compactNavigation = useStore($sidebarCompactNavigation)
-  const [showManagement, setShowManagement] = useState(false)
+  // Management pages moved behind the corner More menu; the sidebar is chats only.
+  const showManagement = false
   const [serverMatches, setServerMatches] = useState<SessionSearchResult[]>([])
   const [searchPending, setSearchPending] = useState(false)
   const [newSessionKbdFlash, setNewSessionKbdFlash] = useState(false)
@@ -1517,7 +1519,7 @@ export function ChatSidebar({
         <SidebarGroup className="shrink-0 p-0 pb-2 pt-[calc(var(--titlebar-height)+0.375rem)]">
           <SidebarGroupContent>
             <SidebarMenu className="gap-px">
-              {[...SIDEBAR_NAV, ...contributedNav].filter(item => item.id === 'new-session' || showManagement || Boolean(item.route && pathname === item.route)).map(item => {
+              {[...SIDEBAR_NAV, ...contributedNav].filter(item => item.id === 'new-session' || Boolean(item.route && pathname === item.route && item.id !== 'settings')).map(item => {
                 const isInteractive = Boolean(item.action) || Boolean(item.route)
 
                 const active =
@@ -1626,14 +1628,6 @@ export function ChatSidebar({
                   </SidebarMenuItem>
                 )
               })}
-              <SidebarMenuItem>
-                <SidebarMenuButton aria-expanded={showManagement} aria-label="More tools and channels" data-tour="sidebar-more"
-                  onClick={() => { setShowManagement(value => !value); setSidebarCompactNavigation(false) }}
-                  tooltip={{ children: 'More tools and channels', hidden: !compactNavigation }}>
-                  <span aria-hidden className="inline-flex size-4 items-center justify-center">···</span>
-                  {!compactNavigation && <span>{showManagement ? 'Less' : 'More'}</span>}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -1962,6 +1956,11 @@ export function ChatSidebar({
         <div className="shrink-0 px-0.5 pb-1 pt-0.5">
           <ProfileRail />
         </div>
+        <SidebarCorner
+          compact={compactNavigation}
+          onOpen={route => onNavigate({ id: route, label: '', icon: () => null, route })}
+          settingsActive={currentView === 'settings'}
+        />
       </SidebarContent>
       <ProjectDialog />
       {/* One mount for the whole app. The header of WorktreeDialog tells why. */}

@@ -4,8 +4,6 @@ import { useEffect, useMemo, useRef } from 'react'
 import { $firstRunActive, $welcomeReplay, adoptExistingProfile } from '@/store/first-run'
 import { type OnboardingContext, refreshOnboarding } from '@/store/onboarding'
 
-import { MainTour } from './main-tour'
-
 import { FirstRunOverlay } from './index'
 
 interface Props {
@@ -16,7 +14,7 @@ interface Props {
 }
 
 /**
- * Mounts the first-run welcome and the main-screen tour.
+ * Mounts the one-screen first-run welcome.
  *
  * Existing users are never forced through it: the moment the gateway is up we
  * ask whether a working setup already exists. If so, the welcome steps aside
@@ -61,7 +59,6 @@ export function FirstRunHost({ enabled, onCompleted, profile, requestGateway }: 
   return (
     <>
       {active && <FirstRunOverlay ctx={ctx} enabled={enabled} />}
-      <MainTour />
     </>
   )
 }

@@ -115,7 +115,7 @@ function fallbackCopyForPersonality(personalityKey: string): IntroCopy[] {
 
   return [
     {
-      headline: `${label} mode is on. What should we work on?`,
+      headline: `${label} mode is on. Feeling lucky?`,
       body: "Send the task, file, or rough idea. I'll use your configured voice and keep the work grounded in this repo."
     },
     {

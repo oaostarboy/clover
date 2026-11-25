@@ -277,7 +277,7 @@ export const en: Translations = {
       'nav.artifacts': 'Open artifacts',
       'nav.cron': 'Open scheduled jobs',
       'nav.agents': 'Open agents',
-      'session.new': 'New session',
+      'session.new': 'New chat',
       'session.newTab': 'New session tab',
       'session.newWindow': 'New window',
       'session.next': 'Next session',
@@ -1469,7 +1469,7 @@ export const en: Translations = {
       usage: 'Token, cost, and skill activity over time'
     },
     nav: {
-      newChat: { title: 'New session', detail: 'Start a fresh session' },
+      newChat: { title: 'New chat', detail: 'Start a fresh chat' },
       settings: { title: 'Settings', detail: 'Configure Clover desktop' },
       skills: { title: 'Capabilities', detail: 'Skills, tools, and MCP servers' },
       messaging: { title: 'Messaging', detail: 'Set up Telegram, Slack, Discord, and more' },
@@ -2123,7 +2123,7 @@ export const en: Translations = {
 
   sidebar: {
     nav: {
-      'new-session': 'New session',
+      'new-session': 'New chat',
       skills: 'Capabilities',
       messaging: 'Messaging',
       artifacts: 'Artifacts',
@@ -2132,12 +2132,12 @@ export const en: Translations = {
     expandNavigation: 'Sessions and projects',
     collapseNavigation: 'Collapse navigation',
     searchAria: 'Search sessions',
-    searchPlaceholder: 'Search sessions…',
+    searchPlaceholder: 'Search chats…',
     clearSearch: 'Clear search',
     noMatch: query => `No sessions match “${query}”.`,
     results: 'Results',
     pinned: 'Pinned',
-    sessions: 'Sessions',
+    sessions: 'Chats',
     cronJobs: 'Cron jobs',
     groupAriaGrouped: 'Show sessions as a single list',
     groupAriaUngrouped: 'Group sessions by workspace',
@@ -2148,8 +2148,8 @@ export const en: Translations = {
     allPinned: 'Everything here is pinned. Unpin a chat to show it in recents.',
     shiftClickHint: 'Shift-click a chat to pin',
     noWorkspace: 'No workspace',
-    projectEmpty: 'No sessions yet',
-    noSessions: 'No sessions yet',
+    projectEmpty: 'No chats yet — luck is on its way',
+    noSessions: 'No chats yet',
     noFilterMatches: 'No sessions match these filters',
     projects: {
       sectionLabel: 'Projects',

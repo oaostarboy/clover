@@ -10,281 +10,113 @@ import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/ui/copy-button'
 import { Input } from '@/components/ui/input'
 import { Check, Loader2 } from '@/lib/icons'
-import { formatCountdown, type PairedDevice, type PhonePairingCode, type PhonePairingStatus } from '@/lib/phone-pairing'
-import { cn } from '@/lib/utils'
-import { $agentName, $firstRunStep, finishFirstRun, FIRST_RUN_STEPS, nextFirstRunStep, previousFirstRunStep } from '@/store/first-run'
+import {
+  capsFromRights,
+  formatCountdown,
+  initialRights,
+  type PairedDevice,
+  type PhoneAccessRequest,
+  type PhonePairingCode,
+  type PhonePairingStatus
+} from '@/lib/phone-pairing'
+import { $agentName, finishFirstRun } from '@/store/first-run'
+import { notify, notifyError } from '@/store/notifications'
 import {
   $desktopOnboarding,
-  dismissFirstRunOnboarding,
   type OnboardingContext,
   refreshOnboarding,
   saveOnboardingApiKey,
   setOnboardingMode,
   startProviderOAuth
 } from '@/store/onboarding'
-import type { OAuthProvider } from '@/types/clover'
 
 import { CloverStar } from './clover-star'
 
 // Plain words. No jargon on the main path.
 export const COPY = {
-  welcomeTitle: 'Hi, I’m Clover 🍀',
-  welcomeLine: 'Your own AI helper. It chats, remembers, and gets things done, on your computer and your phone.',
-  start: 'Start',
-  aiTitle: 'Pick your AI',
-  aiLine: 'Sign in with a subscription you already have, or pick another AI.',
-  aiOther: 'Use another AI',
-  aiKeyHint: 'Paste a key from the AI company. It stays on this computer.',
-  nameTitle: 'Name your Clover',
-  nameLine: 'Pick anything you like. You can change it later.',
+  title: 'Welcome to Clover',
+  line: 'Three small things, then we’re off. Luck favors the prepared.',
+  nameTitle: 'What should I answer to?',
+  nameLine: 'Clover works too. Easier than finding a four-leaf one.',
   namePlaceholder: 'Luna',
+  aiTitle: 'Which AI should I think with?',
+  aiLine: 'Sign in with the one you already use.',
+  start: 'Start',
+  startNeed: 'Sign in with one AI to start.',
+  startWithout: 'Start without an AI',
+  aiOther: 'Another AI',
+  aiKeyHint: 'Paste a key from the AI company. It stays on this computer.',
   phoneTitle: 'Connect your phone',
-  phoneLine: 'Open Clover on your iPhone and scan this code. Can’t scan? Copy the code and type it in.',
-  phoneSkip: 'Skip',
+  phoneLine: 'Scan this with Clover on your phone, or type the code.',
+  phoneSkip: 'Skip for now',
   phoneLater: 'You can do this any time in Settings → Phone.',
   next: 'Continue',
+  keepClover: 'Keep Clover',
+  skip: 'Skip for now',
   back: 'Back'
 }
+
+/** One short luck line when the main screen appears. */
+export const LANDING_LINE = 'Your luck just logged on. Ask me anything.'
 
 export function previewGreeting(name: string): string {
   const n = name.trim() || 'Luna'
 
-  return `Hi, I’m ${n} 🍀`
+  return `Hi, I’m ${n}`
 }
 
 // ── Layout ──────────────────────────────────────────────────────────────────
 
-function StepShell({ children, step }: { children: ReactNode; step: number }) {
-  return (
-    <div className="fr-step relative z-10 flex w-full max-w-[30rem] flex-col items-center text-center" key={step}>
-      {children}
-    </div>
-  )
+const WORDMARK: Record<string, string[]> = {
+  C: ['.####', '#....', '#....', '#....', '#....', '#....', '.####'],
+  L: ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
+  O: ['.###.', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+  V: ['#...#', '#...#', '#...#', '#...#', '#...#', '.#.#.', '..#..'],
+  E: ['#####', '#....', '#....', '####.', '#....', '#....', '#####'],
+  R: ['####.', '#...#', '#...#', '####.', '#.#..', '#..#.', '#...#']
 }
 
-function Dots({ index }: { index: number }) {
-  return (
-    <div aria-hidden className="flex items-center gap-1.5">
-      {FIRST_RUN_STEPS.map((id, i) => (
-        <span
-          className={cn(
-            'h-1.5 rounded-full transition-all duration-300',
-            i === index ? 'w-5 bg-primary' : i < index ? 'w-1.5 bg-primary/50' : 'w-1.5 bg-foreground/15'
-          )}
-          key={id}
-        />
-      ))}
-    </div>
-  )
-}
+/** The solid CLOVER block-letter wordmark, #92f2ba → #24aa6d. */
+export function CloverWordmark({ height = 14 }: { height?: number }) {
+  const rects: ReactNode[] = []
 
-// ── 1. Welcome ──────────────────────────────────────────────────────────────
+  ;[...'CLOVER'].forEach((ch, k) => {
+    WORDMARK[ch].forEach((row, y) => {
+      let x = 0
 
-function WelcomeStep() {
-  return (
-    <StepShell step={0}>
-      <CloverStar className="fr-star mb-10 size-28" />
-      <h1 className="text-[2.5rem] leading-tight font-semibold tracking-tight">{COPY.welcomeTitle}</h1>
-      <p className="mt-4 max-w-[28rem] text-base leading-7 text-(--ui-text-secondary)">{COPY.welcomeLine}</p>
-      <Button autoFocus className="mt-10 h-11 min-w-48 px-10 text-base" onClick={nextFirstRunStep} size="lg">
-        {COPY.start}
-      </Button>
-    </StepShell>
-  )
-}
+      while (x < 5) {
+        if (row[x] !== '#') {
+          x++
 
-// ── 2. Get Clover thinking ──────────────────────────────────────────────────
+          continue
+        }
 
-function AiStep({ ctx }: { ctx: OnboardingContext }) {
-  const onboarding = useStore($desktopOnboarding)
-  const { flow, providers, mode } = onboarding
-  const connected = onboarding.configured === true && !onboarding.manual
-  const [keyForm, setKeyForm] = useState(false)
+        let e = x
 
-  useEffect(() => {
-    void refreshOnboarding(ctx)
-  }, [ctx])
+        while (e < 5 && row[e] === '#') {
+          e++
+        }
 
-  // As soon as a provider is connected (or already was), move on.
-  useEffect(() => {
-    if (connected && flow.status === 'idle') {
-      const id = window.setTimeout(nextFirstRunStep, 700)
-
-      return () => window.clearTimeout(id)
-    }
-  }, [connected, flow.status])
-
-  const ordered = useMemo(() => (providers ? sortProviders(providers) : []), [providers])
-  // ChatGPT first, then Claude, then the rest.
-  const subscriptions = ordered.filter(p => p.id === 'openai-codex' || p.id === 'claude-code')
-  const others = ordered.filter(p => !subscriptions.includes(p))
-  const showFlow = flow.status !== 'idle'
-
-  const apiKeyOptions = useMemo(
-    () => [
-      { id: 'openrouter', name: 'OpenRouter', envKey: 'OPENROUTER_API_KEY', docsUrl: 'https://openrouter.ai/keys' },
-      { id: 'openai', name: 'OpenAI', envKey: 'OPENAI_API_KEY', docsUrl: 'https://platform.openai.com/api-keys' },
-      { id: 'gemini', name: 'Google Gemini', envKey: 'GEMINI_API_KEY', docsUrl: 'https://aistudio.google.com/app/apikey' },
-      { id: 'local', name: 'On this computer (Ollama)', envKey: 'OPENAI_BASE_URL', docsUrl: '', placeholder: 'http://127.0.0.1:11434/v1' }
-    ],
-    []
-  )
+        rects.push(<rect height={1} key={`${k}-${y}-${x}`} width={e - x} x={k * 6 + x} y={y} />)
+        x = e
+      }
+    })
+  })
 
   return (
-    <StepShell step={1}>
-      <h2 className="text-4xl font-semibold tracking-tight">{COPY.aiTitle}</h2>
-      <p className="mt-3 text-base leading-7 text-(--ui-text-secondary)">{COPY.aiLine}</p>
-
-      <div className="mt-7 w-full">
-        {connected ? (
-          <div className="flex items-center justify-center gap-2 text-sm text-primary" role="status">
-            <Check className="size-4" /> Clover is thinking. Nice.
-          </div>
-        ) : showFlow ? (
-          <div className="rounded-xl border border-(--ui-stroke-tertiary) bg-(--ui-bg-quaternary) p-4 text-left">
-            <FlowPanel ctx={ctx} flow={flow} leaving={false} onBegin={() => undefined} />
-          </div>
-        ) : keyForm ? (
-          <div className="text-left">
-            <ApiKeyForm
-              canGoBack
-              onBack={() => {
-                setKeyForm(false)
-                setOnboardingMode('oauth')
-              }}
-              onSave={(envKey, value, name, apiKey) => saveOnboardingApiKey(envKey, value, name, ctx, apiKey)}
-              options={apiKeyOptions}
-            />
-          </div>
-        ) : providers === null && mode !== 'apikey' ? (
-          <Status>Looking for ways to sign in…</Status>
-        ) : (
-          <div className="grid gap-2.5">
-            {subscriptions.map((p, i) => (
-              <ChoiceRow key={p.id} onClick={() => void startProviderOAuth(p, ctx)} primary={i === 0} provider={p} />
-            ))}
-            {others.length > 0 && (
-              <details className="group mt-1 text-left">
-                <summary className="cursor-pointer list-none text-center text-sm font-medium text-(--ui-text-tertiary) hover:text-foreground">
-                  {COPY.aiOther}
-                </summary>
-                <div className="mt-2 grid gap-1.5">
-                  {others.map(p => (
-                    <ChoiceRow key={p.id} onClick={() => void startProviderOAuth(p, ctx)} provider={p} />
-                  ))}
-                  <button
-                    className="rounded-lg px-3 py-2 text-left text-sm text-(--ui-text-secondary) hover:bg-(--ui-control-hover-background)"
-                    onClick={() => setKeyForm(true)}
-                    type="button"
-                  >
-                    Paste an API key instead
-                  </button>
-                </div>
-              </details>
-            )}
-            {others.length === 0 && (
-              <Button onClick={() => setKeyForm(true)} variant="outline">
-                Paste an API key
-              </Button>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="mt-8 flex items-center gap-4 text-sm text-(--ui-text-tertiary)">
-        <button className="hover:text-foreground" onClick={previousFirstRunStep} type="button">
-          {COPY.back}
-        </button>
-        {!connected && (
-          <button
-            className="hover:text-foreground"
-            onClick={() => {
-              dismissFirstRunOnboarding()
-              nextFirstRunStep()
-            }}
-            type="button"
-          >
-            Skip
-          </button>
-        )}
-      </div>
-    </StepShell>
+    <svg aria-label="Clover" height={height} role="img" style={{ display: 'block', flex: 'none' }} viewBox="0 0 35 7" width={(height * 35) / 7}>
+      <defs>
+        <linearGradient gradientUnits="userSpaceOnUse" id="fr-wordmark" x1="0" x2="35" y1="0" y2="0">
+          <stop offset="0" stopColor="#92f2ba" />
+          <stop offset="1" stopColor="#24aa6d" />
+        </linearGradient>
+      </defs>
+      <g fill="url(#fr-wordmark)" stroke="url(#fr-wordmark)" strokeLinejoin="round" strokeWidth={0.4}>
+        {rects}
+      </g>
+    </svg>
   )
 }
-
-function ChoiceRow({ onClick, primary, provider }: { onClick: () => void; primary?: boolean; provider: OAuthProvider }) {
-  const title = provider.id === 'openai-codex' ? 'Continue with ChatGPT' : provider.id === 'claude-code' ? 'Continue with Claude' : providerTitle(provider)
-
-  return (
-    <button
-      className={cn(
-        'flex h-12 w-full items-center justify-center rounded-xl text-base font-medium transition-colors',
-        primary
-          ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-          : 'border border-(--ui-stroke-secondary) bg-transparent text-foreground hover:bg-(--ui-control-hover-background)'
-      )}
-      onClick={onClick}
-      type="button"
-    >
-      {title}
-    </button>
-  )
-}
-
-// ── 3. Name your Clover ─────────────────────────────────────────────────────
-
-function NameStep({ ctx }: { ctx: OnboardingContext }) {
-  const name = useStore($agentName)
-  const [saving, setSaving] = useState(false)
-  const greeting = previewGreeting(name)
-
-  const save = async () => {
-    const final = name.trim() || 'Clover'
-
-    setSaving(true)
-    // Same two writes the old onboarding made, so the name works everywhere.
-    void ctx.requestGateway('config.set', { key: 'agent_name', value: final }).catch(() => undefined)
-    await saveCloverConfig({ agent: { name: final }, branding: { agent_name: final } }, ctx.profile).catch(() => undefined)
-    setSaving(false)
-    nextFirstRunStep()
-  }
-
-  return (
-    <StepShell step={2}>
-      <h2 className="text-4xl font-semibold tracking-tight">{COPY.nameTitle}</h2>
-      <p className="mt-3 text-base leading-7 text-(--ui-text-secondary)">{COPY.nameLine}</p>
-
-      <div className="mt-8 flex min-h-14 items-center justify-center gap-3" data-testid="name-preview">
-        <CloverStar className="size-9" />
-        <span className="text-2xl font-medium tracking-tight">{greeting}</span>
-      </div>
-
-      <Input
-        aria-label="Your Clover’s name"
-        autoFocus
-        className="mt-4 h-12 text-center text-lg"
-        maxLength={24}
-        onChange={e => $agentName.set(e.target.value)}
-        onKeyDown={e => e.key === 'Enter' && !e.nativeEvent.isComposing && void save()}
-        placeholder={COPY.namePlaceholder}
-        value={name}
-      />
-
-      <Button className="mt-6 h-11 min-w-48 px-10 text-base" disabled={saving} onClick={() => void save()} size="lg">
-        {saving ? <Loader2 className="animate-spin" /> : null}
-        {COPY.next}
-      </Button>
-      <button className="mt-4 text-sm text-(--ui-text-tertiary) hover:text-foreground" onClick={previousFirstRunStep} type="button">
-        {COPY.back}
-      </button>
-    </StepShell>
-  )
-}
-
-// ── 4. Connect your phone ───────────────────────────────────────────────────
-// The QR is the EXISTING pairing link: GET/POST /api/mobile/pairing returns
-// `uri = clover://pair?origin=<https origin>&token=<per-phone bearer>`, drawn by
-// the same PhonePairingQr as Settings → Phone. No new protocol.
 
 const POLL_MS = 2000
 
@@ -293,7 +125,10 @@ export const isBusyError = (e: unknown) => /\b429\b/.test(e instanceof Error ? e
 
 export const BUSY_LINE = 'Lots of people are connecting right now. Try again in a minute.'
 
-function PhoneStep() {
+/** The pairing code a phone shows when it asks to connect. */
+export const matchCodeLine = (request: PhoneAccessRequest | undefined) => (request ? `Check it shows ${request.match_code}` : '')
+
+export function PhoneConnect({ agentName }: { agentName?: string } = {}) {
   const [status, setStatus] = useState<null | PhonePairingStatus>(null)
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -301,11 +136,15 @@ function PhoneStep() {
   const [expiresAt, setExpiresAt] = useState(0)
   const [now, setNow] = useState(Date.now())
   const [connected, setConnected] = useState(false)
+  const [pending, setPending] = useState<null | PairedDevice>(null)
+  const [approving, setApproving] = useState(false)
   const codeRef = useRef<null | PhonePairingCode>(null)
   codeRef.current = code
+  const name = useStore($agentName) || agentName || 'Clover'
 
   const newCode = useCallback(async () => {
     setConnected(false)
+    setPending(null)
     setCode(null)
 
     try {
@@ -370,9 +209,13 @@ function PhoneStep() {
       cloverApi<{ devices: PairedDevice[] }>({ path: '/api/mobile/devices' })
         .then(res => {
           const mine = codeRef.current?.device?.id
+          const dev = res.devices.find(d => d.id === mine)
 
-          if (mine && res.devices.some(d => d.id === mine && d.connected)) {
+          if (dev?.connected && !dev.pending_request) {
             setConnected(true)
+            setPending(null)
+          } else {
+            setPending(dev?.pending_request ? dev : null)
           }
         })
         .catch(() => undefined)
@@ -381,101 +224,278 @@ function PhoneStep() {
     return () => window.clearInterval(id)
   }, [status?.configured])
 
+  const approve = async () => {
+      if (!pending || !request) {
+      return
+    }
+
+    setApproving(true)
+
+    try {
+      await cloverApi({
+        body: { capabilities: capsFromRights(initialRights(request)), request_id: request.request_id, trust: false },
+        method: 'POST',
+        path: `/api/mobile/devices/${pending.id}/approve`
+      })
+      setConnected(true)
+      setPending(null)
+    } catch (e) {
+      notifyError(e, 'Could not approve this iPhone')
+    } finally {
+      setApproving(false)
+    }
+  }
+
   const remaining = Math.max(0, (expiresAt - now) / 1000)
   const expired = Boolean(code) && !connected && remaining <= 0
+  const request = pending?.pending_request
   const unavailable = failed || (status !== null && !status.configured)
 
   return (
-    <StepShell step={3}>
-      <h2 className="text-4xl font-semibold tracking-tight">{COPY.phoneTitle}</h2>
-      <p className="mt-3 text-base leading-7 text-(--ui-text-secondary)">
-        {unavailable ? (busy ? BUSY_LINE : 'Phone link isn’t ready on this computer yet.') : COPY.phoneLine}
-      </p>
-
-      {!unavailable && (
-        <div className="mt-7 flex flex-col items-center gap-3">
-          <div
-            className="relative flex size-64 items-center justify-center rounded-2xl p-1.5"
-            style={{ background: '#f3f1ea' }}
-          >
-            {connected ? (
-              <div className="flex flex-col items-center gap-2" data-testid="phone-connected">
-                <span className="flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                  <Check className="size-6" />
-                </span>
-                <span className="text-sm font-semibold" style={{ color: '#16201d' }}>
-                  iPhone connected
-                </span>
-              </div>
-            ) : code?.uri && !expired ? (
-              <PhonePairingQr uri={code.uri} />
-            ) : (
-              <span className="px-6 text-center text-sm" style={{ color: '#16201d' }}>
-                {expired ? 'This code expired.' : 'Making your code…'}
-              </span>
-            )}
-          </div>
-          {code?.uri && !connected && !expired ? (
-            <CopyButton appearance="button" buttonVariant="ghost" label="Copy code" showLabel text={code.uri} />
-          ) : null}
-          <div className="flex h-5 items-center gap-1.5 text-sm text-(--ui-text-tertiary)">
-            {!connected && code && !expired ? <span className="tabular-nums">Expires in {formatCountdown(remaining)} ·</span> : null}
-            <button className="hover:text-foreground" onClick={() => void newCode()} type="button">
-              {connected ? 'Pair another phone' : 'New code'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {unavailable && (
-        <>
-          <p className="mt-4 text-sm text-(--ui-text-tertiary)">{COPY.phoneLater}</p>
-          <Button className="mt-4" onClick={retry} size="sm" variant="secondary">
+    <div className="w-full" data-testid="phone-connect">
+      {unavailable ? (
+        <div className="flex items-center gap-4 text-sm text-(--ui-text-secondary)">
+          <span>{busy ? BUSY_LINE : 'Phone link isn’t ready on this computer yet.'} {COPY.phoneLater}</span>
+          <Button onClick={retry} size="sm" variant="secondary">
             Try again
           </Button>
-        </>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-2xl border border-(--stroke-clover) bg-(--ui-bg-quaternary)">
+          <div className="flex items-center gap-6 p-5">
+            <div className="flex size-40 shrink-0 items-center justify-center rounded-xl p-1.5" data-testid="phone-qr-tile" style={{ background: '#f3f1ea' }}>
+              {code?.uri && !expired && !connected ? (
+                <PhonePairingQr uri={code.uri} />
+              ) : (
+                <span className="px-4 text-center text-sm" style={{ color: '#16201d' }}>
+                  {connected ? 'Connected' : expired ? 'This code expired.' : 'Making your code…'}
+                </span>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[0.8125rem] text-(--ui-text-secondary)">One-time code</div>
+              <div className="mt-1 text-base text-foreground tabular-nums">
+                {connected ? 'Phone connected' : code && !expired ? `Good for ${formatCountdown(remaining)}` : expired ? 'Make a new one' : '…'}
+              </div>
+              <div className="mt-4 flex items-center gap-3">
+                {code?.uri && !connected && !expired ? (
+                  <CopyButton appearance="button" buttonVariant="outline" label="Copy code" showLabel text={code.uri} />
+                ) : null}
+                <button className="text-sm text-(--ui-text-secondary) hover:text-foreground" onClick={() => void newCode()} type="button">
+                  {connected ? 'Pair another phone' : 'New code'}
+                </button>
+              </div>
+            </div>
+          </div>
+          {(request || connected) && (
+            <div className="flex items-center gap-4 border-t border-(--stroke-clover) px-5 py-3.5" role="status">
+              <div className="min-w-0 flex-1">
+                <div className="text-[0.9375rem] font-medium">
+                  {connected ? `${name}’s iPhone is connected` : `${name}’s iPhone wants to connect`}
+                </div>
+                {request && <div className="text-[0.8125rem] text-(--ui-text-secondary)">{matchCodeLine(request)}</div>}
+              </div>
+              {request && (
+                <Button disabled={approving} onClick={() => void approve()}>
+                  {approving ? <Loader2 className="animate-spin" /> : null}
+                  Approve
+                </Button>
+              )}
+              {connected && <Check className="size-5 text-primary" />}
+            </div>
+          )}
+        </div>
       )}
+    </div>
+  )
+}
 
-      <div className="mt-8 flex flex-col items-center gap-3">
-        {connected ? (
-          <Button className="h-11 min-w-48 px-10 text-base" onClick={() => finishFirstRun()} size="lg">
-            {COPY.next}
-          </Button>
-        ) : (
-          <button
-            className="text-base font-medium text-(--ui-text-secondary) hover:text-foreground"
-            onClick={() => finishFirstRun()}
-            type="button"
-          >
-            {COPY.phoneSkip}
-          </button>
-        )}
-        <button className="text-sm text-(--ui-text-tertiary) hover:text-foreground" onClick={previousFirstRunStep} type="button">
-          {COPY.back}
-        </button>
+
+function Section({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <section className="grid grid-cols-[8.5rem_1fr] gap-6 border-t border-(--stroke-clover) py-6">
+      <h2 className="pt-1 text-sm text-(--ui-text-secondary)">{label}</h2>
+      <div className="min-w-0">{children}</div>
+    </section>
+  )
+}
+
+function Row({ action, label, onClick, sub }: { action: string; label: string; onClick: () => void; sub: string }) {
+  return (
+    <div className="flex min-h-14 items-center gap-4 py-1.5">
+      <div className="min-w-0 flex-1">
+        <div className="text-base leading-[22px] font-medium">{label}</div>
+        <div className="text-[0.8125rem] leading-[18px] text-(--ui-text-secondary)">{sub}</div>
       </div>
-    </StepShell>
+      <Button onClick={onClick} variant="outline">
+        {action}
+      </Button>
+    </div>
+  )
+}
+
+export function FirstRunScreen({ ctx, enabled }: { ctx: OnboardingContext; enabled: boolean }) {
+  const onboarding = useStore($desktopOnboarding)
+  const { flow, providers, mode } = onboarding
+  const connected = onboarding.configured === true && !onboarding.manual
+  const name = useStore($agentName)
+  const [keyForm, setKeyForm] = useState(false)
+  const [others, setOthers] = useState(false)
+  const [phone, setPhone] = useState(false)
+
+  useEffect(() => {
+    if (enabled) {
+      void refreshOnboarding(ctx)
+    }
+  }, [ctx, enabled])
+
+  const ordered = useMemo(() => (providers ? sortProviders(providers) : []), [providers])
+  const chatgpt = ordered.find(p => p.id === 'openai-codex')
+  const claude = ordered.find(p => p.id === 'claude-code')
+  const rest = ordered.filter(p => p !== chatgpt && p !== claude)
+  const showFlow = flow.status !== 'idle'
+
+  const apiKeyOptions = useMemo(
+    () => [
+      { id: 'openrouter', name: 'OpenRouter', envKey: 'OPENROUTER_API_KEY', docsUrl: 'https://openrouter.ai/keys' },
+      { id: 'openai', name: 'OpenAI', envKey: 'OPENAI_API_KEY', docsUrl: 'https://platform.openai.com/api-keys' },
+      { id: 'gemini', name: 'Google Gemini', envKey: 'GEMINI_API_KEY', docsUrl: 'https://aistudio.google.com/app/apikey' },
+      { id: 'local', name: 'On this computer (Ollama)', envKey: 'OPENAI_BASE_URL', docsUrl: '', placeholder: 'http://127.0.0.1:11434/v1' }
+    ],
+    []
+  )
+
+  const start = async () => {
+    const final = name.trim() || 'Clover'
+
+    $agentName.set(final)
+    // Same two writes the old onboarding made, so the name works everywhere.
+    void ctx.requestGateway('config.set', { key: 'agent_name', value: final }).catch(() => undefined)
+    await saveCloverConfig({ agent: { name: final }, branding: { agent_name: final } }, ctx.profile).catch(() => undefined)
+    finishFirstRun()
+    notify({ kind: 'success', message: LANDING_LINE, durationMs: 6000 })
+  }
+
+  return (
+    <div className="fr-step relative z-10 w-full max-w-[46rem] px-8">
+      <h1 className="text-[2rem] leading-10 font-medium tracking-tight">{COPY.title}</h1>
+      <p className="mt-1 text-base leading-6 text-(--ui-text-secondary)">{COPY.line}</p>
+
+      <div className="mt-8">
+        <Section label="Name">
+          <Input
+            aria-label="Your Clover’s name"
+            autoFocus
+            className="h-11 rounded-xl px-4 text-base"
+            maxLength={24}
+            onChange={e => $agentName.set(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && !e.nativeEvent.isComposing && connected && void start()}
+            placeholder={COPY.namePlaceholder}
+            value={name}
+          />
+          <div className="mt-2 flex items-center gap-2 text-[0.8125rem] text-(--ui-text-secondary)" data-testid="name-preview">
+            <CloverStar className="size-4" />
+            <span>
+              {previewGreeting(name)}. {COPY.nameLine}
+            </span>
+          </div>
+        </Section>
+
+        <Section label="AI">
+          {connected ? (
+            <div className="flex min-h-14 items-center gap-2 text-base text-primary" role="status">
+              <Check className="size-4" /> Connected. Nice.
+            </div>
+          ) : showFlow ? (
+            <div className="rounded-xl border border-(--stroke-clover) bg-(--ui-bg-quaternary) p-4 text-left">
+              <FlowPanel ctx={ctx} flow={flow} leaving={false} onBegin={() => undefined} />
+            </div>
+          ) : keyForm ? (
+            <ApiKeyForm
+              canGoBack
+              onBack={() => {
+                setKeyForm(false)
+                setOnboardingMode('oauth')
+              }}
+              onSave={(envKey, value, nm, apiKey) => saveOnboardingApiKey(envKey, value, nm, ctx, apiKey)}
+              options={apiKeyOptions}
+            />
+          ) : providers === null && mode !== 'apikey' ? (
+            <Status>Looking for ways to sign in…</Status>
+          ) : (
+            <div>
+              {chatgpt && <Row action="Sign in" label="ChatGPT" onClick={() => void startProviderOAuth(chatgpt, ctx)} sub="Use your ChatGPT plan" />}
+              {claude && <Row action="Sign in" label="Claude" onClick={() => void startProviderOAuth(claude, ctx)} sub="Use your Claude plan" />}
+              <Row
+                action={others ? 'Hide' : 'Choose'}
+                label="Another AI"
+                onClick={() => setOthers(v => !v)}
+                sub="Gemini, OpenRouter, your own key, or one on this computer"
+              />
+              {others && (
+                <div className="mb-1 ml-1 grid gap-0.5">
+                  {rest.map(p => (
+                    <button
+                      className="rounded-lg px-3 py-2 text-left text-sm hover:bg-(--ui-control-hover-background)"
+                      key={p.id}
+                      onClick={() => void startProviderOAuth(p, ctx)}
+                      type="button"
+                    >
+                      {providerTitle(p)}
+                    </button>
+                  ))}
+                  <button
+                    className="rounded-lg px-3 py-2 text-left text-sm text-(--ui-text-secondary) hover:bg-(--ui-control-hover-background)"
+                    onClick={() => setKeyForm(true)}
+                    type="button"
+                  >
+                    Paste a key instead
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </Section>
+
+        <Section label="Phone">
+          {phone ? (
+            <PhoneConnect />
+          ) : (
+            <Row action="Set up" label="Use Clover on your iPhone" onClick={() => setPhone(true)} sub="Scan a one-time code. Optional, and it works later too." />
+          )}
+        </Section>
+      </div>
+
+      <div className="flex items-center justify-between border-t border-(--stroke-clover) pt-6">
+        <button className="text-sm text-(--ui-text-secondary) hover:text-foreground" onClick={() => finishFirstRun()} type="button">
+          {COPY.startWithout}
+        </button>
+        <div className="flex items-center gap-4">
+          {!connected && <span className="text-[0.8125rem] text-(--ui-text-secondary)">{COPY.startNeed}</span>}
+          <Button className="h-10 px-6" disabled={!connected} onClick={() => void start()}>
+            {COPY.start}
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
 
 // ── Overlay ─────────────────────────────────────────────────────────────────
 
 export function FirstRunOverlay({ ctx, enabled }: { ctx: OnboardingContext; enabled: boolean }) {
-  const step = useStore($firstRunStep)
-  const index = FIRST_RUN_STEPS.indexOf(step)
-
-  // Esc steps back, never traps (every way in needs a way out).
+  // Esc leaves the welcome the same way "Start without an AI" does: never a trap.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && index > 0) {
-        previousFirstRunStep()
+      if (e.key === 'Escape') {
+        finishFirstRun()
       }
     }
 
     window.addEventListener('keydown', onKey)
 
     return () => window.removeEventListener('keydown', onKey)
-  }, [index])
+  }, [])
 
   return (
     <div
@@ -486,26 +506,14 @@ export function FirstRunOverlay({ ctx, enabled }: { ctx: OnboardingContext; enab
       data-glass-opaque=""
       role="dialog"
     >
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-radial-[circle_at_50%_32%] from-emerald-500/10 via-transparent to-transparent" />
+      <header className="absolute top-0 right-0 left-0 flex h-14 items-center px-8">
+        <div className="flex items-center gap-3">
+          <CloverStar className="size-5" />
+          <CloverWordmark height={13} />
+        </div>
+      </header>
 
-      <div className="absolute top-8 flex w-full justify-center">
-        <Dots index={index} />
-      </div>
-
-      {step === 'welcome' && <WelcomeStep />}
-      {step === 'ai' && (enabled ? <AiStep ctx={ctx} /> : <StepShell step={1}><Status>Getting ready…</Status></StepShell>)}
-      {step === 'name' && <NameStep ctx={ctx} />}
-      {step === 'phone' && <PhoneStep />}
-
-      {step === 'welcome' && (
-        <button
-          className="absolute bottom-6 text-sm text-(--ui-text-tertiary) hover:text-foreground"
-          onClick={() => finishFirstRun({ tour: false })}
-          type="button"
-        >
-          Skip
-        </button>
-      )}
+      <FirstRunScreen ctx={ctx} enabled={enabled} />
     </div>
   )
 }
