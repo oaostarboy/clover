@@ -1,14 +1,14 @@
 # Clover native installers (2026-11-24, version 2.1.10.2, NOT released)
-Source: branch `packaging/native-installers` (on onboarding/tui-first-pass @064861af), repo oaostarboy/clover.
+Source: packaging/ in oaostarboy/clover.
 All installers are thin: they ship scripts/install.sh or install.ps1 (the real installer) and
-install from git branch `onboarding/tui-first-pass` (BRANCH file inside each package; change it by rebuilding).
+install from git branch `main` (or the release tag) (BRANCH file inside each package; change it by rebuilding).
 They download uv/Python/Node at install time, so they need internet. The mac/linux/windows installs then land the real `clover`.
 Not the Electron desktop app (electron-builder config exists in apps/desktop but was not built here).
 
 ## Rebuild
 - Windows .exe: run workflow "Native installers (manual, no release)" (`gh workflow run native-installers.yml --ref packaging/native-installers -f branch=<git branch>`; also runs on push to that branch). NSIS on windows-latest, then silent-installs and runs `clover --version`. Artifact `windows-exe`. Last run: 45475252394.
-- Linux deb/rpm/AppImage: `docker run --rm -v $PWD:/src:ro -v $OUT:/out debian:stable bash -c 'apt-get update -qq && apt-get install -y -qq dpkg rpm curl file && cp -r /src /tmp/r && bash /tmp/r/packaging/linux/build-linux.sh 2.1.10.2 onboarding/tui-first-pass /out'`
-- macOS .pkg (needs a Mac): `bash packaging/macos/build-pkg.sh 2.1.10.2 onboarding/tui-first-pass out [Developer ID Installer identity]`
+- Linux deb/rpm/AppImage: `docker run --rm -v $PWD:/src:ro -v $OUT:/out debian:stable bash -c 'apt-get update -qq && apt-get install -y -qq dpkg rpm curl file && cp -r /src /tmp/r && bash /tmp/r/packaging/linux/build-linux.sh 2.1.10.2 main /out'`
+- macOS .pkg (needs a Mac): `bash packaging/macos/build-pkg.sh 2.1.10.2 main out [Developer ID Installer identity]`
 
 ## Signing
 - None signed. Mac has 0 code-signing identities; Windows has no cert. Expect Gatekeeper ("unidentified developer", right-click > Open) and SmartScreen ("More info > Run anyway").
