@@ -484,7 +484,7 @@ def _offer_first_chat(config: dict) -> None:
     first = f"Hi! I just named you {name}. Say hello and tell me one thing you can help with."
     cmd = [exe, "chat", "-q", first] if shutil.which("clover") else [sys.executable, "-m", "clover_cli.main", "chat", "-q", first]
     try:
-        subprocess.call(cmd)
+        subprocess.call(cmd, stdin=sys.stdin)
     except Exception:
         print(f"   Start it yourself: clover chat -q \"{first}\"")
 
