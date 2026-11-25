@@ -151,6 +151,11 @@ export interface ConfigSetResponse {
   warning?: string
 }
 
+export interface OnboardingStatusResponse {
+  hint?: boolean
+  show?: boolean
+}
+
 export interface SetupStatusResponse {
   provider_configured?: boolean
 }

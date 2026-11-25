@@ -26,6 +26,7 @@ import {
   type OverlayState
 } from './interfaces.js'
 import { $isBlocked, $overlayState, patchOverlayState } from './overlayStore.js'
+import { advanceTour, getTour, skipTourStep, tourActive, tourDid } from './tourStore.js'
 import { turnController } from './turnController.js'
 import { patchTurnState } from './turnStore.js'
 import { getUiState } from './uiStore.js'
@@ -357,6 +358,19 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
   useInput((ch, key) => {
     const live = getUiState()
 
+    // First-run tour owns Enter/Esc while a card is up and the composer is empty.
+    if (!isBlocked && tourActive() && !cState.input && !cState.inputBuf.length) {
+      const step = getTour()
+
+      if (key.escape) {
+        return skipTourStep()
+      }
+
+      if (key.return && (step === 'welcome' || step === 'done')) {
+        return advanceTour()
+      }
+    }
+
     if (key.escape) {
       const now = Date.now()
       const isDouble = now - lastEscRef.current <= DOUBLE_ESC_MS
@@ -634,6 +648,8 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
       }
 
       if (ctrlC === 'interrupt' && live.sid) {
+        tourDid('interrupt')
+
         return turnController.interruptTurn({
           appendMessage: actions.appendMessage,
           gw: gateway.gw,
