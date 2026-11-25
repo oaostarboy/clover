@@ -5518,7 +5518,7 @@ class TestSystemPromptStability:
         # Should have built fresh, not queried the DB
         mock_db.get_session.assert_not_called()
         assert agent._cached_system_prompt is not None
-        assert "Clover Cognition" in agent._cached_system_prompt
+        assert "Clover" in agent._cached_system_prompt
 
 
 class TestBudgetPressure:

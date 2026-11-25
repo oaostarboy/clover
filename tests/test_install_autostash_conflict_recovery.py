@@ -90,6 +90,7 @@ def test_install_sh_repository_stage_recovers_from_autostash_conflict(
     env = os.environ | {
         "CLOVER_HOME": str(tmp_path / "clover-home"),
         "CLOVER_INSTALL_DIR": str(managed),
+        "CLOVER_VERBOSE": "1",
     }
 
     result = subprocess.run(
@@ -177,6 +178,7 @@ def test_install_sh_repository_stage_clean_apply_drops_stash(
     env = os.environ | {
         "CLOVER_HOME": str(tmp_path / "clover-home"),
         "CLOVER_INSTALL_DIR": str(managed),
+        "CLOVER_VERBOSE": "1",
     }
     result = subprocess.run(
         ["bash", str(INSTALL_SH), "--stage", "repository", "--non-interactive"],

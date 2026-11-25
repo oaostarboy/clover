@@ -113,7 +113,7 @@ def test_root_node_dependency_failure_is_fatal(tmp_path: Path) -> None:
     assert not (install_dir / "node_modules").exists()
 
 
-def test_tui_node_dependency_failure_is_fatal(tmp_path: Path) -> None:
+def test_tui_node_dependency_failure_is_not_fatal(tmp_path: Path) -> None:
     install_dir = tmp_path / "install"
     tui_dir = install_dir / "ui-tui"
     proc, _, calls = _run_node_deps_stage(
@@ -121,11 +121,12 @@ def test_tui_node_dependency_failure_is_fatal(tmp_path: Path) -> None:
         fail_directory=str(tui_dir),
     )
 
-    assert proc.returncode != 0
-    assert _stage_result(proc)["ok"] is False
+    # The fancy terminal view is optional: Clover still works without it,
+    # so the installer warns and carries on (plain-language setup design).
+    assert proc.returncode == 0
     assert calls == [str(install_dir), str(tui_dir)]
-    assert "Node.js dependencies installed" in proc.stdout
-    assert "TUI dependencies installed" not in proc.stdout
+    assert "Web helpers are ready" in proc.stdout
+    assert "Chat screen is ready" not in proc.stdout
 
 
 def test_node_dependency_success_remains_successful(tmp_path: Path) -> None:
@@ -141,5 +142,5 @@ def test_node_dependency_success_remains_successful(tmp_path: Path) -> None:
         "skipped": False,
     }
     assert calls == [str(install_dir), str(install_dir / "ui-tui")]
-    assert "Node.js dependencies installed" in proc.stdout
-    assert "TUI dependencies installed" in proc.stdout
+    assert "Web helpers are ready" in proc.stdout
+    assert "Chat screen is ready" in proc.stdout
