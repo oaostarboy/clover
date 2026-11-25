@@ -23,6 +23,7 @@ import type {
   ClarifyRespondResponse,
   ConfigSetResponse,
   GatewayEvent,
+  OnboardingStatusResponse,
   SessionActiveListResponse,
   SessionCloseResponse,
   TerminalResizeResponse
@@ -54,6 +55,7 @@ import { type GatewayRpc, type StateSetter, type TranscriptRow } from './interfa
 import { $overlayState, patchOverlayState } from './overlayStore.js'
 import { $goodVibesTick } from './petFlashStore.js'
 import { scrollWithSelectionBy } from './scroll.js'
+import { $tour, openTour } from './tourStore.js'
 import { turnController } from './turnController.js'
 import { patchTurnState, useTurnSelector } from './turnStore.js'
 import { $uiState, getUiState, patchUiState } from './uiStore.js'
@@ -577,6 +579,40 @@ export function useMainApp(gw: GatewayClient) {
       setTurnStartedAt(null)
     }
   }, [ui.busy, turnStartedAt])
+
+  // First run: open the welcome once. The gateway decides (config flag +
+  // "do you already have sessions?"), so existing users never see it; they
+  // get one gentle line instead.
+  const welcomeAsked = useRef(false)
+
+  useEffect(() => {
+    if (!ui.sid || welcomeAsked.current) {
+      return
+    }
+
+    welcomeAsked.current = true
+
+    void rpc<OnboardingStatusResponse>('onboarding.status', { session_id: ui.sid }).then(r => {
+      if (r?.show) {
+        openTour()
+      } else if (r?.hint) {
+        sys('new: /tour — a 1-minute hands-on walk through Clover 🍀')
+      }
+    })
+  }, [rpc, sys, ui.sid])
+
+  // Finishing or skipping counts as "seen" so it never auto-opens again.
+  const tourStep = useStore($tour)
+  const tourWasOpen = useRef(false)
+
+  useEffect(() => {
+    if (tourStep) {
+      tourWasOpen.current = true
+    } else if (tourWasOpen.current) {
+      tourWasOpen.current = false
+      void rpc('onboarding.done', {})
+    }
+  }, [rpc, tourStep])
 
   useConfigSync({ gw, setBellOnComplete, setVoiceEnabled, setVoiceRecordKey, sid: ui.sid })
   useBatteryPoll(gw)

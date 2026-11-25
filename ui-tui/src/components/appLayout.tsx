@@ -36,6 +36,7 @@ import { PetKitty, PetSprite } from './petSprite.js'
 import { QueuedMessages } from './queuedMessages.js'
 import { LiveTodoPanel, StreamingAssistant } from './streamingAssistant.js'
 import { TextInput, type TextInputMouseApi } from './textInput.js'
+import { TourCard } from './tourCard.js'
 
 // Box geometry, kept here so the transcript's reservation math matches the
 // rendered overlay exactly.
@@ -340,6 +341,8 @@ const ComposerPane = memo(function ComposerPane({
       }}
       paddingX={1}
     >
+      <TourCard cols={composer.cols} t={ui.theme} />
+
       <QueuedMessages
         cols={composer.cols}
         queued={composer.queuedDisplay}

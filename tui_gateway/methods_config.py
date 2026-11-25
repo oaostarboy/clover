@@ -386,6 +386,44 @@ def _(rid, params: dict) -> dict:
     return _err(rid, 4002, f"unknown config key: {key}")
 
 
+@method("onboarding.status")
+def _(rid, params: dict) -> dict:
+    """First-run check for the TUI welcome.
+
+    ``show``: open the welcome. ``hint``: one-line "new: /tour" for people who
+    already have history (we then mark it seen so it appears once).
+    The flag lives in config.yaml (``onboarding.seen``).
+    """
+    try:
+        ob = _load_cfg_raw().get("onboarding")
+        if isinstance(ob, dict) and ob.get("seen"):
+            return _ok(rid, {"show": False, "hint": False})
+        sid = str(params.get("session_id") or "")
+        prior = False
+        with _profile_db(params) as db:
+            if db is not None:
+                total = db.session_count(include_archived=True)
+                if sid and db.get_session(sid):
+                    total -= 1
+                prior = total > 0
+        if prior:
+            _write_config_key("onboarding.seen", True)
+            return _ok(rid, {"show": False, "hint": True})
+        return _ok(rid, {"show": True, "hint": False})
+    except Exception as e:
+        return _err(rid, 5017, str(e))
+
+
+@method("onboarding.done")
+def _(rid, params: dict) -> dict:
+    """Remember that the welcome was seen (finished or skipped)."""
+    try:
+        _write_config_key("onboarding.seen", True)
+        return _ok(rid, {"seen": True})
+    except Exception as e:
+        return _err(rid, 5018, str(e))
+
+
 @method("setup.status")
 def _(rid, params: dict) -> dict:
     try:

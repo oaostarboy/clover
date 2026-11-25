@@ -3297,27 +3297,45 @@ def cmd_chat(args):
             print()
             print("No Clover configuration found — launching onboarding setup...")
             print()
-            cmd_setup(args)
-            return
+            if use_tui:
+                # Quick start, then straight into the app: the welcome + tour
+                # opens there, so skip setup's own "say hi" chat.
+                from clover_cli import setup as _setup_mod
 
-        print()
-        print(
-            "It looks like Clover isn't configured yet -- no API keys or providers found."
-        )
-        print()
-        print("  Run:  clover setup")
-        print()
-
-        try:
-            reply = input("Run setup now? [Y/n] ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            reply = "n"
-        if reply in {"", "y", "yes"}:
+                _setup_mod.HANDOFF_TO_TUI = True
             cmd_setup(args)
-            return
-        print()
-        print("You can run 'clover setup' at any time to configure.")
-        sys.exit(1)
+            if not (use_tui and _has_any_provider_configured()):
+                return
+            reply = None  # set up just now: carry on into the app
+        else:
+            print()
+            print(
+                "It looks like Clover isn't configured yet -- no API keys or providers found."
+            )
+            print()
+            print("  Run:  clover setup")
+            print()
+
+            try:
+                reply = input("Run setup now? [Y/n] ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                reply = "n"
+        if reply is None:
+            pass
+        elif reply in {"", "y", "yes"}:
+            if use_tui:
+                from clover_cli import setup as _setup_mod
+
+                _setup_mod.HANDOFF_TO_TUI = True
+            cmd_setup(args)
+            if use_tui and _has_any_provider_configured():
+                print()
+            else:
+                return
+        else:
+            print()
+            print("You can run 'clover setup' at any time to configure.")
+            sys.exit(1)
 
     # Start update check in background (runs while other init happens).
     # On Termux this imports rich/prompt_toolkit in the foreground and then

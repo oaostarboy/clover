@@ -8,6 +8,7 @@ import type { SlashHandlerContext } from './interfaces.js'
 import { scoreSlashMenuItem } from './slash/fuzzyScore.js'
 import { findSlashCommand } from './slash/registry.js'
 import type { SlashRunCtx } from './slash/types.js'
+import { slashTourEvent, tourDid } from './tourStore.js'
 import { getUiState } from './uiStore.js'
 
 export function createSlashHandler(ctx: SlashHandlerContext): (cmd: string) => boolean {
@@ -41,6 +42,12 @@ export function createSlashHandler(ctx: SlashHandlerContext): (cmd: string) => b
     const runCtx: SlashRunCtx = { ...ctx, flight, guarded, guardedErr, sid, stale, ui }
 
     const found = findSlashCommand(parsed.name)
+
+    const tourEv = slashTourEvent(parsed.name)
+
+    if (tourEv) {
+      tourDid(tourEv)
+    }
 
     if (found) {
       found.run(parsed.arg, runCtx, cmd)
