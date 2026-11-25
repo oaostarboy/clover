@@ -28,7 +28,7 @@ GOAL = "Count to 200 slowly. Use the terminal tool with sleep 2 between calls."
 @pytest.fixture(autouse=True)
 def _clean():
     ac.reset_for_tests()
-    ac.set_style_for_tests("unified")
+    ac.set_style_for_tests("detailed")
     da._ACK_EDITORS.clear()
     tok = bind_activity_sink(None)
     yield

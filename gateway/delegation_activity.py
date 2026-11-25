@@ -1903,6 +1903,16 @@ class AckCardEditor:
         # opener in the same message (never on a chat platform) stays plain.
         if not (self._expandable and text) or (self.card.say_text() and not self.card.split_opener):
             return text
+        try:
+            from agent.ack_checklist import rows as _rows_card
+
+            if _rows_card():
+                # The calm rows card is short and meant to be seen at a glance:
+                # summary line + one row per helper, in a plain quote (not
+                # collapsed behind "tap to watch").
+                return _fit_to_limit(text, 4000 - 16)
+        except Exception:
+            pass
         if self.card.finished:
             # A finished card is one plain line (no quote, no hint): the edit
             # that finishes it swaps the expandable quote for plain text.

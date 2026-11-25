@@ -13,7 +13,7 @@ HEAD = "\U0001f504 fixing the bugs \u2192 test build"
 @pytest.fixture(autouse=True)
 def _clean():
     ac.reset_for_tests()
-    ac.set_style_for_tests("unified")
+    ac.set_style_for_tests("detailed")
     yield
     ac.reset_for_tests()
 

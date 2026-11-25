@@ -11,7 +11,7 @@ pytestmark = pytest.mark.unified_card
 @pytest.fixture(autouse=True)
 def clean():
     ac.reset_for_tests()
-    ac.set_style_for_tests('unified')
+    ac.set_style_for_tests('detailed')
     yield
     ac.reset_for_tests()
 
@@ -171,7 +171,7 @@ def test_recovered_tool_error_is_not_a_worker_failure():
     assert card.render().startswith('> 🍀') and 'failed' not in card.render()
 
 
-@pytest.mark.parametrize('style', ['unified', 'classic'])
+@pytest.mark.parametrize('style', ['detailed', 'classic'])
 @pytest.mark.parametrize('skin', ['default', 'boring', 'tentacle-test'])
 @pytest.mark.parametrize('outcome,mark', [('done', '🍀'), ('partial', '☘️'), ('blocked', '☘️'), ('unknown', '☘️')])
 def test_skin_identity_and_card_style_share_marks(monkeypatch, tmp_path, style, skin, outcome, mark):

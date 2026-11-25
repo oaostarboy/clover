@@ -483,6 +483,7 @@ plugins = ["**/plugin.yaml", "**/plugin.yml"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
+    "rows_card: run with the shipped calm rows helper card (summary line + one row per helper)",
     "unified_card: run with the shipped unified helper card instead of the classic style pinned by tests/conftest.py",
     "clover_skin: run under the shipped Clover skin instead of the classic skin pinned by tests/conftest.py",
     "integration: marks tests requiring external services (API keys, Modal, etc.)",

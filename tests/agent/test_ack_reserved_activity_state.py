@@ -12,7 +12,7 @@ pytestmark = pytest.mark.unified_card
 @pytest.fixture(autouse=True)
 def isolated_cards(monkeypatch):
     ac.reset_for_tests()
-    ac.set_style_for_tests("unified")
+    ac.set_style_for_tests("detailed")
     monkeypatch.setattr(ac.time, "monotonic", lambda: 100.0)
     yield
     ac.reset_for_tests()
@@ -91,7 +91,7 @@ def test_long_history_is_identical_to_live_reducer_and_moves_containers(count):
         histories[early] = observed(cl)
         # Reset registries between oracle legs, keeping the detached snapshot.
         ac.reset_for_tests()
-        ac.set_style_for_tests("unified")
+        ac.set_style_for_tests("detailed")
     assert histories[True] == histories[False]
 
 

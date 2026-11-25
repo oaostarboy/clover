@@ -73,7 +73,7 @@ class _TgChat:
 @pytest.fixture(autouse=True)
 def _unified(monkeypatch):
     ac.reset_for_tests()
-    ac.set_style_for_tests("unified")
+    ac.set_style_for_tests("detailed")
     for d in (da._ACK_EDITORS, da._LIVE, da._LAST_OUT, da._FOLLOW_TIMERS, da._LAST_PLAIN):
         d.clear()
     monkeypatch.setattr(da, "FOLLOW_DEBOUNCE_SECONDS", 0.0)

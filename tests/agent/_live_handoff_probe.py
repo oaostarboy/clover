@@ -94,7 +94,7 @@ def no_handoff(provider: str, model: str) -> dict:
     from agent import router_backstop as rb
     from run_agent import AIAgent
 
-    ac.set_style_for_tests("unified")
+    ac.set_style_for_tests("detailed")
     # The agent's real system prompt (persona, the model line), as live.
     agent = AIAgent(provider=provider, model=model, quiet_mode=True, skip_context_files=False,
                     skip_memory=False, skip_background_review=True,

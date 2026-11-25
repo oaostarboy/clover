@@ -19,7 +19,7 @@ SPACER = "\u2800"
 @pytest.fixture(autouse=True)
 def _clean():
     ac.reset_for_tests()
-    ac.set_style_for_tests("unified")
+    ac.set_style_for_tests("detailed")
     yield
     ac.reset_for_tests()
 
@@ -1064,13 +1064,13 @@ def test_the_failure_emoji_appears_only_on_a_failed_or_stopped_title_and_a_faile
     ok = _running_card()
     ac.on_child_event("subagent.complete", delegation_id="d1", status="completed", outcome="done", summary="Plain summary: ok.")
     assert "\U0001f940" not in ok.render()
-    ac.reset_for_tests(); ac.set_style_for_tests("unified")
+    ac.reset_for_tests(); ac.set_style_for_tests("detailed")
     bad = _running_card()
     ac.on_child_event("subagent.complete", delegation_id="d1", status="failed", summary="boom")
     text = bad.render()
     assert text.count("\U0001f940") == 1 and text.splitlines()[2] == "> \U0001f940 **fixing the bugs** \u00b7 failed"
     assert "\U0001f500" not in text, "the failure emoji replaces the roster icon"
-    ac.reset_for_tests(); ac.set_style_for_tests("unified")
+    ac.reset_for_tests(); ac.set_style_for_tests("detailed")
     multi = _multi_card(goals=("a", "b", "c"))
     ac.on_child_event("subagent.start", **_kid("dm", 0))
     ac.on_child_event("subagent.start", **_kid("dm", 1))
@@ -1133,7 +1133,7 @@ def test_a_failed_and_a_stopped_step_are_kept_in_the_state_but_not_shown():
     card = _running_card()
     ac.on_child_event("subagent.complete", delegation_id="d1", status="failed", summary="boom")
     assert card.parts[0].checklist.steps[1][1] == "failed" and "\u2717" not in card.render()
-    ac.reset_for_tests(); ac.set_style_for_tests("unified")
+    ac.reset_for_tests(); ac.set_style_for_tests("detailed")
     card = _running_card()
     ac.on_child_event("subagent.complete", delegation_id="d1", status="interrupted")
     assert card.parts[0].checklist.steps[1][1] == "cancelled", "the state is kept; the card shows none of it"
@@ -1163,7 +1163,7 @@ def test_tool_phrases_are_capped_so_the_whole_line_fits_one_phone_row():
     phrase = row.split("\U0001f527 *", 1)[1].rstrip("*")
     assert len(phrase) <= ac.TOOL_PHRASE_MULTI and phrase.endswith("\u2026") and not phrase.endswith(" \u2026")
     assert row.startswith("> " + _EM + _EM + "\U0001f527 *"), "tools nest under the automatic row"
-    ac.reset_for_tests(); ac.set_style_for_tests("unified")
+    ac.reset_for_tests(); ac.set_style_for_tests("detailed")
     card = _card()
     _tool("d1", "terminal", long_cmd, 1)
     row = next(ln for ln in card.render().splitlines() if "\U0001f527" in ln)
@@ -1216,7 +1216,7 @@ def test_exactly_one_spacer_between_blocks_and_never_two_in_a_row():
         lines = card.render().splitlines()
         assert not any(a == b == f"> {SPACER}" for a, b in zip(lines, lines[1:]))
         assert lines[-1] != f"> {SPACER}" and "" not in lines[3:]
-    ac.reset_for_tests(); ac.set_style_for_tests("unified")
+    ac.reset_for_tests(); ac.set_style_for_tests("detailed")
     lines = _multi_card().render().splitlines()
     assert lines[:4] == [
         "\U0001f500 **3 subagents** \u00b7 0 of 3 done", "> **checking the 3 sites**",
@@ -1246,7 +1246,7 @@ def test_all_ended_with_a_failure_shows_the_counts_and_the_title_emoji():
     lines = card.render().splitlines()
     assert lines[0] == "> \U0001f940 **3 subagents** \u00b7 failed"
     assert lines[1].startswith("> *2 of 3 done \u00b7 1 failed")
-    ac.reset_for_tests(); ac.set_style_for_tests("unified")
+    ac.reset_for_tests(); ac.set_style_for_tests("detailed")
     card = _multi_card(goals=("a", "b"))
     ac.on_child_event("subagent.complete", status="completed", outcome="done", summary="Plain summary: ok.", **_kid("dm", 0))
     ac.on_child_event("subagent.complete", status="completed", outcome="done", summary="Plain summary: ok.", **_kid("dm", 1))
@@ -1848,7 +1848,7 @@ def test_a_failed_reason_is_cut_to_forty_and_max_iterations_has_its_own_words():
     lines = _flat(card.render()).splitlines()
     reasons = [ln.split(" \u00b7 failed \u00b7 ", 1)[1] for ln in lines if " \u00b7 failed \u00b7 " in ln]
     assert reasons and reasons[0].endswith("\u2026") and all(len(r) <= ac.REASON_CHARS for r in reasons)
-    ac.reset_for_tests(); ac.set_style_for_tests("unified")
+    ac.reset_for_tests(); ac.set_style_for_tests("detailed")
     card = _two_kids()
     ac.on_child_event("subagent.complete", status="completed", outcome="done", exit_reason="max_iterations", **_kid("dm", 0))
     ac.on_child_event("subagent.complete", status="completed", outcome="done", summary="ok", **_kid("dm", 1))
@@ -2017,7 +2017,7 @@ def test_without_a_checklist_the_tool_lines_sit_at_the_step_indent():
     _tool("d1", "read_file", "a.py", 2)
     lines = single.render().splitlines()
     assert lines[-2:] == ["> \U0001f527 *read_file a.py*", "> \u21b3 *terminal ls*"]
-    ac.reset_for_tests(); ac.set_style_for_tests("unified")
+    ac.reset_for_tests(); ac.set_style_for_tests("detailed")
     multi = _multi_card(goals=("a", "b"), steps=())
     for kid in multi.parts[0].checklist.kids:
         kid.steps.clear()

@@ -682,7 +682,7 @@ async def test_unified_style_the_reply_is_the_opener_alone_and_the_card_binds_un
         assert pending is not None, 'the opener alone is bound: the card is sent under it'
         await pending
         assert adapter.sends[0] == say
-        assert '**emailing the existing recipient' in adapter.sends[1], 'the card names the job'
+        assert '● emailing the existing recipient' in adapter.sends[1], 'the card names the job'
         assert say not in adapter.sends[1], 'the card is its own message'
         assert len(adapter.sends) == 2
         # a later, different reply does not claim the card

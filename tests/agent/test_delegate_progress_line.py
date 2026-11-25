@@ -21,14 +21,14 @@ def _style():
 
 
 def test_no_line_when_the_unified_card_will_be_shown():
-    ac.set_style_for_tests("unified")
+    ac.set_style_for_tests("detailed")
     tasks = [{"goal": GOAL}, {"goal": "b"}, {"goal": "c"}]
     assert delegate_progress_line({"tasks": tasks, "handoff": HANDOFF}) == ""
     assert delegate_progress_line({"goal": GOAL, "handoff": HANDOFF}) == ""
 
 
 def test_without_a_handoff_the_line_stays_but_has_no_goal():
-    ac.set_style_for_tests("unified")
+    ac.set_style_for_tests("detailed")
     line = delegate_progress_line({"tasks": [{"goal": GOAL}, {"goal": "b"}, {"goal": "c"}]})
     assert line == "Delegating 3 subagents" and "Find" not in line
     assert delegate_progress_line({"goal": GOAL}) == "Delegating a subagent"
@@ -41,7 +41,7 @@ def test_classic_style_keeps_the_line_even_with_a_handoff():
 
 
 def test_list_steer_stop_use_the_generic_path():
-    ac.set_style_for_tests("unified")
+    ac.set_style_for_tests("detailed")
     assert delegate_progress_line({"action": "stop", "subagent_id": "sa-1"}) is None
 
 
@@ -62,8 +62,8 @@ def _drain(args, *, style, mode="all"):
 
 def test_gateway_drops_the_line_for_a_card_and_never_pastes_the_goal_otherwise():
     tasks = [{"goal": GOAL}, {"goal": GOAL + " 2"}, {"goal": GOAL + " 3"}]
-    assert _drain({"tasks": tasks, "handoff": HANDOFF}, style="unified") == []
-    lines = _drain({"tasks": tasks}, style="unified")
+    assert _drain({"tasks": tasks, "handoff": HANDOFF}, style="detailed") == []
+    lines = _drain({"tasks": tasks}, style="detailed")
     assert len(lines) == 1 and lines[0].endswith("Delegating 3 subagents") and "Find" not in lines[0]
     classic = _drain({"tasks": tasks, "handoff": HANDOFF}, style="classic")
     assert len(classic) == 1 and "Delegating 3 subagents" in classic[0] and "Find" not in classic[0]

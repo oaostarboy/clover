@@ -9,7 +9,7 @@ pytestmark = pytest.mark.unified_card
 @pytest.fixture(autouse=True)
 def clean():
     ac.reset_for_tests()
-    ac.set_style_for_tests('unified')
+    ac.set_style_for_tests('detailed')
     yield
     ac.reset_for_tests()
 

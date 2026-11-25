@@ -48,7 +48,8 @@ MAX_STEP_CHARS = 60
 # that dispatch.  ``classic`` is the previous look: this checklist
 # plus the separate 🔀 card.  Read from config (cached briefly), so switching
 # back is one ``clover config set display.helper_card classic``.
-STYLE_UNIFIED = "unified"
+STYLE_UNIFIED = "unified"  # the calm rows card (default)
+STYLE_DETAILED = "detailed"  # the long layout: steps, tool lines, goal
 STYLE_CLASSIC = "classic"
 _STYLE_TTL = 15.0
 _style_cache: List[Any] = [None, 0.0]
@@ -67,8 +68,8 @@ def card_style() -> str:
 
         cfg = load_config_readonly() or {}
         raw = str(((cfg.get("display") or {}).get("helper_card") or "")).strip().lower()
-        if raw == STYLE_CLASSIC:
-            style = STYLE_CLASSIC
+        if raw in (STYLE_CLASSIC, STYLE_DETAILED):
+            style = raw
     except Exception:
         pass
     _style_cache[0], _style_cache[1] = style, now
@@ -81,6 +82,11 @@ def set_style_for_tests(style: Optional[str]) -> None:
 
 
 def unified() -> bool:
+    return card_style() in (STYLE_UNIFIED, STYLE_DETAILED)
+
+
+def rows() -> bool:
+    """The calm card: one summary line + one row per helper (the default)."""
     return card_style() == STYLE_UNIFIED
 
 RUNNING = "running"
@@ -518,6 +524,33 @@ class Checklist:
                            stopped=single and self.state == STOPPED)
 
     def render_unified(self, now: Optional[float] = None, include_say: bool = True) -> str:
+        if not rows():
+            return self.render_unified_detailed(now, include_say)
+        if self.state == STOPPED:
+            return self._stopped_title(include_say)
+        now = time.monotonic() if now is None else now
+        lines = helper_card_lines([self], now, self.state == RUNNING)
+        body = _quote_rows(_fit_card(lines))
+        return self._say_wrap(body, include_say)
+
+    def _say_wrap(self, body: str, include_say: bool) -> str:
+        return f"{self.say}\n\n{body}" if (self.say and include_say) else body
+
+    def render_unified_multi(
+        self, now: Optional[float] = None, summary_chars: int = SUMMARY_CHARS,
+        tool_cap: int = RECENT_TOOLS_MULTI, include_say: bool = True,
+    ) -> str:
+        """One summary line, then one row per helper."""
+        if not rows():
+            return self.render_unified_multi_detailed(now, summary_chars, tool_cap, include_say)
+        now = time.monotonic() if now is None else now
+        kids = self.shown_kids()
+        if not kids:
+            return self._stopped_title(include_say)
+        body = _quote_rows(_fit_card(helper_card_lines(kids, now, self.state == RUNNING)))
+        return f"{self.say}\n\n{body}" if (self.say and include_say) else body
+
+    def render_unified_detailed(self, now: Optional[float] = None, include_say: bool = True) -> str:
         if self.state == STOPPED:
             return self._stopped_title(include_say)
         title, outcome = self._title_outcome()
@@ -547,7 +580,7 @@ class Checklist:
         body = "\n".join([head] + [f"> {q}" for q in _join_blocks(blocks)])
         return f"{self.say}\n\n{body}" if (self.say and include_say) else body
 
-    def render_unified_multi(
+    def render_unified_multi_detailed(
         self, now: Optional[float] = None, summary_chars: int = SUMMARY_CHARS,
         tool_cap: int = RECENT_TOOLS_MULTI, include_say: bool = True,
     ) -> str:
@@ -717,6 +750,129 @@ def _steps_with_tools(
         if i == at:
             out += [nest + t for t in tools]
     return out
+
+
+# --- helper rows (T3-style): one summary line + one calm row per helper ----
+ROW_TASK_CHARS = 34  # a task name on a row: one phone line with its timer
+ROWS_SHOWN = 12  # more helpers than this: the rest fold into one "+N more" row
+ROW_WORKING = "\u25cf"  # ● working
+ROW_DONE = "\u2713"  # ✓ done
+ROW_FAILED = "\u2715"  # ✕ failed
+ROW_WAITING = "\u25cb"  # ○ waiting
+ROW_PARTIAL = "\u25b3"  # △ ended but not whole (partial / blocked / unverified / unfinished)
+
+_ROW_MARK = {RUNNING: ROW_WORKING, PENDING: ROW_WAITING, DONE: ROW_DONE, FAILED: ROW_FAILED,
+             **{state: ROW_PARTIAL for state in _INCOMPLETE}}
+_ROW_WORD = {RUNNING: "working", PENDING: "waiting", DONE: "done", FAILED: "failed"}
+_ROW_ORDER = (RUNNING, PENDING, DONE, FAILED) + _INCOMPLETE
+
+
+def _item_label(item: Any) -> str:
+    if hasattr(item, "_title_outcome"):
+        title = item._title_outcome()[0]
+        return title or "helper"
+    return item.label
+
+
+def helper_summary_line(states: Sequence[str]) -> str:
+    """``3 helpers · 1 working · 1 done · 1 failed`` (one helper: ``1 helper · working``)."""
+    n = len(states)
+    head = f"{n} helper{'s' if n != 1 else ''}"
+    if n == 1:
+        return f"{head} \u00b7 {_ROW_WORD.get(states[0], states[0])}"
+    parts = [head]
+    for state in _ROW_ORDER:
+        c = states.count(state)
+        if c:
+            parts.append(f"{c} {_ROW_WORD.get(state, state)}")
+    return " \u00b7 ".join(parts)
+
+
+def _item_seconds(item: Any, now: float) -> Optional[float]:
+    if item.started is None:
+        return None
+    end = item.ended if item.ended is not None else now
+    return max(0.0, end - item.started)
+
+
+def helper_row(item: Any, now: float) -> List[str]:
+    """One calm row: ``● task · 12s`` (``✕ task · failed · 12s`` plus one short
+    italic reason line for a failure).  No model, no tool lines."""
+    state = item.state
+    parts = [_cut_word(_item_label(item).replace("*", ""), ROW_TASK_CHARS)]
+    if state in (FAILED,) + _INCOMPLETE:
+        parts.append(state)
+    elif state == PENDING:
+        parts.append("waiting")
+    secs = _item_seconds(item, now)
+    if secs is not None:
+        parts.append(_duration(secs))
+    lines = [f"{_ROW_MARK.get(state, ROW_WORKING)} " + " \u00b7 ".join(parts)]
+    if state in (FAILED,) + _INCOMPLETE:
+        reason = getattr(item, "reason", "") or ("hit an error" if state == FAILED else "work did not finish")
+        lines.append(_INDENT + _italic(no_command_links(_cut_word(reason, REASON_CHARS))))
+    return lines
+
+
+def helper_rows(items: Sequence[Any], now: float) -> List[str]:
+    """The rows, in dispatch order.  Past ``ROWS_SHOWN`` the finished-OK ones
+    fold into a ``+N done`` row; failures and live helpers always show."""
+    items = [x for x in items if x.state != STOPPED]
+    hide: Set[int] = set()
+    over = len(items) - ROWS_SHOWN
+    if over > 0:
+        for i in reversed(range(len(items))):
+            if over <= 0:
+                break
+            if items[i].state == DONE:
+                hide.add(i)
+                over -= 1
+        for i in reversed(range(len(items))):
+            if over <= 0:
+                break
+            if i not in hide and items[i].state in (RUNNING, PENDING):
+                hide.add(i)
+                over -= 1
+    lines: List[str] = []
+    for i, item in enumerate(items):
+        if i not in hide:
+            lines += helper_row(item, now)
+    if hide:
+        kinds = [items[i].state for i in sorted(hide)]
+        word = "done" if all(k == DONE for k in kinds) else "more"
+        lines.append(f"+{len(hide)} {word}")
+    return lines
+
+
+def helper_card_lines(items: Sequence[Any], now: float, running: bool) -> List[str]:
+    """Summary line first (never quoted), then the rows (each one a quote line).
+    A finished card leads with the outcome mark: 🍀 all done, 🥀 a failure."""
+    items = [x for x in items if x.state != STOPPED]
+    states = [x.state for x in items]
+    head = helper_summary_line(states)
+    if not running:
+        started = [x.started for x in items if x.started is not None]
+        ended = [x.ended for x in items if x.ended is not None]
+        if started and ended:
+            head += " \u00b7 " + _duration(max(0.0, max(ended) - min(started)))
+        head = f"{_status_icon(_aggregate_state(states))} {head}"
+    return [head] + helper_rows(items, now)
+
+
+def _fit_card(lines: List[str], budget: int = CARD_BUDGET) -> List[str]:
+    """Drop the last rows (never the summary line) until the card fits Telegram."""
+    out = list(lines)
+    dropped = 0
+    while len("\n".join(out)) > budget - 16 and len(out) > 2:
+        out.pop()
+        dropped += 1
+    if dropped:
+        out.append(f"+{dropped} more lines")
+    return out
+
+
+def _quote_rows(lines: Sequence[str]) -> str:
+    return "\n".join([lines[0]] + [f"> {ln}" for ln in lines[1:] if ln])
 
 
 def _joined_title(subagents: int) -> str:
@@ -2028,6 +2184,47 @@ class Card:
         Several subagents: ``*3 done \u00b7 \U0001f6e0 X \u00b7 \u23f1 t*`` (``2 of 3 done
         \u00b7 1 failed`` when some failed).  A failure is ``\U0001f342 **title** \u00b7 failed``,
         the stats line, then ONE short reason line."""
+        if not rows():
+            return self._render_finished_detailed(parts, include_say)
+        subs: List[Any] = []
+        for p in parts:
+            cl = p.checklist
+            subs += cl.shown_kids() if cl.kids else [cl]
+        now = time.monotonic()
+        lines = helper_card_lines(subs, now, False)
+        body = _quote_rows(_fit_card(lines))
+        say = self.say_text()
+        return f"{say}\n\n{body}" if (say and include_say) else body
+
+    def _render_joined(
+        self, summary_chars: int, tool_cap: int, include_say: bool, now: Optional[float] = None,
+        parts: Optional[Sequence[Part]] = None,
+    ) -> str:
+        """Several dispatches on one card: one summary line across every
+        helper, then one row each, in order."""
+        if not rows():
+            return self._render_joined_detailed(summary_chars, tool_cap, include_say, now, parts)
+        now = time.monotonic() if now is None else now
+        cls = [p.checklist for p in (self.parts if parts is None else parts)]
+        items: List[Any] = []
+        for cl in cls:
+            items += cl.shown_kids() if cl.kids else [cl]
+        running = any(cl.state == RUNNING for cl in cls)
+        body = _quote_rows(_fit_card(helper_card_lines(items, now, running)))
+        say = self.say_text()
+        return f"{say}\n\n{body}" if (say and include_say) else body
+
+    def _render_finished_detailed(self, parts: Sequence[Part], include_say: bool) -> str:
+        """A card whose work is all over: SHORT, in a plain blockquote (the
+        card's bar; not expandable, no hint, no Goal, steps or result -- the
+        result is already in the chat as the agent's reply)::
+
+            > \U0001f340 **title** \u00b7 done
+            > *Opus 5.5 \u00b7 \U0001f6e0 66 \u00b7 \u23f1 8m42s*
+
+        Several subagents: ``*3 done \u00b7 \U0001f6e0 X \u00b7 \u23f1 t*`` (``2 of 3 done
+        \u00b7 1 failed`` when some failed).  A failure is ``\U0001f342 **title** \u00b7 failed``,
+        the stats line, then ONE short reason line."""
         subs: List[Any] = []
         for p in parts:
             cl = p.checklist
@@ -2063,7 +2260,7 @@ class Card:
         say = self.say_text()
         return f"{say}\n\n{body}" if (say and include_say) else body
 
-    def _render_joined(
+    def _render_joined_detailed(
         self, summary_chars: int, tool_cap: int, include_say: bool, now: Optional[float] = None,
         parts: Optional[Sequence[Part]] = None,
     ) -> str:

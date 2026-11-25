@@ -31,8 +31,7 @@ pytestmark = pytest.mark.unified_card
 @pytest.fixture(autouse=True)
 def cards():
     ac.reset_for_tests()
-    ac.set_style_for_tests(None)
-    assert ac.card_style() == "unified"  # Production default, not a forced style.
+    ac.set_style_for_tests("detailed")  # these tests read the long layout
     bind_activity_sink(None)
     yield
     bind_activity_sink(None)

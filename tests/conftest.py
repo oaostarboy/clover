@@ -601,11 +601,16 @@ def _pin_classic_helper_card(request, monkeypatch):
     assert the classic checklist layout plus the separate 🔀 card, so keep them
     on it.  Tests about the unified card use ``@pytest.mark.unified_card``.
     """
-    if request.node.get_closest_marker("unified_card"):
+    if request.node.get_closest_marker("rows_card"):
         return
     try:
         from agent import ack_checklist as _ac
     except Exception:
+        return
+    if request.node.get_closest_marker("unified_card"):
+        # The long layout these tests were written against; the shipped
+        # default is now the calm rows card (marker ``rows_card``).
+        _ac.set_style_for_tests(_ac.STYLE_DETAILED)
         return
     monkeypatch.setattr(_ac, "card_style", lambda: _ac.STYLE_CLASSIC)
 

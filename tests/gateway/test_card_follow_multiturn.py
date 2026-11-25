@@ -20,7 +20,7 @@ pytestmark = pytest.mark.unified_card
 @pytest.fixture(autouse=True)
 def clean_cards(monkeypatch):
     ac.reset_for_tests()
-    ac.set_style_for_tests("unified")
+    ac.set_style_for_tests("detailed")
     registries = (da._LIVE, da._ACK_EDITORS, da._LAST_OUT, da._LAST_PLAIN, da._BOARDS)
     for registry in registries:
         registry.clear()
