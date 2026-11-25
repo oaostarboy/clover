@@ -15,6 +15,14 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.12.1 | Clover C2.1.12.1 | 2026-11-25
+
+- Updating Clover no longer restarts a dashboard that belongs to a different Clover folder.
+- Pressing Esc in setup now takes you back one step.
+- Setup now refuses AI models that are too small to work well on your computer.
+- The Windows installer now shows its progress, waits until it is done, and tells you honestly if it failed.
+- The Windows install script now works when started from PowerShell 7.
+
 ## 2.1.12 | Clover C2.1.12 | 2026-11-24
 
 - New, friendlier setup: a fun step-by-step screen with a side rail that walks you through naming and picking your AI.
