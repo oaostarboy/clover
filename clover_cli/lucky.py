@@ -595,7 +595,43 @@ def image_protocol() -> str | None:
         return "iterm"
     if env.get("WT_SESSION") or term in ("foot", "foot-extra") or term.startswith("mlterm"):
         return "sixel"
-    return None
+    # xterm, Konsole, Contour, etc.: ask the terminal itself (DA1 attribute 4 = sixel).
+    return "sixel" if _da1_sixel() else None
+
+
+_DA1_CACHE: list[bool] = []
+
+
+def _da1_sixel() -> bool:
+    """True when the terminal's Primary Device Attributes reply lists sixel (4)."""
+    if _DA1_CACHE:
+        return _DA1_CACHE[0]
+    ok = False
+    if _can_key() and not _use_windows_keys():
+        try:
+            import re
+            import select
+            import termios
+            import tty
+
+            old = termios.tcgetattr(0)
+            try:
+                tty.setcbreak(0)
+                sys.stdout.write("\033[c")
+                sys.stdout.flush()
+                buf = b""
+                while select.select([0], [], [], 0.2)[0]:
+                    buf += os.read(0, 64)
+                    if buf.endswith(b"c"):
+                        break
+            finally:
+                termios.tcsetattr(0, termios.TCSADRAIN, old)
+            m = re.search(rb"\033\[\?([\d;]*)c", buf)
+            ok = bool(m) and "4" in m.group(1).decode().split(";")
+        except Exception:
+            ok = False
+    _DA1_CACHE.append(ok)
+    return ok
 
 
 def _data(name: str) -> bytes:
