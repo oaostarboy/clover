@@ -2,7 +2,7 @@ import { useStore } from '@nanostores/react'
 
 import { Switch } from '@/components/ui/switch'
 import { Starmap } from '@/lib/icons'
-import { $extraHud, $extraPet, $extraStarmap, $extraWindowControls } from '@/store/first-run'
+import { $extraBackdrop, $extraHud, $extraPet, $extraStarmap, $extraWindowControls } from '@/store/first-run'
 
 import { ListRow, SectionHeading, SettingsContent } from './primitives'
 
@@ -11,6 +11,7 @@ export function ExtrasSettings() {
   const pet = useStore($extraPet)
   const starmap = useStore($extraStarmap)
   const hud = useStore($extraHud)
+  const backdrop = useStore($extraBackdrop)
   const controls = useStore($extraWindowControls)
 
   return (
@@ -20,6 +21,11 @@ export function ExtrasSettings() {
         Fun and power features. Turn on what you like. Nothing here is needed to chat.
       </p>
       <div className="divide-y divide-(--ui-stroke-tertiary)">
+        <ListRow
+          action={<Switch aria-label="Background art" checked={backdrop} onCheckedChange={v => $extraBackdrop.set(v)} />}
+          description="Soft moving leaf art behind your chats. Off keeps the screen plain and calm."
+          title="Background art"
+        />
         <ListRow
           action={<Switch aria-label="Pet" checked={pet} onCheckedChange={v => $extraPet.set(v)} />}
           description="A little companion that floats in the corner and reacts while Clover works."

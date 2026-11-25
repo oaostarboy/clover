@@ -55,7 +55,7 @@ export function previewGreeting(name: string): string {
 
 function StepShell({ children, step }: { children: ReactNode; step: number }) {
   return (
-    <div className="fr-step relative z-10 flex w-full max-w-[28rem] flex-col items-center text-center" key={step}>
+    <div className="fr-step relative z-10 flex w-full max-w-[30rem] flex-col items-center text-center" key={step}>
       {children}
     </div>
   )
@@ -82,10 +82,10 @@ function Dots({ index }: { index: number }) {
 function WelcomeStep() {
   return (
     <StepShell step={0}>
-      <CloverStar className="fr-star mb-8 size-16" />
-      <h1 className="text-[1.75rem] leading-tight font-semibold tracking-tight">{COPY.welcomeTitle}</h1>
-      <p className="mt-3 max-w-[22rem] text-[0.9375rem] leading-6 text-(--ui-text-secondary)">{COPY.welcomeLine}</p>
-      <Button autoFocus className="mt-9 h-10 px-7 text-sm" onClick={nextFirstRunStep} size="lg">
+      <CloverStar className="fr-star mb-10 size-28" />
+      <h1 className="text-[2.5rem] leading-tight font-semibold tracking-tight">{COPY.welcomeTitle}</h1>
+      <p className="mt-4 max-w-[28rem] text-base leading-7 text-(--ui-text-secondary)">{COPY.welcomeLine}</p>
+      <Button autoFocus className="mt-10 h-11 min-w-48 px-10 text-base" onClick={nextFirstRunStep} size="lg">
         {COPY.start}
       </Button>
     </StepShell>
@@ -131,8 +131,8 @@ function AiStep({ ctx }: { ctx: OnboardingContext }) {
 
   return (
     <StepShell step={1}>
-      <h2 className="text-2xl font-semibold tracking-tight">{COPY.aiTitle}</h2>
-      <p className="mt-2 text-sm leading-6 text-(--ui-text-secondary)">{COPY.aiLine}</p>
+      <h2 className="text-4xl font-semibold tracking-tight">{COPY.aiTitle}</h2>
+      <p className="mt-3 text-base leading-7 text-(--ui-text-secondary)">{COPY.aiLine}</p>
 
       <div className="mt-7 w-full">
         {connected ? (
@@ -164,7 +164,7 @@ function AiStep({ ctx }: { ctx: OnboardingContext }) {
             ))}
             {others.length > 0 && (
               <details className="group mt-1 text-left">
-                <summary className="cursor-pointer list-none text-center text-xs font-medium text-(--ui-text-tertiary) hover:text-foreground">
+                <summary className="cursor-pointer list-none text-center text-sm font-medium text-(--ui-text-tertiary) hover:text-foreground">
                   {COPY.aiOther}
                 </summary>
                 <div className="mt-2 grid gap-1.5">
@@ -190,7 +190,7 @@ function AiStep({ ctx }: { ctx: OnboardingContext }) {
         )}
       </div>
 
-      <div className="mt-8 flex items-center gap-4 text-xs text-(--ui-text-tertiary)">
+      <div className="mt-8 flex items-center gap-4 text-sm text-(--ui-text-tertiary)">
         <button className="hover:text-foreground" onClick={previousFirstRunStep} type="button">
           {COPY.back}
         </button>
@@ -217,7 +217,7 @@ function ChoiceRow({ onClick, primary, provider }: { onClick: () => void; primar
   return (
     <button
       className={cn(
-        'flex h-11 w-full items-center justify-center rounded-xl text-sm font-medium transition-colors',
+        'flex h-12 w-full items-center justify-center rounded-xl text-base font-medium transition-colors',
         primary
           ? 'bg-primary text-primary-foreground hover:bg-primary/90'
           : 'border border-(--ui-stroke-secondary) bg-transparent text-foreground hover:bg-(--ui-control-hover-background)'
@@ -250,18 +250,18 @@ function NameStep({ ctx }: { ctx: OnboardingContext }) {
 
   return (
     <StepShell step={2}>
-      <h2 className="text-2xl font-semibold tracking-tight">{COPY.nameTitle}</h2>
-      <p className="mt-2 text-sm leading-6 text-(--ui-text-secondary)">{COPY.nameLine}</p>
+      <h2 className="text-4xl font-semibold tracking-tight">{COPY.nameTitle}</h2>
+      <p className="mt-3 text-base leading-7 text-(--ui-text-secondary)">{COPY.nameLine}</p>
 
       <div className="mt-8 flex min-h-14 items-center justify-center gap-3" data-testid="name-preview">
-        <CloverStar className="size-7" />
-        <span className="text-xl font-medium tracking-tight">{greeting}</span>
+        <CloverStar className="size-9" />
+        <span className="text-2xl font-medium tracking-tight">{greeting}</span>
       </div>
 
       <Input
         aria-label="Your Clover’s name"
         autoFocus
-        className="mt-4 h-11 text-center text-base"
+        className="mt-4 h-12 text-center text-lg"
         maxLength={24}
         onChange={e => $agentName.set(e.target.value)}
         onKeyDown={e => e.key === 'Enter' && !e.nativeEvent.isComposing && void save()}
@@ -269,11 +269,11 @@ function NameStep({ ctx }: { ctx: OnboardingContext }) {
         value={name}
       />
 
-      <Button className="mt-6 h-10 px-7 text-sm" disabled={saving} onClick={() => void save()} size="lg">
+      <Button className="mt-6 h-11 min-w-48 px-10 text-base" disabled={saving} onClick={() => void save()} size="lg">
         {saving ? <Loader2 className="animate-spin" /> : null}
         {COPY.next}
       </Button>
-      <button className="mt-4 text-xs text-(--ui-text-tertiary) hover:text-foreground" onClick={previousFirstRunStep} type="button">
+      <button className="mt-4 text-sm text-(--ui-text-tertiary) hover:text-foreground" onClick={previousFirstRunStep} type="button">
         {COPY.back}
       </button>
     </StepShell>
@@ -373,15 +373,15 @@ function PhoneStep() {
 
   return (
     <StepShell step={3}>
-      <h2 className="text-2xl font-semibold tracking-tight">{COPY.phoneTitle}</h2>
-      <p className="mt-2 text-sm leading-6 text-(--ui-text-secondary)">
+      <h2 className="text-4xl font-semibold tracking-tight">{COPY.phoneTitle}</h2>
+      <p className="mt-3 text-base leading-7 text-(--ui-text-secondary)">
         {unavailable ? 'Phone link isn’t ready on this computer yet.' : COPY.phoneLine}
       </p>
 
       {!unavailable && (
         <div className="mt-7 flex flex-col items-center gap-3">
           <div
-            className="relative flex size-52 items-center justify-center rounded-2xl p-1.5"
+            className="relative flex size-64 items-center justify-center rounded-2xl p-1.5"
             style={{ background: '#f3f1ea' }}
           >
             {connected ? (
@@ -401,7 +401,7 @@ function PhoneStep() {
               </span>
             )}
           </div>
-          <div className="flex h-5 items-center gap-1.5 text-xs text-(--ui-text-tertiary)">
+          <div className="flex h-5 items-center gap-1.5 text-sm text-(--ui-text-tertiary)">
             {!connected && code && !expired ? <span className="tabular-nums">Expires in {formatCountdown(remaining)} ·</span> : null}
             <button className="hover:text-foreground" onClick={() => void newCode()} type="button">
               {connected ? 'Pair another phone' : 'New code'}
@@ -412,7 +412,7 @@ function PhoneStep() {
 
       {unavailable && (
         <>
-          <p className="mt-4 text-xs text-(--ui-text-tertiary)">{COPY.phoneLater}</p>
+          <p className="mt-4 text-sm text-(--ui-text-tertiary)">{COPY.phoneLater}</p>
           <Button className="mt-4" onClick={retry} size="sm" variant="secondary">
             Try again
           </Button>
@@ -421,19 +421,19 @@ function PhoneStep() {
 
       <div className="mt-8 flex flex-col items-center gap-3">
         {connected ? (
-          <Button className="h-10 px-7 text-sm" onClick={() => finishFirstRun()} size="lg">
+          <Button className="h-11 min-w-48 px-10 text-base" onClick={() => finishFirstRun()} size="lg">
             {COPY.next}
           </Button>
         ) : (
           <button
-            className="text-sm font-medium text-(--ui-text-secondary) hover:text-foreground"
+            className="text-base font-medium text-(--ui-text-secondary) hover:text-foreground"
             onClick={() => finishFirstRun()}
             type="button"
           >
             {COPY.phoneSkip}
           </button>
         )}
-        <button className="text-xs text-(--ui-text-tertiary) hover:text-foreground" onClick={previousFirstRunStep} type="button">
+        <button className="text-sm text-(--ui-text-tertiary) hover:text-foreground" onClick={previousFirstRunStep} type="button">
           {COPY.back}
         </button>
       </div>
@@ -482,7 +482,7 @@ export function FirstRunOverlay({ ctx, enabled }: { ctx: OnboardingContext; enab
 
       {step === 'welcome' && (
         <button
-          className="absolute bottom-6 text-xs text-(--ui-text-tertiary) hover:text-foreground"
+          className="absolute bottom-6 text-sm text-(--ui-text-tertiary) hover:text-foreground"
           onClick={() => finishFirstRun({ tour: false })}
           type="button"
         >

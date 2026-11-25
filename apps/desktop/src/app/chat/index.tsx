@@ -31,6 +31,7 @@ import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
 import { migrateSessionDraft } from '@/store/composer'
 import { migrateQueuedPrompts, parkQueuedPrompts } from '@/store/composer-queue'
+import { $extraBackdrop } from '@/store/first-run'
 import { $introSplash } from '@/store/intro-splash'
 import { $pinnedSessionIds } from '@/store/layout'
 import { $petActive } from '@/store/pet'
@@ -618,6 +619,8 @@ const ChatViewContent = memo(function ChatViewContent({
   const overlayKind: DragKind = dragKind === 'files' ? 'files' : sessionDragging && !sessionEdgeHover ? 'session' : null
 
   const continuationRef = useConversationContinuation(showIntro)
+  const extraBackdrop = useStore($extraBackdrop)
+
   return (
     <div
       className={cn(
@@ -668,7 +671,7 @@ const ChatViewContent = memo(function ChatViewContent({
           data-slot="composer-bounds"
           {...dropHandlers}
         >
-          <LandingBloom frosted={!showIntro} />
+          {extraBackdrop && <LandingBloom frosted={!showIntro} />}
           <Thread
             clampToComposer={showChatBar}
             cwd={currentCwd}
