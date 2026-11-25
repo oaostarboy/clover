@@ -1,0 +1,86 @@
+name: Native installers (manual, no release)
+on:
+  push:
+    branches: [packaging/native-installers]
+    paths: ['.github/workflows/native-installers.yml','packaging/**']
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Git branch the installers install from
+        default: onboarding/tui-first-pass
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build .exe with NSIS
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          $ver = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          New-Item -ItemType Directory -Force out | Out-Null
+          $o = "$PWD\out\Clover-Setup-$ver-windows-x64.exe"
+          & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=$ver "/DBRANCH=${{ inputs.branch || 'onboarding/tui-first-pass' }}" "/DOUTFILE=$o" packaging\windows\clover.nsi
+          if ($LASTEXITCODE) { exit 1 }
+          Get-Item $o | Format-List Name,Length
+      - name: Screenshot - installer welcome page (interactive launch)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem out\*.exe)[0].FullName
+          Start-Process $exe
+          Start-Sleep 6
+          & packaging\windows\shot.ps1 "$PWD\shots\01-installer-welcome.png"
+          Get-Process | Where-Object { $_.ProcessName -like 'Clover-Setup*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+      - name: Silent install on the runner (from cmd, like a user)
+        shell: cmd
+        run: |
+          for %%f in (out\*.exe) do start /wait "" "%%f" /S
+          echo installer exit: %ERRORLEVEL%
+          dir "%LOCALAPPDATA%\Clover Installer"
+          type "%LOCALAPPDATA%\Clover Installer\install.log"
+          if exist "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Clover\Clover.lnk" (echo start-menu shortcut: yes) else (echo start-menu shortcut: NO)
+      - name: clover --version in a fresh shell
+        shell: cmd
+        run: |
+          set "PATH=%LOCALAPPDATA%\clover\clover-c1\venv\Scripts;%PATH%"
+          dir "%LOCALAPPDATA%\clover\clover-c1\venv\Scripts\clover.exe"
+          clover --version
+      - name: Screenshot - install log and first setup screen (real console)
+        shell: pwsh
+        run: |
+          $log = "$env:LOCALAPPDATA\Clover Installer\install.log"
+          Start-Process cmd.exe -ArgumentList '/k', "chcp 65001 >nul & mode con cols=100 lines=40 & type `"$log`""
+          Start-Sleep 5
+          & packaging\windows\shot.ps1 "$PWD\shots\02-install-output.png"
+          Get-Process cmd -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $c = "$env:LOCALAPPDATA\clover\clover-c1\venv\Scripts\clover.exe"
+          $wt = Get-Command wt.exe -ErrorAction SilentlyContinue
+          if ($wt) {
+            "terminal: Windows Terminal ($($wt.Source))"
+            Start-Process wt.exe -ArgumentList 'cmd.exe', '/k', "chcp 65001 >nul & `"$c`" setup"
+          } else {
+            "terminal: wt.exe not on this runner, using conhost with UTF-8 code page"
+            Start-Process cmd.exe -ArgumentList '/k', "chcp 65001 >nul & mode con cols=100 lines=40 & `"$c`" setup"
+          }
+          Start-Sleep 20
+          & packaging\windows\shot.ps1 "$PWD\shots\03-setup-first-screen.png"
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: windows-screenshots, path: shots/*.png }
+      - uses: actions/upload-artifact@v4
+        with: { name: windows-exe, path: out/*.exe }
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build .pkg
+        run: |
+          ver=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
+          bash packaging/macos/build-pkg.sh "$ver" "${{ inputs.branch || 'onboarding/tui-first-pass' }}" out
+          pkgutil --check-signature out/*.pkg || true
+          pkgutil --payload-files out/*.pkg | head -20
+      - uses: actions/upload-artifact@v4
+        with: { name: macos-pkg-unsigned-ci, path: out/*.pkg }
