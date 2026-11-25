@@ -97,7 +97,7 @@ def generate_bash(parser: argparse.ArgumentParser) -> str:
 
     cases_str = "\n".join(cases)
 
-    return f"""# Clover Cognition bash completion
+    return f"""# Clover bash completion
 # Add to ~/.bashrc:
 #   eval "$(clover completion bash)"
 
@@ -200,7 +200,7 @@ def generate_zsh(parser: argparse.ArgumentParser) -> str:
     sub_cases_str = "\n".join(sub_cases)
 
     return f"""#compdef clover
-# Clover Cognition zsh completion
+# Clover zsh completion
 # Add to ~/.zshrc:
 #   eval "$(clover completion zsh)"
 
@@ -254,7 +254,7 @@ def generate_fish(parser: argparse.ArgumentParser) -> str:
     top_cmds_str = " ".join(top_cmds)
 
     lines: list[str] = [
-        "# Clover Cognition fish completion",
+        "# Clover fish completion",
         "# Add to your config:",
         "#   clover completion fish | source",
         "",

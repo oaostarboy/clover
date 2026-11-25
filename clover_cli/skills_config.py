@@ -1,5 +1,5 @@
 """
-Skills configuration for Clover Cognition.
+Skills configuration for Clover.
 `clover skills` enters this module.
 
 Toggle individual skills or categories on/off, globally or per-platform.

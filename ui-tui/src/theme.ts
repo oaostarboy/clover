@@ -250,7 +250,7 @@ export function themeToneHex(tone: string): string {
 // ── Defaults ─────────────────────────────────────────────────────────
 
 const BRAND: ThemeBrand = {
-  name: 'Clover Cognition',
+  name: 'Clover',
   icon: '☘',
   prompt: '❯',
   welcome: 'Type your message or /help for commands.',

@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================================
-REM Clover Cognition Installer for Windows (CMD wrapper)
+REM Clover Installer for Windows (CMD wrapper)
 REM ============================================================================
 REM This batch file launches the PowerShell installer for users running CMD.
 REM
@@ -12,7 +12,7 @@ REM   iex (irm )
 REM ============================================================================
 
 echo.
-echo  Clover Cognition Installer
+echo  Clover Installer
 echo  Launching PowerShell installer...
 echo.
 

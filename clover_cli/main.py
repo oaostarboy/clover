@@ -36,7 +36,7 @@ Usage:
     clover honcho migrate                  # Step-by-step migration guide: OpenClaw native → Clover + Honcho
     clover --version           Show version and update status
     clover update              Pull the newest version
-    clover uninstall           Uninstall Clover Cognition
+    clover uninstall           Uninstall Clover
     clover acp                 Run as an ACP server for editor integration
     clover sessions browse     Interactive session picker with search
 
@@ -3728,14 +3728,14 @@ def cmd_whatsapp(args):
             print("    2. Send a message to the bot's WhatsApp number")
             print("    3. The agent will reply automatically")
             print()
-            print("  Tip: Agent responses are prefixed with '☘ Clover Cognition'")
+            print("  Tip: Agent responses are prefixed with '☘ Clover'")
         else:
             print("  Next steps:")
             print("    1. Start the gateway:  clover gateway")
             print("    2. Open WhatsApp → Message Yourself")
             print("    3. Type a message — the agent will reply")
             print()
-            print("  Tip: Agent responses are prefixed with '☘ Clover Cognition'")
+            print("  Tip: Agent responses are prefixed with '☘ Clover'")
             print("  so you can tell them apart from your own messages.")
         print()
         print("  Or install as a service: clover gateway install")
@@ -3803,7 +3803,18 @@ def _is_profile_api_key_provider(provider_id: str) -> bool:
         return False
 
 
-def select_provider_and_model(args=None):
+# Popular first-run choices. ChatGPT sign-in leads: most people already have it.
+# Slugs come from the provider registry; only the short labels live here.
+_SHORT_LIST_PROVIDERS = (
+    ("openai-codex", "ChatGPT subscription  ·  just sign in"),
+    ("anthropic", "Claude  ·  subscription or API key"),
+    ("openrouter", "OpenRouter  ·  lots of models, one key"),
+    ("fireworks", "Fireworks AI  ·  fast open models, API key"),
+    ("custom", "My own model  ·  Ollama, LM Studio, your own URL"),
+)
+
+
+def select_provider_and_model(args=None, *, short_list=False):
     """Core provider selection + model picking logic.
 
     Shared by ``cmd_model`` (``clover model``) and the setup wizard
@@ -4021,7 +4032,7 @@ def select_provider_and_model(args=None):
         try:
             active = resolve_provider("auto")
         except AuthError as exc:
-            if effective_provider == "auto":
+            if effective_provider == "auto" and not short_list:
                 warning = format_auth_error(exc)
                 print(f"Warning: {warning} Falling back to auto provider detection.")
             active = None  # no provider yet; default to first in list
@@ -4044,10 +4055,12 @@ def select_provider_and_model(args=None):
     else:
         active_label = provider_labels.get(active, active) if active else "none"
 
-    print()
-    print(f"  Current model:    {current_model}")
-    print(f"  Active provider:  {active_label}")
-    print()
+    if not (short_list and not active):
+        # First-run quick start has nothing to show yet; the pick comes first.
+        print()
+        print(f"  Current model:    {current_model}")
+        print(f"  Active provider:  {active_label}")
+        print()
 
     # Step 1: Provider selection.
     #
@@ -4133,10 +4146,44 @@ def select_provider_and_model(args=None):
     ordered.append(("aux-config", "Configure auxiliary models...", []))
     ordered.append(("cancel", "Leave unchanged", []))
 
-    provider_idx = _prompt_provider_choice(
-        [label for _, label, _ in ordered],
-        default=default_idx,
-    )
+    if short_list:
+        # First-run: show the few popular choices; the full registry list
+        # stays one step away under "More providers...".
+        _full_ordered = ordered
+        _by_key = {k: (k, lbl, m) for k, lbl, m in _full_ordered}
+        _top: list[tuple[str, str, list[str]]] = []
+        for _key, _label in _SHORT_LIST_PROVIDERS:
+            if _key == "openai-codex":
+                _top.append(("openai-codex", _label, []))
+            elif _key in _by_key:
+                _top.append((_key, _label, _by_key[_key][2]))
+        _top.append(("more", "More providers...", []))
+        _top.append(("cancel", "Skip for now", []))
+        ordered = _top
+        default_idx = 0
+        from clover_cli import lucky as _lucky
+
+        lucky_title = _lucky.leaf_title(2, "Pick its brain")
+        provider_idx = _prompt_provider_choice(
+            [label for _, label, _ in ordered],
+            default=0,
+            title=lucky_title,
+            rail=True,
+            back=True,
+        )
+        if provider_idx is not None and ordered[provider_idx][0] == "more":
+            ordered = _full_ordered
+            provider_idx = _prompt_provider_choice(
+                [label for _, label, _ in ordered],
+                default=default_idx,
+                title="All providers",
+                rail=True,
+            )
+    else:
+        provider_idx = _prompt_provider_choice(
+            [label for _, label, _ in ordered],
+            default=default_idx,
+        )
     if provider_idx is None or ordered[provider_idx][0] == "cancel":
         print("No change.")
         return
@@ -4191,7 +4238,7 @@ def select_provider_and_model(args=None):
     elif selected_provider == "copilot":
         _model_flow_copilot(config, current_model)
     elif selected_provider == "custom":
-        _model_flow_custom(config)
+        _model_flow_custom(config, quick=short_list)
     elif (
         selected_provider.startswith("custom:")
         or selected_provider in _custom_provider_map
@@ -4748,13 +4795,19 @@ def _aux_flow_custom_endpoint(task: str, task_cfg: dict) -> None:
     print(f"{display_name}: custom ({short_url})" + (f" · {model}" if model else ""))
 
 
-def _prompt_provider_choice(choices, *, default=0, title="Select provider:"):
+def _prompt_provider_choice(choices, *, default=0, title="Select provider:", rail=False, back=False):
     """Show provider selection menu with curses arrow-key navigation.
 
     Falls back to a numbered list when curses is unavailable (e.g. piped
     stdin, non-TTY environments).  Returns the selected index, or None
     if the user cancels.
+
+    ``rail=True`` (quick start only) draws the clack-style side-rail selector.
     """
+    if rail:
+        from clover_cli import lucky
+
+        return lucky.select(title, list(choices), default, back=back)
     try:
         from clover_cli.setup import _curses_prompt_choice
 
@@ -4984,7 +5037,10 @@ def _save_custom_provider(
     providers.append(entry)
     cfg["custom_providers"] = providers
     save_config(cfg)
-    print(f'  💾 Saved to custom providers as "{name}" (edit in config.yaml)')
+    from clover_cli import setup as _setup
+
+    if not getattr(_setup, "_IN_QUICK_START", False):
+        print(f'  💾 Saved to custom providers as "{name}" (edit in config.yaml)')
 
 
 
@@ -5788,7 +5844,7 @@ def cmd_version(args):
 
 
 def cmd_uninstall(args):
-    """Uninstall Clover Cognition (or just the Chat GUI with --gui)."""
+    """Uninstall Clover (or just the Chat GUI with --gui)."""
     # Machine-readable install snapshot for the desktop app's uninstall UI.
     # Must run before any TTY gate — it's called from a non-interactive child.
     if getattr(args, "gui_summary", False):
@@ -10789,7 +10845,7 @@ def _size_delta_label(saved_mb: float) -> str:
 
 
 def cmd_update(args):
-    """Update Clover Cognition to the latest version.
+    """Update Clover to the latest version.
 
     Thin wrapper around ``_cmd_update_impl``: installs hangup protection,
     runs the update, then restores stdio on the way out (even on
@@ -10801,7 +10857,7 @@ def cmd_update(args):
     )
 
     if is_managed():
-        managed_error("update Clover Cognition")
+        managed_error("update Clover")
         return
 
     # --plan is read-only and deployment-kind aware, so it runs BEFORE the
@@ -12945,7 +13001,7 @@ def cmd_memory(args):
 
 
 def cmd_acp(args):
-    """Launch Clover Cognition as an ACP server."""
+    """Launch Clover as an ACP server."""
     try:
         from acp_adapter.entry import main as acp_main
 

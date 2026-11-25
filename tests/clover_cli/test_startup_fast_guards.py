@@ -81,7 +81,7 @@ def test_fast_version_parity_off_termux(tmp_path):
     result = _run_version({"CLOVER_HOME": str(home), "TERMUX_VERSION": ""})
     assert result.returncode == 0, result.stderr
     out = result.stdout
-    for field in ("Clover Cognition v", "Install directory:", "Python:", "OpenAI SDK:"):
+    for field in ("Clover v", "Install directory:", "Python:", "OpenAI SDK:"):
         assert field in out, f"fast --version output missing {field!r}:\n{out}"
 
 
@@ -93,7 +93,7 @@ def test_fast_version_parity_on_termux(tmp_path):
         {"CLOVER_HOME": str(home), "TERMUX_VERSION": "0.118"}
     )
     assert result.returncode == 0, result.stderr
-    assert "Clover Cognition v" in result.stdout
+    assert "Clover v" in result.stdout
     assert "Traceback" not in result.stderr
 
 

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Clover
+Comment=Install and open Clover
+Exec=clover-open
+Icon=clover
+Terminal=false
+Categories=Utility;Development;

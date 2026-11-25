@@ -60,7 +60,7 @@ _FALLBACK_PATTERNS = re.compile(
 _ACCESS_DENIED_PATTERN = re.compile(r"(access is denied|acceso denegado)", re.IGNORECASE)
 
 _TASK_NAME_DEFAULT = "Clover_Gateway"
-_TASK_DESCRIPTION = "Clover Cognition Gateway - Messaging Platform Integration"
+_TASK_DESCRIPTION = "Clover Gateway - Messaging Platform Integration"
 _TASK_LOGON_DELAY = "PT30S"
 _TASK_RESTART_INTERVAL = "PT1M"
 _TASK_RESTART_COUNT = 999

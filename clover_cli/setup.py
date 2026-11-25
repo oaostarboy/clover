@@ -1,5 +1,5 @@
 """
-Interactive setup wizard for Clover Cognition.
+Interactive setup wizard for Clover.
 
 Modular wizard with independently-runnable sections:
   1. Model & Provider — choose your AI provider and model
@@ -321,7 +321,10 @@ def _curses_prompt_choice(question: str, choices: list, default: int = 0, descri
 
 
 
-def prompt_choice(question: str, choices: list, default: int = 0, description: str | None = None) -> int:
+_IN_QUICK_START = False
+
+
+def prompt_choice(question: str, choices: list, default: int = 0, description: str | None = None, *, quiet_default: bool = False) -> int:
     """Prompt for a choice from a list with arrow key navigation.
 
     Escape cancels an active setup wizard. Outside setup it keeps the current
@@ -332,8 +335,9 @@ def prompt_choice(question: str, choices: list, default: int = 0, description: s
     idx = _curses_prompt_choice(question, choices, default, description=description)
     if idx >= 0:
         if idx == default:
-            print_info("  Skipped (keeping current)")
-            print()
+            if not quiet_default and not _IN_QUICK_START:
+                print_info("  Skipped (keeping current)")
+                print()
             return default
         print()
         return idx
@@ -466,7 +470,51 @@ def _prompt_api_key(var: dict):
         print_warning("  Skipped (configure later with 'clover setup')")
 
 
-def _print_setup_summary(config: dict, clover_home):
+def _offer_first_chat(config: dict) -> None:
+    """'Say hi now?' - start a real chat whose first message greets the new name."""
+    from clover_cli import lucky
+
+    name = str((config.get("branding") or {}).get("agent_name") or "Clover")
+    if not lucky.offer_hi(name):
+        return
+    import shutil
+    import subprocess
+
+    exe = shutil.which("clover") or sys.argv[0]
+    first = f"Hi! I just named you {name}. Say hello and tell me one thing you can help with."
+    cmd = [exe, "chat", "-q", first] if shutil.which("clover") else [sys.executable, "-m", "clover_cli.main", "chat", "-q", first]
+    try:
+        subprocess.call(cmd, stdin=sys.stdin)
+    except Exception:
+        print(f"   Start it yourself: clover chat -q \"{first}\"")
+
+
+def _print_quick_done(provider_ready: bool, config: dict | None = None) -> None:
+    """Short end screen for the quick-start path."""
+    from clover_cli import lucky
+
+    if provider_ready:
+        lucky.flourish(
+            "You struck gold! Clover is ready.",
+            [
+                color("Next: type ", Colors.DIM) + color("clover", Colors.GREEN, Colors.BOLD) + color(" to start chatting.", Colors.DIM),
+                "",
+                f"{color('clover setup --full', Colors.GREEN)}   Add tools, Telegram and more",
+                f"{color('clover doctor', Colors.GREEN)}         Check that everything works",
+            ],
+        )
+        _offer_first_chat(config or {})
+    else:
+        lucky.rail("No luck yet? Add an AI service later with clover model.")
+        lucky.gap()
+        lucky.outro("Almost there. Clover is saved.")
+        print(f"   {color('clover model', Colors.GREEN)}         Connect one now")
+        print(f"   {color('clover setup --full', Colors.GREEN)}   Add tools, Telegram and more")
+        print(f"   {color('clover doctor', Colors.GREEN)}         Check that everything works")
+    print()
+
+
+def _print_setup_summary(config: dict, clover_home, quick: bool = False):
     """Print the setup completion summary."""
     # Provider readiness — the one thing setup absolutely must produce.
     # Previously a user could cancel the API-key prompt mid-wizard (Enter →
@@ -480,6 +528,13 @@ def _print_setup_summary(config: dict, clover_home):
         _provider_ready = True
     except Exception:
         _provider_ready = False
+    if quick:
+        # A saved custom/local endpoint is also a working setup.
+        _mc = config.get("model") if isinstance(config, dict) else None
+        if isinstance(_mc, dict) and _mc.get("base_url") and _mc.get("default"):
+            _provider_ready = True
+        _print_quick_done(_provider_ready, config)
+        return
     if not _provider_ready:
         print()
         print_warning("No inference provider is configured — Clover cannot chat yet.")
@@ -930,7 +985,7 @@ def _read_nearest_vercel_project(start: Path | None = None) -> dict[str, str]:
 
 
 
-def setup_model_provider(config: dict, *, quick: bool = False):
+def setup_model_provider(config: dict, *, quick: bool = False, short_list: bool = False):
     """Configure the inference provider and default model.
 
     Delegates to ``cmd_model()`` (the same flow used by ``clover model``)
@@ -943,16 +998,25 @@ def setup_model_provider(config: dict, *, quick: bool = False):
     """
     from clover_cli.config import load_config, save_config
 
-    print_header("Which model should think for you")
-    print_info("Choose how to connect to your main chat model.")
-    print_info(f"   Guide: {_DOCS_BASE}/integrations/providers")
-    print()
+    if short_list:
+        from clover_cli import lucky
+
+        pass
+    else:
+        print_header("Connect an AI service")
+        print_info("Clover needs one AI service to think with. Pick one and sign in.")
+    if not short_list:
+        print_info(f"   Guide: {_DOCS_BASE}/integrations/providers")
+        print()
 
     # Delegate to the shared clover model flow — handles provider picker,
     # credential prompting, model selection, and config persistence.
     from clover_cli.main import select_provider_and_model
     try:
-        select_provider_and_model()
+        if short_list:
+            select_provider_and_model(short_list=True)
+        else:
+            select_provider_and_model()
     except (SystemExit, KeyboardInterrupt):
         print()
         print_info("Provider setup skipped.")
@@ -1700,7 +1764,7 @@ def setup_terminal_backend(config: dict):
 # =============================================================================
 
 
-def _apply_default_agent_settings(config: dict):
+def _apply_default_agent_settings(config: dict, quiet: bool = False):
     """Apply recommended defaults for all agent settings without prompting."""
     config.setdefault("agent", {})["max_turns"] = 150
     # config.yaml is the authoritative source for max_turns; the gateway
@@ -1720,6 +1784,8 @@ def _apply_default_agent_settings(config: dict):
     config.setdefault("session_reset", {})["mode"] = "none"
 
     save_config(config)
+    if quiet:
+        return
     print_success("Applied recommended defaults:")
     print_info("  Max iterations: 150")
     print_info("  Tool progress: all")
@@ -1728,11 +1794,12 @@ def _apply_default_agent_settings(config: dict):
     print_info("  Run `clover setup agent` later to customize.")
 
 
-def setup_agent_name(config: dict) -> None:
+def setup_agent_name(config: dict, *, lucky_theme: bool = False) -> None:
     """Configure the agent's name across branding and agent config."""
-    print_header("Name your Clover agent")
-    print_info("Give your AI companion a personalized name (or press Enter to keep default).")
-    print()
+    if not lucky_theme:
+        print_header("Name your agent")
+        print_info("What should it be called? Press Enter to keep \"Clover\".")
+        print()
 
     branding_cfg = config.get("branding")
     branding = branding_cfg if isinstance(branding_cfg, dict) else {}
@@ -1741,7 +1808,19 @@ def setup_agent_name(config: dict) -> None:
 
     current_name = str(branding.get("agent_name") or agent.get("name") or "Clover").strip()
     try:
-        name_input = prompt("Agent name", current_name)
+        if lucky_theme:
+            from clover_cli import lucky
+
+            name_input = lucky.ask(
+                lucky.leaf_title(1, "Name it"),
+                f"Every clover needs a name. Enter keeps \"{current_name}\".",
+                default=current_name,
+                preview=lucky.greeting,
+            )
+        else:
+            name_input = prompt("Agent name", current_name)
+    except (KeyboardInterrupt, EOFError):
+        raise
     except Exception:
         name_input = None
     name = (name_input.strip() if name_input else "") or current_name or "Clover"
@@ -1749,7 +1828,8 @@ def setup_agent_name(config: dict) -> None:
     config.setdefault("branding", {})["agent_name"] = name
     config.setdefault("agent", {})["name"] = name
     save_config(config)
-    print_success(f"Agent named: {name}")
+    if not lucky_theme:
+        print_success(f"Agent named: {name}")
 
 
 def setup_agent_settings(config: dict):
@@ -2972,47 +3052,21 @@ def _run_setup_wizard_impl(args):
     from clover_cli.auth import get_active_provider
 
     active_provider = get_active_provider()
+    # A config.yaml alone does not mean "already set up": the installers write
+    # the template one. Only a chosen provider/key/endpoint counts.
     is_existing = (
-        config_path.exists()
+        _config_has_provider(config_path)
         or bool(get_env_value("OPENROUTER_API_KEY"))
         or bool(get_env_value("OPENAI_BASE_URL"))
         or active_provider is not None
     )
 
-    print()
-    print(
-        color(
-            "┌─────────────────────────────────────────────────────────┐",
-            Colors.MAGENTA,
-        )
-    )
-    print(
-        color(
-            "│             ☘ Clover Cognition Setup Wizard                │", Colors.MAGENTA
-        )
-    )
-    print(
-        color(
-            "├─────────────────────────────────────────────────────────┤",
-            Colors.MAGENTA,
-        )
-    )
-    print(
-        color(
-            "│  Let's configure your Clover Cognition installation.       │", Colors.MAGENTA
-        )
-    )
-    print(
-        color(
-            "│  Press Ctrl+C at any time to exit.                     │", Colors.MAGENTA
-        )
-    )
-    print(
-        color(
-            "└─────────────────────────────────────────────────────────┘",
-            Colors.MAGENTA,
-        )
-    )
+    from clover_cli import lucky
+
+    lucky.banner()
+    lucky.grow("Sprouting…")
+    lucky.rail("Press Ctrl+C at any time to exit.", dim=True)
+    lucky.gap()
 
     migration_ran = False
 
@@ -3041,8 +3095,6 @@ def _run_setup_wizard_impl(args):
         # is preserved for backwards compatibility but is a no-op here.
     else:
         # ── First-Time Setup ──
-        print()
-
         # --reconfigure / --quick on a fresh install are meaningless — fall
         # through to the normal first-time flow.
         if reconfigure_requested or quick_requested:
@@ -3054,17 +3106,30 @@ def _run_setup_wizard_impl(args):
         if migration_ran:
             config = load_config()
 
-        # Full setup is the default route.
-        setup_mode = prompt_choice(
-            "How would you like to set up Clover?",
-            [
-                "Full setup — configure every provider, tool & option yourself (recommended)",
-                "Blank Slate — everything off except the bare minimum; opt in to each capability",
-            ],
-            0,
-        ) + 1
+        # Quick start is the default route; the long walkthrough is opt-in.
+        if getattr(args, "full", False) or migration_ran:
+            # --full, or settings were just imported from OpenClaw: use the
+            # full walkthrough so each imported section is reviewed.
+            setup_mode = 2
+        else:
+            _mode_idx = lucky.select(
+                "How do you want to set up Clover?",
+                [
+                    "Quick start · pick an AI, name it, done (best for most)",
+                    "Customize everything · tools, messaging, where commands run",
+                    "Blank Slate · everything off but the bare minimum",
+                ],
+                0,
+            )
+            setup_mode = (_mode_idx if _mode_idx is not None else 0) + 1
 
-        if setup_mode == 2:
+        if setup_mode == 1:
+            _run_setup_steps(
+                [("Quick start", lambda: _run_quick_start(config, clover_home))]
+            )
+            return
+
+        if setup_mode == 3:
             _run_setup_steps(
                 [
                     (
@@ -3150,6 +3215,57 @@ def _run_setup_wizard_impl(args):
         print_info("If setup changed a value you customized, restore it with:")
         print_info(f"  cp {_backup_path} {config_path}")
     _print_setup_summary(config, clover_home)
+
+
+def _config_has_provider(config_path) -> bool:
+    """True when config.yaml already names a provider or endpoint (not just the template)."""
+    try:
+        if not config_path.exists():
+            return False
+        import yaml
+
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        model = data.get("model")
+        if isinstance(model, dict):
+            prov = str(model.get("provider") or "").strip().lower()
+            if prov == "auto" or (not prov and model.get("base_url") == "https://openrouter.ai/api/v1"):
+                return False  # the shipped template, nothing chosen yet
+            return bool(prov) or bool(model.get("base_url"))
+        return False
+    except Exception:
+        return True  # unreadable file: treat as an existing setup, never overwrite
+
+
+def _lucky_mod():
+    from clover_cli import lucky
+
+    return lucky
+
+
+def _run_quick_start(config: dict, clover_home) -> None:
+    """Shortest first-run path: name the agent, connect one AI service.
+
+    Everything else (local command backend, standard tools, agent settings)
+    keeps its default. Each can be changed later with `clover setup <part>`.
+    """
+    global _IN_QUICK_START
+    _IN_QUICK_START = True
+    try:
+        _apply_default_agent_settings(config, quiet=True)
+        step = 0
+        while step < 2:
+            try:
+                if step == 0:
+                    setup_agent_name(config, lucky_theme=True)
+                else:
+                    setup_model_provider(config, short_list=True)
+                step += 1
+            except _lucky_mod().GoBack:
+                step = max(step - 1, 0)
+        save_config(config)
+    finally:
+        _IN_QUICK_START = False
+    _print_setup_summary(config, clover_home, quick=True)
 
 
 def _print_macos_fda_tip() -> None:

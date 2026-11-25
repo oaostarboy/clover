@@ -1,5 +1,5 @@
 """
-Unified tool configuration for Clover Cognition.
+Unified tool configuration for Clover.
 
 `clover tools` and `clover setup tools` both enter this module.
 Select a platform → toggle toolsets on/off → for newly enabled tools

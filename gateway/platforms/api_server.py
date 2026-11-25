@@ -238,7 +238,7 @@ def _browser_controller_ws_sender(ws, loop, *, wait_timeout: float = 10.0):
 
 
 def _clover_version() -> str:
-    """Return the canonical Clover Cognition version string.
+    """Return the canonical Clover version string.
 
     ``clover_cli.__version__`` is the runtime source of truth used by the CLI,
     dashboard, portal tags, and release script. Prefer it over installed

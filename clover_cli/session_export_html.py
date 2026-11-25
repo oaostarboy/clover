@@ -563,7 +563,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             {sessions_html}
             
             <footer>
-                Built with 🍀 Clover Cognition • Generated on {generated_at}
+                Built with 🍀 Clover • Generated on {generated_at}
             </footer>
         </div>
     </div>

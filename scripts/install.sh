@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# Clover Cognition Installer
+# Clover Installer
 # ============================================================================
 # Installation script for Linux, macOS, and Android/Termux.
 # Uses uv for desktop/server installs and Python's stdlib venv + pip on Termux.
@@ -44,7 +44,7 @@ BOLD='\033[1m'
 
 # Configuration
 REPO_URL_SSH="git@github.com:oaostarboy/clover-c1.git"
-REPO_URL_HTTPS="https://github.com/oaostarboy/clover-c1.git"
+REPO_URL_HTTPS="${CLOVER_INSTALL_REPO:-https://github.com/oaostarboy/clover-c1.git}"
 CLOVER_HOME="${CLOVER_HOME:-$HOME/.clover}"
 # INSTALL_DIR is resolved AFTER arg parsing and OS detection so we can pick an
 # FHS-style layout for root installs.  Track whether the user gave us an
@@ -162,7 +162,7 @@ while [[ $# -gt 0 ]]; do
             ;;
 
         -h|--help)
-            echo "Clover Cognition Installer"
+            echo "Clover Installer"
             echo ""
             echo "Usage: install.sh [OPTIONS]"
             echo ""
@@ -214,35 +214,79 @@ done
 # Helper functions
 # ============================================================================
 
+# --- Side rail look -------------------------------------------------------
+# Same look as the setup wizard: one left rail, ├─ for finished steps.
+# Idea from clack (bombshell-dev/clack, MIT). Plain text when NO_COLOR is set,
+# output is not a terminal, or the locale cannot draw box characters.
+RAIL_COLOR=false
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != "dumb" ]; then
+    RAIL_COLOR=true
+fi
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *UTF-8*|*utf8*|*UTF8*|*utf-8*) RAIL_UNICODE=true ;;
+    *) RAIL_UNICODE=false ;;
+esac
+[ -n "${CLOVER_ASCII:-}" ] && RAIL_UNICODE=false
+if [ "$RAIL_UNICODE" = true ]; then
+    S_BAR='│'; S_START='┌'; S_END='└'; S_DONE='├─'; S_WARN='▲'; S_ERR='■'; S_LUCK='🍀'
+else
+    S_BAR='|'; S_START='T'; S_END='-'; S_DONE='+-'; S_WARN='!'; S_ERR='x'; S_LUCK='*'
+fi
+if [ "$RAIL_COLOR" = true ]; then
+    R_G=$'\033[38;2;57;190;120m'; R_Y=$'\033[0;33m'; R_R=$'\033[0;31m'
+    R_D=$'\033[2m'; R_B=$'\033[1m'; R_N=$'\033[0m'
+else
+    R_G=''; R_Y=''; R_R=''; R_D=''; R_B=''; R_N=''
+    GREEN=''; YELLOW=''; RED=''; CYAN=''; NC=''; BOLD=''
+fi
+
+rail_line() { printf '%s%s%s  %s\n' "$R_G" "$S_BAR" "$R_N" "$1"; }
+rail_gap() { printf '%s%s%s\n' "$R_G" "$S_BAR" "$R_N"; }
+
 print_banner() {
     echo ""
-    echo -e "${GREEN}${BOLD}"
-    echo "┌─────────────────────────────────────────────────────────┐"
-    echo "│           ☘  C L O V E R   C O G N I T I O N            │"
-    echo "├─────────────────────────────────────────────────────────┤"
-    echo "│              An agent that remembers you.               │"
-    echo "│                Built by Anthony Nguyen.                 │"
-    echo "└─────────────────────────────────────────────────────────┘"
-    echo -e "${NC}"
-    echo -e "${CYAN}   Bringing its own Python, Node, and tools.${NC}"
-    echo -e "${CYAN}   Nothing already on this machine gets touched.${NC}"
+    if [ "$RAIL_COLOR" = true ] && [ "$RAIL_UNICODE" = true ]; then
+    printf '  \033[38;2;146;242;186m█\033[38;2;143;240;184m█\033[38;2;140;238;182m█\033[38;2;138;237;180m█\033[38;2;135;235;178m█\033[38;2;132;233;176m█ \033[38;2;127;229;173m█\033[38;2;124;228;171m█     \033[38;2;108;217;159m█\033[38;2;105;215;157m█\033[38;2;102;213;155m█\033[38;2;99;211;153m█\033[38;2;96;210;151m█\033[38;2;94;208;149m█ \033[38;2;88;204;146m█\033[38;2;86;202;144m█  \033[38;2;77;197;138m█\033[38;2;74;195;136m█ \033[38;2;69;192;132m█\033[38;2;66;190;130m█\033[38;2;64;188;128m█\033[38;2;61;186;126m█\033[38;2;58;184;124m█\033[38;2;55;183;122m█ \033[38;2;50;179;119m█\033[38;2;47;177;117m█\033[38;2;44;175;115m█\033[38;2;42;174;113m█\033[38;2;39;172;111m█\033[0m\n'
+    printf '  \033[38;2;146;242;186m█\033[38;2;143;240;184m█     \033[38;2;127;229;173m█\033[38;2;124;228;171m█     \033[38;2;108;217;159m█\033[38;2;105;215;157m█  \033[38;2;96;210;151m█\033[38;2;94;208;149m█ \033[38;2;88;204;146m█\033[38;2;86;202;144m█  \033[38;2;77;197;138m█\033[38;2;74;195;136m█ \033[38;2;69;192;132m█\033[38;2;66;190;130m█     \033[38;2;50;179;119m█\033[38;2;47;177;117m█  \033[38;2;39;172;111m█\033[38;2;36;170;109m█\033[0m\n'
+    printf '  \033[38;2;146;242;186m█\033[38;2;143;240;184m█     \033[38;2;127;229;173m█\033[38;2;124;228;171m█     \033[38;2;108;217;159m█\033[38;2;105;215;157m█  \033[38;2;96;210;151m█\033[38;2;94;208;149m█ \033[38;2;88;204;146m█\033[38;2;86;202;144m█  \033[38;2;77;197;138m█\033[38;2;74;195;136m█ \033[38;2;69;192;132m█\033[38;2;66;190;130m█\033[38;2;64;188;128m█\033[38;2;61;186;126m█   \033[38;2;50;179;119m█\033[38;2;47;177;117m█\033[38;2;44;175;115m█\033[38;2;42;174;113m█\033[38;2;39;172;111m█\033[0m\n'
+    printf '  \033[38;2;146;242;186m█\033[38;2;143;240;184m█     \033[38;2;127;229;173m█\033[38;2;124;228;171m█     \033[38;2;108;217;159m█\033[38;2;105;215;157m█  \033[38;2;96;210;151m█\033[38;2;94;208;149m█  \033[38;2;86;202;144m█\033[38;2;83;201;142m█\033[38;2;80;199;140m█\033[38;2;77;197;138m█  \033[38;2;69;192;132m█\033[38;2;66;190;130m█     \033[38;2;50;179;119m█\033[38;2;47;177;117m█ \033[38;2;42;174;113m█\033[38;2;39;172;111m█\033[0m\n'
+    printf '  \033[38;2;146;242;186m█\033[38;2;143;240;184m█\033[38;2;140;238;182m█\033[38;2;138;237;180m█\033[38;2;135;235;178m█\033[38;2;132;233;176m█ \033[38;2;127;229;173m█\033[38;2;124;228;171m█\033[38;2;121;226;169m█\033[38;2;118;224;167m█\033[38;2;116;222;165m█\033[38;2;113;220;163m█ \033[38;2;108;217;159m█\033[38;2;105;215;157m█\033[38;2;102;213;155m█\033[38;2;99;211;153m█\033[38;2;96;210;151m█\033[38;2;94;208;149m█   \033[38;2;83;201;142m█\033[38;2;80;199;140m█   \033[38;2;69;192;132m█\033[38;2;66;190;130m█\033[38;2;64;188;128m█\033[38;2;61;186;126m█\033[38;2;58;184;124m█\033[38;2;55;183;122m█ \033[38;2;50;179;119m█\033[38;2;47;177;117m█  \033[38;2;39;172;111m█\033[38;2;36;170;109m█\033[0m\n'
+    else
+        echo "  Clover"
+    fi
     echo ""
+    printf '%s%s%s  %s%sFeeling lucky? Let'"'"'s grow your Clover.%s\n' "$R_G" "$S_START" "$R_N" "$R_G" "$R_B" "$R_N"
+    rail_gap
+    rail_line "${R_D}It brings its own Python, Node and tools. Nothing else on this computer gets touched.${R_N}"
+    rail_gap
 }
 
+PROBLEM_SEEN=false
+SHOW_DETAILS=false
+[ -n "${CLOVER_VERBOSE:-}" ] && SHOW_DETAILS=true
 log_info() {
-    echo -e "${CYAN}→${NC} $1"
+    # Details only when asked for (CLOVER_VERBOSE=1). Warnings and errors always show.
+    [ "$SHOW_DETAILS" = true ] || return 0
+    printf '%s%s%s  %s%s%s\n' "$R_G" "$S_BAR" "$R_N" "$R_D" "$1" "$R_N"
 }
 
+LAST_OK=""
 log_success() {
-    echo -e "${GREEN}✓${NC} $1"
+    [ "$1" = "$LAST_OK" ] && return 0
+    LAST_OK="$1"
+    printf '%s%s%s %s\n' "$R_G" "$S_DONE" "$R_N" "$1"
+    rail_gap
 }
 
 log_warn() {
-    echo -e "${YELLOW}⚠${NC} $1"
+    PROBLEM_SEEN=true
+    printf '%s%s%s  %s\n' "$R_Y" "$S_WARN" "$R_N" "$1"
+    rail_gap
 }
 
 log_error() {
-    echo -e "${RED}✗${NC} $1"
+    PROBLEM_SEEN=true
+    printf '%s%s%s  %s\n' "$R_R" "$S_ERR" "$R_N" "$1"
 }
 
 json_escape() {
@@ -332,7 +376,7 @@ emit_manifest() {
     if [ "$INCLUDE_DESKTOP" = true ]; then
         desktop_stage='{"name":"desktop","title":"Build desktop app","category":"runtime","needs_user_input":false},'
     fi
-    printf '%s' '{"protocol_version":1,"stages":[{"name":"prerequisites","title":"System prerequisites","category":"runtime","needs_user_input":false},{"name":"repository","title":"Download Clover Cognition","category":"runtime","needs_user_input":false},{"name":"venv","title":"Create Python virtual environment","category":"runtime","needs_user_input":false},{"name":"python-deps","title":"Install Python dependencies","category":"runtime","needs_user_input":false},{"name":"node-deps","title":"Install browser-tool dependencies","category":"runtime","needs_user_input":false},{"name":"path","title":"Install clover command","category":"runtime","needs_user_input":false},{"name":"config","title":"Prepare config and skills","category":"configuration","needs_user_input":false},{"name":"setup","title":"Configure API keys and settings","category":"configuration","needs_user_input":true},{"name":"gateway","title":"Configure gateway service","category":"configuration","needs_user_input":true},'"$desktop_stage"'{"name":"complete","title":"Finish install","category":"runtime","needs_user_input":false}]}'
+    printf '%s' '{"protocol_version":1,"stages":[{"name":"prerequisites","title":"System prerequisites","category":"runtime","needs_user_input":false},{"name":"repository","title":"Download Clover","category":"runtime","needs_user_input":false},{"name":"venv","title":"Create Python virtual environment","category":"runtime","needs_user_input":false},{"name":"python-deps","title":"Install Python dependencies","category":"runtime","needs_user_input":false},{"name":"node-deps","title":"Install browser-tool dependencies","category":"runtime","needs_user_input":false},{"name":"path","title":"Install clover command","category":"runtime","needs_user_input":false},{"name":"config","title":"Prepare config and skills","category":"configuration","needs_user_input":false},{"name":"setup","title":"Configure API keys and settings","category":"configuration","needs_user_input":true},{"name":"gateway","title":"Configure gateway service","category":"configuration","needs_user_input":true},'"$desktop_stage"'{"name":"complete","title":"Finish install","category":"runtime","needs_user_input":false}]}'
     printf '\n'
 }
 
@@ -576,7 +620,7 @@ detect_os() {
             ;;
     esac
 
-    log_success "Detected: $OS ($DISTRO)"
+    log_success "Good soil found"
 }
 
 # ============================================================================
@@ -599,11 +643,11 @@ install_uv() {
     if [ -x "$_managed_uv" ]; then
         UV_CMD="$_managed_uv"
         UV_VERSION=$($UV_CMD --version 2>/dev/null)
-        log_success "Managed uv found ($UV_VERSION)"
+        log_success "Gardening tools ready"
         return 0
     fi
 
-    log_info "Installing managed uv into $CLOVER_HOME/bin ..."
+    log_info "Fetching gardening tools (just for Clover) ..."
     mkdir -p "$CLOVER_HOME/bin"
 
     # Two-stage: download the installer, then run it.  Piping
@@ -635,7 +679,7 @@ install_uv() {
         fi
         rm -f "$_uv_install_log"
         UV_VERSION=$($UV_CMD --version 2>/dev/null)
-        log_success "Managed uv installed ($UV_VERSION)"
+        log_success "Gardening tools ready"
     else
         log_error "Failed to install uv"
         log_info "Installer output:"
@@ -653,7 +697,7 @@ check_python() {
             PYTHON_PATH="$(command -v python)"
             if "$PYTHON_PATH" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
                 PYTHON_FOUND_VERSION="$("$PYTHON_PATH" --version 2>/dev/null)"
-                log_success "Python found: $PYTHON_FOUND_VERSION"
+                log_success "Python is ready"
                 return 0
             fi
         fi
@@ -662,17 +706,17 @@ check_python() {
         pkg install -y python >/dev/null
         PYTHON_PATH="$(command -v python)"
         PYTHON_FOUND_VERSION="$("$PYTHON_PATH" --version 2>/dev/null)"
-        log_success "Python installed: $PYTHON_FOUND_VERSION"
+        log_success "Python is ready"
         return 0
     fi
 
-    log_info "Checking Python $PYTHON_VERSION..."
+    log_info "Looking for Python $PYTHON_VERSION..."
 
     # Let uv handle Python — it can download and manage Python versions
     # First check if a suitable Python is already available
     if PYTHON_PATH="$("$UV_CMD" python find "$PYTHON_VERSION" 2>/dev/null)"; then
         PYTHON_FOUND_VERSION="$("$PYTHON_PATH" --version 2>/dev/null)"
-        log_success "Python found: $PYTHON_FOUND_VERSION"
+        log_success "Python is ready"
         return 0
     fi
 
@@ -696,7 +740,7 @@ check_python() {
     if "$UV_CMD" python install "$PYTHON_VERSION"; then
         PYTHON_PATH="$("$UV_CMD" python find "$PYTHON_VERSION")"
         PYTHON_FOUND_VERSION="$("$PYTHON_PATH" --version 2>/dev/null)"
-        log_success "Python installed: $PYTHON_FOUND_VERSION"
+        log_success "Python is ready"
     else
         log_error "Failed to install Python $PYTHON_VERSION"
         log_info "Install Python $PYTHON_VERSION manually, then re-run this script"
@@ -776,12 +820,12 @@ attempt_install_git() {
 }
 
 check_git() {
-    log_info "Checking Git..."
+    log_info "Looking for Git..."
 
     # On fresh macOS /usr/bin/git is a stub that exits non-zero until CLT is installed.
     if command -v git &> /dev/null && git --version &> /dev/null; then
         GIT_VERSION=$(git --version | awk '{print $3}')
-        log_success "Git $GIT_VERSION found"
+        log_success "Git is ready"
         return 0
     fi
 
@@ -792,7 +836,7 @@ check_git() {
         pkg install -y git >/dev/null
         if command -v git >/dev/null 2>&1; then
             GIT_VERSION=$(git --version | awk '{print $3}')
-            log_success "Git $GIT_VERSION installed"
+            log_success "Git is ready"
             return 0
         fi
     fi
@@ -801,7 +845,7 @@ check_git() {
     log_info "Attempting to install Git automatically..."
     if attempt_install_git; then
         GIT_VERSION=$(git --version | awk '{print $3}')
-        log_success "Git $GIT_VERSION installed"
+        log_success "Git is ready"
         return 0
     fi
 
@@ -849,10 +893,10 @@ check_git() {
 # whether to proceed rather than aborting the whole install (unlike git,
 # which is hard-required much earlier for clone_repo).
 check_cxx_compiler() {
-    log_info "Checking for a C++ compiler (needed to build native Node modules like node-pty)..."
+    log_info "Looking for a compiler (some browser parts need building)..."
 
     if command -v g++ &> /dev/null || command -v clang++ &> /dev/null; then
-        log_success "C++ compiler found"
+        log_success "Builder tools are ready"
         HAS_CXX_COMPILER=true
         return 0
     fi
@@ -873,7 +917,7 @@ check_cxx_compiler() {
             local timeout=900
             while [ "$waited" -lt "$timeout" ]; do
                 if command -v g++ &> /dev/null || command -v clang++ &> /dev/null; then
-                    log_success "C++ compiler installed"
+                    log_success "Builder tools are ready"
                     HAS_CXX_COMPILER=true
                     return 0
                 fi
@@ -910,7 +954,7 @@ check_cxx_compiler() {
                     ;;
             esac
             if command -v g++ &> /dev/null || command -v clang++ &> /dev/null; then
-                log_success "C++ compiler installed"
+                log_success "Builder tools are ready"
                 HAS_CXX_COMPILER=true
                 return 0
             fi
@@ -982,7 +1026,7 @@ npm_supports_npmrc() {
 }
 
 check_node() {
-    log_info "Checking Node.js (for browser tools)..."
+    log_info "Looking for Node.js (for the browser tools)..."
 
     # Repair pre-existing Clover-managed installs where `npm install -g` lands
     # off PATH. No-op when there's no managed Node, so this is safe to run on
@@ -1003,7 +1047,7 @@ check_node() {
     if command -v node &> /dev/null && command -v npm &> /dev/null \
         && node_satisfies_build "$(node --version)"; then
         if npm_supports_npmrc "$(npm --version 2>/dev/null)"; then
-            log_success "Node.js $(node --version) found"
+            log_success "Web helpers are ready"
             HAS_NODE=true
             return 0
         fi
@@ -1017,7 +1061,7 @@ check_node() {
     if [ -x "$CLOVER_HOME/node/bin/node" ] && [ -x "$CLOVER_HOME/node/bin/npm" ] \
         && node_satisfies_build "$("$CLOVER_HOME/node/bin/node" --version)"; then
         export PATH="$CLOVER_HOME/node/bin:$PATH"
-        log_success "Node.js $("$CLOVER_HOME/node/bin/node" --version) found (Clover-managed)"
+        log_success "Web helpers are ready"$CLOVER_HOME/node/bin/node" --version) found (Clover-managed)"
         HAS_NODE=true
         return 0
     fi
@@ -1040,7 +1084,7 @@ install_node() {
         if pkg install -y nodejs >/dev/null; then
             local installed_ver
             installed_ver=$(node --version 2>/dev/null)
-            log_success "Node.js $installed_ver installed via pkg"
+            log_success "Web helpers are ready"
             HAS_NODE=true
         else
             log_warn "Failed to install Node.js via pkg"
@@ -1145,12 +1189,12 @@ install_node() {
 
     local installed_ver
     installed_ver=$("$CLOVER_HOME/node/bin/node" --version 2>/dev/null)
-    log_success "Node.js $installed_ver installed to ~/.clover/node/"
+    log_success "Web helpers are ready"
     HAS_NODE=true
 }
 
 check_network_prerequisites() {
-    log_info "Checking internet connectivity for package install and web tools..."
+    log_info "Making sure the internet is reachable..."
 
     local url
     local failed=false
@@ -1190,7 +1234,7 @@ check_network_prerequisites() {
     rm -rf "$tmpdir"
 
     if [ "$failed" = false ]; then
-        log_success "Internet connectivity looks good"
+        log_success "Online and ready"
         return 0
     fi
 
@@ -1214,7 +1258,7 @@ install_system_packages() {
 
     log_info "Checking ripgrep (fast file search)..."
     if command -v rg &> /dev/null; then
-        log_success "$(rg --version | head -1) found"
+        log_success "Fast search is ready"
         HAS_RIPGREP=true
     else
         need_ripgrep=true
@@ -1223,7 +1267,7 @@ install_system_packages() {
     log_info "Checking ffmpeg (TTS voice messages)..."
     if command -v ffmpeg &> /dev/null; then
         local ffmpeg_ver=$(ffmpeg -version 2>/dev/null | head -1 | awk '{print $3}')
-        log_success "ffmpeg $ffmpeg_ver found"
+        log_success "Sound tools are ready"
         HAS_FFMPEG=true
     else
         need_ffmpeg=true
@@ -1242,8 +1286,8 @@ install_system_packages() {
 
         log_info "Installing Termux packages: ${termux_pkgs[*]}"
         if pkg install -y "${termux_pkgs[@]}" >/dev/null; then
-            [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
-            [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "ffmpeg installed"
+            [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "Fast search is ready"
+            [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "Sound tools are ready"
             log_success "Termux build dependencies installed"
             return 0
         fi
@@ -1277,8 +1321,8 @@ install_system_packages() {
         if command -v brew &> /dev/null; then
             log_info "Installing ${pkgs[*]} via Homebrew..."
             if brew install "${pkgs[@]}"; then
-                [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
-                [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "ffmpeg installed"
+                [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "Fast search is ready"
+                [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "Sound tools are ready"
                 return 0
             fi
         fi
@@ -1307,16 +1351,16 @@ install_system_packages() {
         if [ "$(id -u)" -eq 0 ]; then
             log_info "Installing ${pkgs[*]}..."
             if $install_cmd; then
-                [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
-                [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "ffmpeg installed"
+                [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "Fast search is ready"
+                [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "Sound tools are ready"
                 return 0
             fi
         # Passwordless sudo — just install
         elif command -v sudo &> /dev/null && sudo -n true 2>/dev/null; then
             log_info "Installing ${pkgs[*]}..."
             if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a $install_cmd; then
-                [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
-                [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "ffmpeg installed"
+                [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "Fast search is ready"
+                [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "Sound tools are ready"
                 return 0
             fi
         # sudo needs password — ask once for everything
@@ -1324,11 +1368,11 @@ install_system_packages() {
             if [ "$IS_INTERACTIVE" = true ]; then
                 echo ""
                 log_info "sudo is needed ONLY to install optional system packages (${pkgs[*]}) via your package manager."
-                log_info "Clover Cognition itself does not require or retain root access."
+                log_info "Clover itself does not require or retain root access."
                 if prompt_yes_no "Install ${description}? (requires sudo)" "no"; then
                     if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a $install_cmd; then
-                        [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
-                        [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "ffmpeg installed"
+                        [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "Fast search is ready"
+                        [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "Sound tools are ready"
                         return 0
                     fi
                 fi
@@ -1340,11 +1384,11 @@ install_system_packages() {
                 # but opening fails with ENXIO. See #16746.
                 echo ""
                 log_info "sudo is needed ONLY to install optional system packages (${pkgs[*]}) via your package manager."
-                log_info "Clover Cognition itself does not require or retain root access."
+                log_info "Clover itself does not require or retain root access."
                 if prompt_yes_no "Install ${description}?" "yes"; then
                     if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a $install_cmd < /dev/tty; then
-                        [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
-                        [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "ffmpeg installed"
+                        [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "Fast search is ready"
+                        [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "Sound tools are ready"
                         return 0
                     fi
                 fi
@@ -1436,12 +1480,12 @@ adopt_non_git_install() {
     fi
     read -r best bestn < "${TMPDIR:-/tmp}/clover-adopt.$$"
     rm -f "${TMPDIR:-/tmp}/clover-adopt.$$"
-    log_success "Matched this copy to ${best:0:8} ($bestn file(s) differ); updating in place"
+    log_success "Found a nearby copy, updating it"
     return 0
 }
 
 clone_repo() {
-    log_info "Installing to $INSTALL_DIR..."
+    log_info "Clover will grow in $INSTALL_DIR"
 
     # An interrupted previous clone leaves a .git with no initial commit, where
     # the update path's `git stash` / `git checkout` abort with "You do not
@@ -1574,15 +1618,15 @@ EOF
         # Try SSH first (for private repo access), fall back to HTTPS
         # GIT_SSH_COMMAND disables interactive prompts and sets a short timeout
         # so SSH fails fast instead of hanging when no key is configured.
-        log_info "Trying SSH clone..."
+        log_info "Planting the seed..."
         if GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=5" \
            git clone --depth 1 --branch "$BRANCH" "$REPO_URL_SSH" "$INSTALL_DIR" 2>/dev/null; then
-            log_success "Cloned via SSH"
+            log_success "Seed planted"
         else
             rm -rf "$INSTALL_DIR" 2>/dev/null  # Clean up partial SSH clone
-            log_info "SSH failed, trying HTTPS..."
+            log_info "Still planting..."
             if git clone --depth 1 --branch "$BRANCH" "$REPO_URL_HTTPS" "$INSTALL_DIR"; then
-                log_success "Cloned via HTTPS"
+                log_success "Seed planted"
             else
                 log_error "Failed to clone repository"
                 exit 1
@@ -1638,7 +1682,7 @@ EOF
         fi
     fi
 
-    log_success "Repository ready"
+    log_success "Clover is in the ground"
 }
 
 setup_venv() {
@@ -1656,11 +1700,11 @@ setup_venv() {
         fi
 
         "$PYTHON_PATH" -m venv venv
-        log_success "Virtual environment ready ($(./venv/bin/python --version 2>/dev/null))"
+        log_success "Its own little garden is ready"
         return 0
     fi
 
-    log_info "Creating virtual environment with Python $PYTHON_VERSION..."
+    log_info "Making Clover its own garden (Python $PYTHON_VERSION)..."
 
     if [ -d "venv" ]; then
         log_info "Virtual environment already exists, recreating..."
@@ -1681,7 +1725,7 @@ setup_venv() {
         export UV_PYTHON="$INSTALL_DIR/venv/bin/python"
     fi
 
-    log_success "Virtual environment ready (Python $PYTHON_VERSION)"
+    log_success "Its own little garden is ready"
 }
 
 run_locked_uv_sync() {
@@ -1709,7 +1753,7 @@ run_locked_uv_sync() {
 }
 
 install_deps() {
-    log_info "Installing dependencies..."
+    log_info "Watering the roots (installing what Clover needs)..."
 
     # Re-pin UV_PYTHON to the venv interpreter. setup_venv already does this,
     # but the bootstrap runs install stages (`venv`, `python-deps`) as separate
@@ -1768,11 +1812,11 @@ install_deps() {
             fi
         fi
 
-        log_success "Main package installed"
+        log_success "Clover is planted"
         log_info "Termux note: matrix e2ee and local faster-whisper extras are excluded from .[termux-all] due to upstream Android wheel/toolchain blockers."
         log_info "Termux note: browser/WhatsApp tooling is not installed by default; see the Termux guide for optional follow-up steps."
 
-        log_success "All dependencies installed"
+        log_success "Everything it needs is in"
         return 0
     fi
 
@@ -1799,7 +1843,7 @@ install_deps() {
                     log_success "Build tools installed"
                 else
                     log_info "sudo is needed ONLY to install build tools (build-essential, python3-dev, libffi-dev) via apt."
-                    log_info "Clover Cognition itself does not require or retain root access."
+                    log_info "Clover itself does not require or retain root access."
                     if prompt_yes_no "Install build tools?" "yes"; then
                         sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y -qq build-essential python3-dev libffi-dev >/dev/null 2>&1 || true
                         log_success "Build tools installed"
@@ -1822,9 +1866,9 @@ install_deps() {
     # lockfile is stale, missing, or out-of-sync with the current
     # extras spec, NOT because they're equivalent in posture.
     if [ -f "uv.lock" ]; then
-        log_info "Trying tier: hash-verified (uv.lock) ..."
-        log_info "(this resolves + downloads the curated [all] set — first run on a"
-        log_info " fresh venv can take 1-5 minutes; uv prints progress below)"
+        log_info "Gathering everything Clover needs (checked for safety)..."
+        log_info "(first time can take a few minutes. Grab a coffee ☕)"
+        log_info " Progress shows below.)"
         # Stream uv's progress directly to the user instead of swallowing
         # it with `2>"$(mktemp)"`.  Two reasons:
         #   1. `--extra all --locked` against a fresh venv has to pull
@@ -1860,8 +1904,8 @@ install_deps() {
         # Runtime code does the same before its locked syncs
         # (clover_cli/managed_uv.py).
         if run_locked_uv_sync "$INSTALL_DIR/venv"; then
-            log_success "Main package installed (hash-verified via uv.lock)"
-            log_success "All dependencies installed"
+            log_success "Clover installed"
+            log_success "Everything it needs is in"
             return 0
         fi
         log_warn "uv.lock sync failed (see uv output above), falling back to PyPI resolve..."
@@ -1945,7 +1989,7 @@ PY
         start_progress "Resolving Python packages ($name)"
         if $UV_CMD pip install -e "$spec" 2>"$ALL_INSTALL_LOG"; then
             stop_progress
-            log_success "Main package installed ($name)"
+            log_success "Clover is planted"
             _installed=true
             _tier_name="$name"
             return 0
@@ -1975,13 +2019,13 @@ PY
         log_info "PyPI/network issue, re-run: $UV_CMD pip install -e '.[all]'"
     fi
 
-    log_success "Main package installed"
+    log_success "Clover is planted"
 
-    log_success "All dependencies installed"
+    log_success "Everything it needs is in"
 }
 
 setup_path() {
-    log_info "Setting up clover command..."
+    log_info "Adding the clover command..."
 
     if [ "$USE_VENV" = true ]; then
         CLOVER_BIN="$INSTALL_DIR/venv/bin/python"
@@ -2043,7 +2087,7 @@ exec "$CLOVER_BIN" "\$@"
 EOF
     fi
     chmod +x "$command_link_dir/clover"
-    log_success "Installed clover launcher → $command_link_display_dir/clover"
+    log_success "The clover command is in place"
 
     # Also expose `clover-c1`. The `clover-c1` console script declared in
     # pyproject.toml's [project.scripts] lives inside the venv, which is not on
@@ -2070,7 +2114,6 @@ exec "$CLOVER_BIN" run_agent.py "\$@"
 EOF
     fi
     chmod +x "$command_link_dir/clover-c1"
-    log_success "Installed clover-c1 launcher → $command_link_display_dir/clover-c1"
 
     # Also expose `clover-acp`. ACP hosts (Zed, JetBrains, Buzz) resolve the
     # agent by command name on the login-shell PATH, and the `clover-acp`
@@ -2095,12 +2138,11 @@ exec "$CLOVER_BIN" acp "\$@"
 EOF
     fi
     chmod +x "$command_link_dir/clover-acp"
-    log_success "Installed clover-acp launcher → $command_link_display_dir/clover-acp"
 
     if [ "$DISTRO" = "termux" ]; then
         export PATH="$command_link_dir:$PATH"
         log_info "$command_link_display_dir is the native Termux command path"
-        log_success "clover command ready"
+        log_success "You can now type clover anywhere"
         return 0
     fi
 
@@ -2118,13 +2160,13 @@ EOF
         if env -i HOME="$HOME" TERM="${TERM:-dumb}" bash -i -c 'command -v clover' \
                 >/dev/null 2>&1; then
             log_info "/usr/local/bin is already on PATH for all shells"
-            log_success "clover command ready"
+            log_success "You can now type clover anywhere"
             return 0
         fi
 
         log_info "clover not on PATH in non-login shells (common on RHEL-family)"
         PATH_LINE='export PATH="/usr/local/bin:$PATH"'
-        PATH_COMMENT='# Clover Cognition — ensure /usr/local/bin is on PATH (RHEL non-login shells)'
+        PATH_COMMENT='# Clover — ensure /usr/local/bin is on PATH (RHEL non-login shells)'
         for SHELL_CONFIG in "$HOME/.bashrc" "$HOME/.bash_profile"; do
             [ -f "$SHELL_CONFIG" ] || continue
             if ! grep -v '^[[:space:]]*#' "$SHELL_CONFIG" 2>/dev/null \
@@ -2132,10 +2174,10 @@ EOF
                 echo "" >> "$SHELL_CONFIG"
                 echo "$PATH_COMMENT" >> "$SHELL_CONFIG"
                 echo "$PATH_LINE" >> "$SHELL_CONFIG"
-                log_success "Added /usr/local/bin to PATH in $SHELL_CONFIG"
+                log_success "Told your shell where to find Clover"
             fi
         done
-        log_success "clover command ready"
+        log_success "You can now type clover anywhere"
         return 0
     fi
 
@@ -2181,9 +2223,9 @@ EOF
         for SHELL_CONFIG in "${SHELL_CONFIGS[@]}"; do
             if ! grep -v '^[[:space:]]*#' "$SHELL_CONFIG" 2>/dev/null | grep -qE 'PATH=.*\.local/bin'; then
                 echo "" >> "$SHELL_CONFIG"
-                echo "# Clover Cognition — ensure ~/.local/bin is on PATH" >> "$SHELL_CONFIG"
+                echo "# Clover — ensure ~/.local/bin is on PATH" >> "$SHELL_CONFIG"
                 echo "$PATH_LINE" >> "$SHELL_CONFIG"
-                log_success "Added ~/.local/bin to PATH in $SHELL_CONFIG"
+                log_success "Told your shell where to find Clover"
             fi
         done
 
@@ -2191,9 +2233,9 @@ EOF
         if [ "$IS_FISH" = "true" ]; then
             if ! grep -q 'fish_add_path.*\.local/bin' "$FISH_CONFIG" 2>/dev/null; then
                 echo "" >> "$FISH_CONFIG"
-                echo "# Clover Cognition — ensure ~/.local/bin is on PATH" >> "$FISH_CONFIG"
+                echo "# Clover — ensure ~/.local/bin is on PATH" >> "$FISH_CONFIG"
                 echo 'fish_add_path "$HOME/.local/bin"' >> "$FISH_CONFIG"
-                log_success "Added ~/.local/bin to PATH in $FISH_CONFIG"
+                log_success "Told your shell where to find Clover"
             fi
         fi
 
@@ -2208,11 +2250,11 @@ EOF
     # Export for current session so clover works immediately
     export PATH="$command_link_dir:$PATH"
 
-    log_success "clover command ready"
+    log_success "You can now type clover anywhere"
 }
 
 copy_config_templates() {
-    log_info "Setting up configuration files..."
+    log_info "Setting up your settings files..."
 
     # Snapshot which sensitive subdirs already exist *before* mkdir -p below,
     # and whether they're already group/world accessible, so the chmod pass
@@ -2255,10 +2297,10 @@ copy_config_templates() {
     if [ ! -f "$CLOVER_HOME/.env" ]; then
         if [ -f "$INSTALL_DIR/.env.example" ]; then
             cp "$INSTALL_DIR/.env.example" "$CLOVER_HOME/.env"
-            log_success "Created ~/.clover/.env from template"
+            log_success "Private keys drawer is ready"
         else
             touch "$CLOVER_HOME/.env"
-            log_success "Created ~/.clover/.env"
+            log_success "Private keys drawer is ready"
         fi
     else
         log_info "~/.clover/.env already exists, keeping it"
@@ -2273,7 +2315,7 @@ copy_config_templates() {
     if [ ! -f "$CLOVER_HOME/config.yaml" ]; then
         if [ -f "$INSTALL_DIR/cli-config.yaml.example" ]; then
             cp "$INSTALL_DIR/cli-config.yaml.example" "$CLOVER_HOME/config.yaml"
-            log_success "Created ~/.clover/config.yaml from template"
+            log_success "Settings are ready"
         fi
     else
         log_info "~/.clover/config.yaml already exists, keeping it"
@@ -2286,12 +2328,12 @@ copy_config_templates() {
     # here is self-healing, but keep them in sync to avoid a churn on first run.
     if [ ! -f "$CLOVER_HOME/SOUL.md" ]; then
         cat > "$CLOVER_HOME/SOUL.md" << 'SOUL_EOF'
-You are Clover Cognition, Built by Anthony Nguyen. Be direct: match the length of your reply to the weight of the ask — a one-line question gets a one-line answer, and finished work gets a short report of what changed, what's verified, and what's left, never a replay of the process. No filler ("Great question," "I'd be happy to"), no restating the request back, no re-summarizing what you already said, no narrating tool calls the user can see. Plain claims over adjectives; when unsure, say so plainly. Agree because it's right, not because the user said it. Depth is earned — give it when the user asks for detail, teaches, or the stakes demand it, not by default.
+You are Clover, Built by Anthony Nguyen. Be direct: match the length of your reply to the weight of the ask — a one-line question gets a one-line answer, and finished work gets a short report of what changed, what's verified, and what's left, never a replay of the process. No filler ("Great question," "I'd be happy to"), no restating the request back, no re-summarizing what you already said, no narrating tool calls the user can see. Plain claims over adjectives; when unsure, say so plainly. Agree because it's right, not because the user said it. Depth is earned — give it when the user asks for detail, teaches, or the stakes demand it, not by default.
 SOUL_EOF
-        log_success "Created ~/.clover/SOUL.md (edit to customize personality)"
+        log_success "Personality file is ready"
     fi
 
-    log_success "Configuration directory ready: ~/.clover/"
+    log_success "Your Clover home is ready"
 
     # Seed bundled skills into ~/.clover/skills/ (manifest-based, one-time per skill)
     if [ "$NO_SKILLS" = true ]; then
@@ -2306,13 +2348,13 @@ SOUL_EOF
         log_info "  Future 'clover update' runs will not inject bundled skills. Delete the marker to opt back in."
     else
         log_info "Syncing bundled skills to ~/.clover/skills/ ..."
-        if "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/tools/skills_sync.py" 2>/dev/null; then
-            log_success "Skills synced to ~/.clover/skills/"
+        if "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/tools/skills_sync.py" >/dev/null 2>&1; then
+            log_success "Starter skills planted"
         else
             # Fallback: simple directory copy if Python sync fails
             if [ -d "$INSTALL_DIR/skills" ] && [ ! "$(ls -A "$CLOVER_HOME/skills/" 2>/dev/null | grep -v '.bundled_manifest')" ]; then
                 cp -r "$INSTALL_DIR/skills/"* "$CLOVER_HOME/skills/" 2>/dev/null || true
-                log_success "Skills copied to ~/.clover/skills/"
+                log_success "Starter skills planted"
             fi
         fi
     fi
@@ -2368,7 +2410,7 @@ strip_snap_browser_override() {
 
     local tmp
     tmp="$(mktemp)" || return 0
-    if grep -Ev '^AGENT_BROWSER_EXECUTABLE_PATH=/snap/|^# Clover Cognition browser tools' "$env_file" > "$tmp"; then
+    if grep -Ev '^AGENT_BROWSER_EXECUTABLE_PATH=/snap/|^# Clover browser tools' "$env_file" > "$tmp"; then
         mv "$tmp" "$env_file"
         log_warn "Removed stale Snap browser override (AGENT_BROWSER_EXECUTABLE_PATH=/snap/...) from $env_file"
         log_info "Clover will use the bundled Chromium instead."
@@ -2625,10 +2667,10 @@ configure_browser_env_from_system_browser() {
 
     {
         echo ""
-        echo "# Clover Cognition browser tools — explicit browser override."
+        echo "# Clover browser tools — explicit browser override."
         echo "AGENT_BROWSER_EXECUTABLE_PATH=$browser_path"
     } >> "$env_file"
-    log_success "Configured browser tools to use $browser_path"
+    log_success "Web browsing is ready"
 }
 
 install_node_deps() {
@@ -2671,7 +2713,7 @@ install_node_deps() {
         fi
         stop_progress
         rm -f "$npm_log"
-        log_success "Node.js dependencies installed"
+        log_success "Web helpers are ready"
 
         # Install Playwright browser + system dependencies.
         # Playwright's --with-deps only supports apt-based systems natively.
@@ -2688,7 +2730,7 @@ install_node_deps() {
         strip_snap_browser_override
         DETECTED_BROWSER_EXECUTABLE="$(find_system_browser 2>/dev/null || true)"
         if [ -n "$DETECTED_BROWSER_EXECUTABLE" ]; then
-            log_success "Using explicit browser override: $DETECTED_BROWSER_EXECUTABLE"
+            log_success "Web browsing is ready"
             log_info "Skipping bundled Chromium download (AGENT_BROWSER_EXECUTABLE_PATH is set)."
         else
             case "$DISTRO" in
@@ -2762,7 +2804,7 @@ install_node_deps() {
             esac
         fi
         fi
-        log_success "Browser engine setup complete"
+        log_success "Web browsing is ready"
     fi
 
     # Install TUI dependencies
@@ -2777,17 +2819,21 @@ install_node_deps() {
         tui_npm_log="$(mktemp)"
         if ! run_with_timeout "$NODE_DEPS_TIMEOUT" npm install --silent \
                 >"$tui_npm_log" 2>&1; then
-            log_error "TUI npm install failed or timed out; TUI dependencies were not installed"
-            if [ -s "$tui_npm_log" ]; then
-                log_error "npm output:"
-                cat "$tui_npm_log" >&2
+            if [ -n "${CLOVER_VERBOSE:-}${CLOVER_INSTALL_VERBOSE:-}" ]; then
+                log_error "TUI npm install failed or timed out; TUI dependencies were not installed"
+                if [ -s "$tui_npm_log" ]; then
+                    log_error "npm output:"
+                    cat "$tui_npm_log" >&2
+                fi
+            else
+                log_warn "Fancy terminal view skipped, Clover still works."
             fi
             rm -f "$tui_npm_log"
             restore_dirty_lockfiles "$INSTALL_DIR"
-            return 1
+            return 0
         fi
         rm -f "$tui_npm_log"
-        log_success "TUI dependencies installed"
+        log_success "Chat screen is ready"
     fi
 
     # Keep the checkout clean so `clover update` doesn't autostash every run.
@@ -2815,7 +2861,7 @@ install_browser_use_cli() {
     # on the user's PATH is a side install — resolution prefers the managed
     # copy, so it must be provisioned regardless.
     if [ -x "$CLOVER_HOME/bin/browser-use" ]; then
-        log_success "Browser Use CLI already installed"
+        log_success "Browser helper is ready"
         return 0
     fi
 
@@ -2824,7 +2870,7 @@ install_browser_use_cli() {
     # the browser tool resolves it — no reliance on the user's PATH.
     if run_with_timeout 600 env UV_NO_CONFIG=1 UV_TOOL_BIN_DIR="$CLOVER_HOME/bin" \
         "$UV_CMD" tool install browser-use >/dev/null 2>&1; then
-        log_success "Browser Use CLI installed"
+        log_success "Browser helper is ready"
     else
         log_warn "Browser Use CLI install failed — browser automation falls back to built-in tools."
         log_info "Install later with: $UV_CMD tool install browser-use  (or via 'clover tools')"
@@ -2881,7 +2927,7 @@ install_computer_use_driver() {
     esac
     if command -v cua-driver >/dev/null 2>&1; then
         if cua_driver_runtime_compatible; then
-            log_success "Computer Use driver (cua-driver) already installed and compatible"
+            log_success "Screen control is ready"
             return 0
         fi
         log_warn "Existing cua-driver is old or incomplete; repairing it"
@@ -2904,18 +2950,18 @@ install_computer_use_driver() {
     if run_with_timeout 660 /bin/bash -c \
         'curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh | /bin/bash' \
         >"$cua_log" 2>&1; then
-        log_success "Computer Use driver installed (enable via 'clover tools' → Computer Use)"
+        log_success "Screen control is ready"
     else
         log_warn "Computer Use driver install failed — it will install on demand when you enable the tool."
         log_info "Install later with: clover computer-use install"
-        tail -n 5 "$cua_log" >&2 || true
+        if [ -n "${CLOVER_VERBOSE:-}${CLOVER_INSTALL_VERBOSE:-}" ]; then tail -n 5 "$cua_log" >&2 || true; fi
     fi
     rm -f "$cua_log"
 }
 
 run_setup_wizard() {
     if [ "$RUN_SETUP" = false ]; then
-        log_info "Skipping setup wizard (--skip-setup)"
+        log_info "Skipping the quick chat (--skip-setup). Run 'clover setup' when you are ready."
         return 0
     fi
 
@@ -2928,12 +2974,12 @@ run_setup_wizard() {
     # but opening fails with ENXIO, so the wizard would proceed and
     # then crash on `< /dev/tty` below.
     if ! (: </dev/tty) 2>/dev/null; then
-        log_info "Setup wizard skipped (no terminal available). Run 'clover setup' after install."
+        log_info "No terminal here, so no quick chat. Run 'clover setup' when you are ready."
         return 0
     fi
 
     echo ""
-    log_info "Starting setup wizard..."
+    log_info "Time to pick your lucky charm..."
     echo ""
 
     cd "$INSTALL_DIR"
@@ -3032,7 +3078,7 @@ maybe_start_gateway() {
             fi
             nohup $CLOVER_CMD gateway > "$CLOVER_HOME/logs/gateway.log" 2>&1 &
             GATEWAY_PID=$!
-            log_success "Gateway started (PID $GATEWAY_PID). Logs: ~/.clover/logs/gateway.log"
+            log_success "Gateway started"
             log_info "To stop: kill $GATEWAY_PID"
             log_info "To restart later: clover gateway"
             if [ "$DISTRO" = "termux" ]; then
@@ -3087,58 +3133,20 @@ write_bootstrap_marker() {
 }
 
 print_success() {
+    printf '%s%s%s  %s %s%sYou struck gold! Clover is planted and ready.%s\n' "$R_G" "$S_END" "$R_N" "$S_LUCK" "$R_G" "$R_B" "$R_N"
     echo ""
-    echo -e "${GREEN}${BOLD}"
-    echo "┌─────────────────────────────────────────────────────────┐"
-    echo "│                 ☘  Clover is installed.                 │"
-    echo "└─────────────────────────────────────────────────────────┘"
-    echo -e "${NC}"
+    echo -e "     ${BOLD}Next:${NC} name it and pick its brain. Takes a minute."
     echo ""
-
-    # Show file locations
-    echo -e "${CYAN}${BOLD}Where everything lives${NC}"
+    echo -e "        ${GREEN}${BOLD}clover setup${NC}"
     echo ""
-    echo -e "   ${YELLOW}Config:${NC}    $CLOVER_HOME/config.yaml"
-    echo -e "   ${YELLOW}API Keys:${NC}  $CLOVER_HOME/.env"
-    echo -e "   ${YELLOW}Data:${NC}      $CLOVER_HOME/cron/, sessions/, logs/"
-    echo -e "   ${YELLOW}Code:${NC}      $INSTALL_DIR"
-    echo ""
-
-    echo -e "${CYAN}─────────────────────────────────────────────────────────${NC}"
-    echo ""
-    echo -e "${CYAN}${BOLD}Worth knowing${NC}"
-    echo ""
-    echo -e "   ${GREEN}clover${NC}              Start talking"
-    echo -e "   ${GREEN}clover setup${NC}        Answer a few questions, then you are running"
-    echo -e "   ${GREEN}clover config${NC}       See how it is set up"
-    echo -e "   ${GREEN}clover config edit${NC}  Change it by hand"
-    echo -e "   ${GREEN}clover gateway${NC}      Reach it from Telegram, Discord, Slack, and more"
-    echo -e "   ${GREEN}clover update${NC}       Get the latest"
-    echo ""
-
-    echo -e "${CYAN}─────────────────────────────────────────────────────────${NC}"
-    echo ""
-    if [ "$DISTRO" = "termux" ]; then
-        echo -e "${YELLOW}⚡ 'clover' was linked into $(get_command_link_display_dir), which is already on PATH in Termux.${NC}"
-        echo ""
-    elif [ "$ROOT_FHS_LAYOUT" = true ]; then
-        echo -e "${YELLOW}⚡ 'clover' was linked into /usr/local/bin and is ready to use — no shell reload needed.${NC}"
-        echo ""
-    else
-        echo -e "${YELLOW}One more step. Reload your shell:${NC}"
-        echo ""
-        LOGIN_SHELL="$(basename "${SHELL:-/bin/bash}")"
-        if [ "$LOGIN_SHELL" = "zsh" ]; then
-            echo "   source ~/.zshrc"
-        elif [ "$LOGIN_SHELL" = "bash" ]; then
-            echo "   source ~/.bashrc"
-        elif [ "$LOGIN_SHELL" = "fish" ]; then
-            echo "   source ~/.config/fish/config.fish"
-        else
-            echo "   source ~/.bashrc   # or ~/.zshrc"
-        fi
+    if [ "$DISTRO" != "termux" ] && [ "$ROOT_FHS_LAYOUT" != true ]; then
+        echo -e "     ${CYAN}If your terminal says \"clover: not found\", open a new terminal window first.${NC}"
         echo ""
     fi
+    echo -e "     ${CYAN}Later:${NC} ${GREEN}clover${NC} chat  ·  ${GREEN}clover update${NC} stay fresh  ·  ${GREEN}clover doctor${NC} fix stuff"
+    echo ""
+    echo -e "     ${CYAN}Your stuff lives in $CLOVER_HOME${NC}"
+    echo ""
 
     # Show Node.js warning if auto-install failed
     if [ "$HAS_NODE" = false ]; then
@@ -3592,7 +3600,7 @@ install_desktop() {
         log_error "Desktop build completed but no app was found under $desktop_dir/release/"
         return 1
     fi
-    log_success "Desktop app built: $app"
+    log_success "Desktop app is ready"
 
     # Linux: Electron's chrome-sandbox helper needs root:root 4755 or the
     # sandboxed renderer will abort on startup.  Check the file is a regular

@@ -158,7 +158,7 @@ DEFAULT_AGENT_IDENTITY = (
     # "targeted and efficient exploration" line was cut deliberately —
     # maintainer: models UNDER-explore by default and miss useful context;
     # never re-add an exploration-thrift instruction here.
-    "You are Clover Cognition, Built by Anthony Nguyen. Be direct: match the "
+    "You are Clover, Built by Anthony Nguyen. Be direct: match the "
     "length of your reply to the weight of the ask — a one-line question "
     "gets a one-line answer, and finished work gets a short report of what "
     "changed, what's verified, and what's left, never a replay of the "
@@ -177,7 +177,7 @@ CLOVER_AGENT_HELP_GUIDANCE = (
     # weight — the docs-are-authoritative sentence already carries the
     # precedence. Injected only when skill_view exists AND the clover-c1
     # skill is actually installed (see system_prompt.py slot resolution).
-    "You run on Clover Cognition (by Anthony Nguyen). When the user needs help with "
+    "You run on Clover (by Anthony Nguyen). When the user needs help with "
     "Clover itself — configuring, setting up, using, extending, or troubleshooting "
     "it — or when you need to understand your own features, tools, or capabilities, "
     "the documentation at docs/ is your "
@@ -192,7 +192,7 @@ CLOVER_AGENT_HELP_GUIDANCE = (
 # model at skill_view() there would be a dangling reference — the docs URL is
 # the only actionable pointer.
 CLOVER_AGENT_HELP_GUIDANCE_NO_SKILLS = (
-    "You run on Clover Cognition (by Anthony Nguyen). When the user needs help with "
+    "You run on Clover (by Anthony Nguyen). When the user needs help with "
     "Clover itself — configuring, setting up, using, extending, or troubleshooting "
     "it — or when you need to understand your own features, tools, or capabilities, "
     "the documentation at docs/ is the "

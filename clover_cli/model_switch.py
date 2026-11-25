@@ -356,13 +356,13 @@ def _fetch_picker_live_models(
 # ---------------------------------------------------------------------------
 
 _CLOVER_MODEL_WARNING = (
-    "Clover Cognition Clover 3 & 4 models are NOT agentic and are not designed "
-    "for use with Clover Cognition. They lack the tool-calling capabilities "
+    "Clover 3 & 4 models are NOT agentic and are not designed "
+    "for use with Clover. They lack the tool-calling capabilities "
     "required for agent workflows. Consider using an agentic model instead "
     "(Claude, GPT, Gemini, DeepSeek, etc.)."
 )
 
-# Match only the real Clover Cognition Clover 3 / Clover 4 chat families.
+# Match only the real Clover 3 / Clover 4 chat families.
 # The previous substring check (`"clover" in name.lower()`) false-positived on
 # unrelated local Modelfiles like ``clover-brain:qwen3-14b-ctx16k`` that just
 # happen to carry "clover" in their tag but are fully tool-capable.
@@ -423,7 +423,7 @@ def format_model_for_display(model_name: str) -> str:
 
 # ---------------------------------------------------------------------------
 def is_clover_clover_non_agentic(model_name: str) -> bool:
-    """Return True if *model_name* is a real Clover Clover 3/4 chat model.
+    """Return True if *model_name* is a real Clover 3/4 chat model.
 
     Used to decide whether to surface the non-agentic warning at startup.
     Callers in :mod:`cli.py` and here should go through this single helper
@@ -435,7 +435,7 @@ def is_clover_clover_non_agentic(model_name: str) -> bool:
 
 
 def _check_clover_model_warning(model_name: str) -> str:
-    """Return a warning string if *model_name* is a Clover Clover 3/4 chat model."""
+    """Return a warning string if *model_name* is a Clover 3/4 chat model."""
     if is_clover_clover_non_agentic(model_name):
         return _CLOVER_MODEL_WARNING
     return ""

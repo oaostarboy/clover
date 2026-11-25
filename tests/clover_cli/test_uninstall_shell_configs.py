@@ -22,7 +22,7 @@ ZSHRC = (
     "export EDITOR=vim\n"
     "alias ll='ls -la'\n"
     "\n"
-    "# Clover Cognition\n"
+    "# Clover\n"
     'export PATH="$HOME/.local/bin:$PATH"\n'
     "\n"
     "source ~/.work-profile\n"
@@ -48,7 +48,7 @@ class TestHappyPath:
 
         assert removed == [rc]
         text = rc.read_text(encoding="utf-8")
-        assert "# Clover Cognition" not in text
+        assert "# Clover" not in text
         # The user's own lines are untouched.
         assert "export EDITOR=vim" in text
         assert "source ~/.work-profile" in text
@@ -102,7 +102,7 @@ class TestCrashDurability:
 
         assert removed == [rc]
         assert rc.is_symlink(), "the symlink was replaced by a regular file"
-        assert "# Clover Cognition" not in real.read_text(encoding="utf-8")
+        assert "# Clover" not in real.read_text(encoding="utf-8")
         assert "export EDITOR=vim" in real.read_text(encoding="utf-8")
 
     @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")

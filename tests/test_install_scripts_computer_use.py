@@ -73,4 +73,4 @@ class TestInstallPs1:
             "Test-CuaDriverRuntimeContract -DriverPath $installedCuaDriver.Source"
             in text
         )
-        assert "did not produce a compatible runtime" in text
+        assert "Computer Use driver is not available on this PC yet" in text

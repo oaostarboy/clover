@@ -10941,7 +10941,7 @@ def _default_spawn(
         log_f.close()
         raise RuntimeError(
             "`clover` executable not found on PATH. "
-            "Install Clover Cognition or activate its venv before running the kanban dispatcher."
+            "Install Clover or activate its venv before running the kanban dispatcher."
         )
     # NOTE: we intentionally do NOT close log_f here — we want Popen's
     # child process to keep writing after this function returns.  The

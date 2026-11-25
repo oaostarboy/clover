@@ -17,7 +17,7 @@ def build_setup_parser(subparsers, *, cmd_setup: Callable) -> None:
     setup_parser = subparsers.add_parser(
         "setup",
         help="Interactive setup wizard",
-        description="Configure Clover Cognition with an interactive wizard. "
+        description="Configure Clover with an interactive wizard. "
         "To connect Claude Code in one step: clover setup claude. "
         "Run a specific section: "
         "clover setup model|tts|terminal|gateway|tools|telemetry|agent",
@@ -52,6 +52,12 @@ def build_setup_parser(subparsers, *, cmd_setup: Callable) -> None:
         help="(Default on existing installs.) Re-run the full wizard, "
         "showing current values as defaults. Kept for backwards "
         "compatibility — a bare 'clover setup' now does this.",
+    )
+    setup_parser.add_argument(
+        "--full",
+        action="store_true",
+        help="First run: skip the quick start and walk through every option "
+        "(AI service, where commands run, messaging, tools).",
     )
     setup_parser.add_argument(
         "--quick",

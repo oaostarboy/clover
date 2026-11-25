@@ -1,4 +1,4 @@
-"""Anthropic Messages API adapter for Clover Cognition.
+"""Anthropic Messages API adapter for Clover.
 
 Translates between Clover's internal OpenAI-style message format and
 Anthropic's Messages API. Follows the same pattern as the codex_responses

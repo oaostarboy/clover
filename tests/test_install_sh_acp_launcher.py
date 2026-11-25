@@ -20,7 +20,7 @@ INSTALL_SH = Path(__file__).resolve().parent.parent / "scripts" / "install.sh"
 
 ACP_BLOCK = re.compile(
     r'(    rm -f "\$command_link_dir/clover-acp".*?'
-    r'log_success "Installed clover-acp launcher[^\n]*\n)',
+    r'chmod \+x "\$command_link_dir/clover-acp"\n)',
     re.S,
 )
 
@@ -135,7 +135,7 @@ def test_acp_launcher_does_not_follow_a_symlink_into_the_venv(tmp_path):
 
 CLOVER_AGENT_BLOCK = re.compile(
     r'(rm -f "\$command_link_dir/clover-c1".*?'
-    r'log_success "Installed clover-c1 launcher[^\n]*\n)',
+    r'chmod \+x "\$command_link_dir/clover-c1"\n)',
     re.S,
 )
 

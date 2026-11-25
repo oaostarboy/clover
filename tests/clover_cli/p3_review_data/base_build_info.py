@@ -1,5 +1,5 @@
 """
-Baked-in build metadata for Clover Cognition.
+Baked-in build metadata for Clover.
 
 Source installs report their git revision live via ``git rev-parse`` (see
 ``clover_cli/dump.py`` and ``clover_cli/banner.py``).  That doesn't work inside
