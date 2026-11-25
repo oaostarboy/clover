@@ -904,6 +904,8 @@ export interface Translations {
     model: {
       loading: string
       appliesDesc: string
+      mainTitle?: string
+      auxiliaryShow?: string
       provider: string
       model: string
       applying: string

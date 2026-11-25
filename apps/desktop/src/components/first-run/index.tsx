@@ -34,8 +34,8 @@ import { CloverStar } from './clover-star'
 
 // Plain words. No jargon on the main path.
 export const COPY = {
-  title: 'Welcome to Clover',
-  line: 'Three small things, then we’re off. Luck favors the prepared.',
+  title: 'Harness your luck',
+  line: 'Three quick things, then your luck is on the clock.',
   nameTitle: 'What should I answer to?',
   nameLine: 'Clover works too. Easier than finding a four-leaf one.',
   namePlaceholder: 'Luna',
@@ -313,8 +313,8 @@ export function PhoneConnect({ agentName }: { agentName?: string } = {}) {
 
 function Section({ children, label }: { children: ReactNode; label: string }) {
   return (
-    <section className="grid grid-cols-[8.5rem_1fr] gap-6 border-t border-(--stroke-clover) py-6">
-      <h2 className="pt-1 text-sm text-(--ui-text-secondary)">{label}</h2>
+    <section className="grid grid-cols-[5.5rem_1fr] gap-5 border-t border-(--stroke-clover) py-6">
+      <h2 className="pt-3 text-[0.9375rem] text-(--ui-text-secondary)">{label}</h2>
       <div className="min-w-0">{children}</div>
     </section>
   )
@@ -322,12 +322,12 @@ function Section({ children, label }: { children: ReactNode; label: string }) {
 
 function Row({ action, label, onClick, sub }: { action: string; label: string; onClick: () => void; sub: string }) {
   return (
-    <div className="flex min-h-14 items-center gap-4 py-1.5">
+    <div className="flex min-h-14 items-center gap-4 py-2">
       <div className="min-w-0 flex-1">
-        <div className="text-base leading-[22px] font-medium">{label}</div>
-        <div className="text-[0.8125rem] leading-[18px] text-(--ui-text-secondary)">{sub}</div>
+        <div className="text-base leading-6 font-medium text-foreground">{label}</div>
+        <div className="text-[0.9375rem] leading-5 text-(--ui-text-secondary)">{sub}</div>
       </div>
-      <Button onClick={onClick} variant="outline">
+      <Button className="h-9 px-4 text-sm" onClick={onClick} variant="outline">
         {action}
       </Button>
     </div>
@@ -377,23 +377,23 @@ export function FirstRunScreen({ ctx, enabled }: { ctx: OnboardingContext; enabl
   }
 
   return (
-    <div className="fr-step relative z-10 w-full max-w-[46rem] px-8">
-      <h1 className="text-[2rem] leading-10 font-medium tracking-tight">{COPY.title}</h1>
-      <p className="mt-1 text-base leading-6 text-(--ui-text-secondary)">{COPY.line}</p>
+    <div className="fr-step relative z-10 w-full max-w-[35rem] px-6">
+      <h1 className="text-[1.875rem] leading-9 font-semibold tracking-tight text-foreground">{COPY.title}</h1>
+      <p className="mt-2 text-base leading-6 text-(--ui-text-secondary)">{COPY.line}</p>
 
-      <div className="mt-8">
+      <div className="mt-9">
         <Section label="Name">
           <Input
             aria-label="Your Clover’s name"
             autoFocus
-            className="h-11 rounded-xl px-4 text-base"
+            className="h-12 rounded-xl px-4 text-base"
             maxLength={24}
             onChange={e => $agentName.set(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !e.nativeEvent.isComposing && connected && void start()}
             placeholder={COPY.namePlaceholder}
             value={name}
           />
-          <div className="mt-2 flex items-center gap-2 text-[0.8125rem] text-(--ui-text-secondary)" data-testid="name-preview">
+          <div className="mt-3 flex items-center gap-2 text-[0.9375rem] leading-5 text-(--ui-text-secondary)" data-testid="name-preview">
             <CloverStar className="size-4" />
             <span>
               {previewGreeting(name)}. {COPY.nameLine}
@@ -466,13 +466,13 @@ export function FirstRunScreen({ ctx, enabled }: { ctx: OnboardingContext; enabl
         </Section>
       </div>
 
-      <div className="flex items-center justify-between border-t border-(--stroke-clover) pt-6">
-        <button className="text-sm text-(--ui-text-secondary) hover:text-foreground" onClick={() => finishFirstRun()} type="button">
+      <div className="flex items-center justify-between gap-4 border-t border-(--stroke-clover) pt-6">
+        <button className="text-[0.9375rem] text-(--ui-text-secondary) hover:text-foreground" onClick={() => finishFirstRun()} type="button">
           {COPY.startWithout}
         </button>
         <div className="flex items-center gap-4">
-          {!connected && <span className="text-[0.8125rem] text-(--ui-text-secondary)">{COPY.startNeed}</span>}
-          <Button className="h-10 px-6" disabled={!connected} onClick={() => void start()}>
+          {!connected && <span className="text-[0.9375rem] text-(--ui-text-secondary)">{COPY.startNeed}</span>}
+          <Button className="h-11 px-7 text-base" disabled={!connected} onClick={() => void start()}>
             {COPY.start}
           </Button>
         </div>
@@ -499,7 +499,7 @@ export function FirstRunOverlay({ ctx, enabled }: { ctx: OnboardingContext; enab
 
   return (
     <div
-      aria-label="Welcome to Clover"
+      aria-label="Harness your luck"
       aria-modal="true"
       className="fixed inset-0 z-(--z-onboarding) flex flex-col items-center justify-center overflow-y-auto bg-(--ui-chat-surface-background) p-6"
       data-first-run=""

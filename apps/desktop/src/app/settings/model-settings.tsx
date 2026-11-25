@@ -24,7 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useI18n } from '@/i18n'
-import { AlertTriangle, Cpu, Loader2 } from '@/lib/icons'
+import { AlertTriangle, Loader2 } from '@/lib/icons'
 import { DEFAULT_REASONING_EFFORT, REASONING_EFFORT_VALUES } from '@/lib/reasoning-effort'
 import { cn } from '@/lib/utils'
 import { setMainModelAssignment } from '@/store/cron-model-impact'
@@ -36,7 +36,7 @@ import { useOnProfileSwitch } from '../hooks/use-on-profile-switch'
 
 import { CONTROL_TEXT } from './constants'
 import { getNested, setNested } from './helpers'
-import { ListRow, Pill, SectionHeading } from './primitives'
+import { ListRow, Pill } from './primitives'
 import { useDeepLinkHighlight } from './use-deep-link-highlight'
 
 // Skeleton mirror of the Model settings DOM so the page keeps its shape while
@@ -793,7 +793,8 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
   return (
     <div className="grid gap-6">
       <section>
-        <p className="mb-3 text-xs text-muted-foreground">{m.appliesDesc}</p>
+        <h2 className="text-base leading-6 font-medium text-foreground">{m.mainTitle ?? 'Your AI'}</h2>
+        <p className="mt-0.5 mb-4 text-[0.9375rem] leading-6 text-(--ui-text-secondary)">{m.appliesDesc}</p>
         <div className="flex flex-wrap items-center gap-2">
           <Select onValueChange={setSelectedProvider} value={selectedProvider}>
             <SelectTrigger className={cn('min-w-40', CONTROL_TEXT)}>
@@ -917,9 +918,15 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
         )}
       </section>
 
-      <section>
-        <div className="mb-2.5 flex items-center justify-between">
-          <SectionHeading icon={Cpu} title={m.auxiliaryTitle} />
+      <details className="group border-t border-(--stroke-clover) pt-5">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
+          <span>
+            <span className="block text-base leading-6 font-medium text-foreground">{m.auxiliaryTitle}</span>
+            <span className="block text-[0.9375rem] leading-6 text-(--ui-text-secondary)">{m.auxiliaryDesc}</span>
+          </span>
+          <span className="shrink-0 text-sm text-(--ui-text-secondary) group-open:hidden">{m.auxiliaryShow ?? 'Show'}</span>
+        </summary>
+        <div className="mt-4 mb-2.5 flex items-center justify-end">
           <Button
             disabled={!mainModel || applying}
             onClick={() => void resetAuxiliaryModels()}
@@ -929,7 +936,6 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
             {m.resetAllToMain}
           </Button>
         </div>
-        <p className="mb-2 text-xs text-muted-foreground">{m.auxiliaryDesc}</p>
         {switchStaleAux.length === 0 && persistentStaleAux.length > 0 && (
           <div className="mb-2.5">
             <StaleAuxWarning
@@ -1034,14 +1040,18 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
             )
           })}
         </div>
-      </section>
+      </details>
       {moa && currentMoaPreset && (
-        <section>
-          <SectionHeading icon={Cpu} title="Mixture of Agents" />
-          <p className="mb-2 text-xs text-muted-foreground">
-            Configure named presets that appear as models under the Mixture of Agents provider. The aggregator is the
-            acting model.
-          </p>
+        <details className="group border-t border-(--stroke-clover) pt-5">
+          <summary className="mb-4 flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
+            <span>
+              <span className="block text-base leading-6 font-medium text-foreground">Team of AIs</span>
+              <span className="block text-[0.9375rem] leading-6 text-(--ui-text-secondary)">
+                Let several AIs work on one answer together. Optional.
+              </span>
+            </span>
+            <span className="shrink-0 text-sm text-(--ui-text-secondary) group-open:hidden">Show</span>
+          </summary>
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Select onValueChange={setSelectedMoaPreset} value={selectedMoaPreset || moa.default_preset}>
               <SelectTrigger className={cn('min-w-40', CONTROL_TEXT)}>
@@ -1309,7 +1319,7 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
               title="Aggregator"
             />
           </div>
-        </section>
+        </details>
       )}
     </div>
   )
