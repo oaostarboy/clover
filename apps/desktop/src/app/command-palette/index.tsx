@@ -68,6 +68,7 @@ import {
   closeCommandPalette,
   setCommandPaletteOpen
 } from '@/store/command-palette'
+import { $extraStarmap, showWelcomeAgain } from '@/store/first-run'
 import { $bindings, bindingsFor } from '@/store/keybinds'
 import { $dismissedAutoProjectIds, filterVisibleProjects } from '@/store/layout'
 import { startDesktopTour } from '@/store/onboarding'
@@ -650,6 +651,8 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
     queryFn: () => getCloverConfigRecord()
   })
 
+  const extraStarmap = useStore($extraStarmap)
+
   const sessionsQuery = useQuery({
     queryKey: ['command-palette', 'sessions'],
     queryFn: () => listAllProfileSessions(200, 1, 'exclude')
@@ -856,12 +859,23 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
           },
           { action: 'nav.profiles', icon: Users, id: 'nav-profiles', label: t.profiles.title, run: go(PROFILES_ROUTE) },
           { action: 'nav.agents', icon: Cpu, id: 'nav-agents', label: t.agents.title, run: go(AGENTS_ROUTE) },
+          ...(extraStarmap
+            ? [
+                {
+                  icon: Starmap,
+                  id: 'nav-starmap',
+                  keywords: ['star map', 'memory', 'memories', 'skills', 'graph', 'learning', 'constellation'],
+                  label: t.starmap.title,
+                  run: go(STARMAP_ROUTE)
+                }
+              ]
+            : []),
           {
-            icon: Starmap,
-            id: 'nav-starmap',
-            keywords: ['star map', 'memory', 'memories', 'skills', 'graph', 'learning', 'constellation'],
-            label: t.starmap.title,
-            run: go(STARMAP_ROUTE)
+            icon: Settings,
+            id: 'show-welcome-again',
+            keywords: ['welcome', 'tour', 'intro', 'onboarding', 'setup', 'help', 'replay'],
+            label: 'Show welcome again',
+            run: () => showWelcomeAgain()
           }
         ]
       },
@@ -1017,6 +1031,7 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
   }, [
     contributedItems,
     dismissedAutoProjects,
+    extraStarmap,
     go,
     projectTree,
     selectTick,

@@ -136,13 +136,18 @@ import { $archivedSessions, loadArchivedSessions } from '@/store/sidebar-archive
 import { $sidebarSessionRankIds } from '@/store/sidebar-sort'
 
 import {
+  AGENTS_ROUTE,
   type AppView,
   ARTIFACTS_ROUTE,
+  COMMAND_CENTER_ROUTE,
   CRON_ROUTE,
   MESSAGING_ROUTE,
+  PROFILES_ROUTE,
+  SETTINGS_ROUTE,
   SIDEBAR_NAV_AREA,
   type SidebarNavContribution,
-  SKILLS_ROUTE
+  SKILLS_ROUTE,
+  WEBHOOKS_ROUTE
 } from '../../routes'
 import type { SidebarNavItem } from '../../types'
 
@@ -223,7 +228,12 @@ const SIDEBAR_NAV: SidebarNavItem[] = [
     icon: props => <Codicon name="watch" {...props} />,
     route: CRON_ROUTE,
     keybindActionId: 'nav.cron'
-  }
+  },
+  { id: 'command-center', label: 'Command center', icon: props => <Codicon name="dashboard" {...props} />, route: COMMAND_CENTER_ROUTE },
+  { id: 'webhooks', label: 'Webhooks', icon: props => <Codicon name="plug" {...props} />, route: WEBHOOKS_ROUTE },
+  { id: 'profiles', label: 'Profiles', icon: props => <Codicon name="account" {...props} />, route: PROFILES_ROUTE },
+  { id: 'agents', label: 'Agents', icon: props => <Codicon name="organization" {...props} />, route: AGENTS_ROUTE },
+  { id: 'settings', label: 'Settings', icon: props => <Codicon name="settings-gear" {...props} />, route: SETTINGS_ROUTE, keybindActionId: 'nav.settings' }
 ]
 
 // Two modes via the `compact` height variant (styles.css):
@@ -473,10 +483,12 @@ export function ChatSidebar({
       if (document.activeElement === searchInputRef.current) {
         searchInputRef.current?.blur()
       }
+
       window.requestAnimationFrame(() => {
         const composer = document.querySelector<HTMLElement>(
           '[data-slot="composer-rich-input"], [data-slot="composer-input"], textarea'
         )
+
         composer?.focus?.()
       })
     }
@@ -1615,7 +1627,7 @@ export function ChatSidebar({
                 )
               })}
               <SidebarMenuItem>
-                <SidebarMenuButton aria-expanded={showManagement} aria-label="More tools and channels"
+                <SidebarMenuButton aria-expanded={showManagement} aria-label="More tools and channels" data-tour="sidebar-more"
                   onClick={() => { setShowManagement(value => !value); setSidebarCompactNavigation(false) }}
                   tooltip={{ children: 'More tools and channels', hidden: !compactNavigation }}>
                   <span aria-hidden className="inline-flex size-4 items-center justify-center">···</span>

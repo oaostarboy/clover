@@ -6,6 +6,9 @@ import type { EnvVarInfo } from '@/types/clover'
 
 export type SettingsView =
   | 'about'
+  | 'extras'
+  | 'phone'
+  | 'terminal'
   | 'connections'
   | 'gateway'
   | 'keybinds'

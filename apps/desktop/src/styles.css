@@ -3536,3 +3536,20 @@ html:has([data-hud-shell]) [data-slot='popover-content'] {
 [data-hud-shell] [data-slot='composer-bounds'] *::-webkit-scrollbar {
   display: none;
 }
+
+
+/* First-run welcome + tour: short, interruptible, off under reduced motion. */
+@keyframes fr-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fr-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dt-primary) 40%, transparent); }
+  50% { box-shadow: 0 0 0 6px transparent; }
+}
+.fr-step { animation: fr-rise 260ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+.fr-ring { animation: fr-pulse 1.8s ease-in-out infinite; }
+.fr-star { animation: fr-rise 420ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .fr-step, .fr-ring, .fr-star { animation: none; }
+}
