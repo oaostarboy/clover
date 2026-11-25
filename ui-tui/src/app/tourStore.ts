@@ -19,6 +19,13 @@ const EVENT_STEP: Record<TourEvent, TourStep> = {
 
 export const $tour = atom<TourStep | null>(null)
 
+// Who is looking at the intro? 'pending' until the gateway answers. A brand-new
+// user ('first') only ever sees the welcome card, never the tools / skills /
+// system-prompt banner. Everyone else ('returning') keeps the full banner.
+export type IntroMode = 'first' | 'pending' | 'returning'
+export const $introMode = atom<IntroMode>('pending')
+export const setIntroMode = (m: IntroMode) => $introMode.set(m)
+
 export const getTour = () => $tour.get()
 export const tourActive = () => $tour.get() !== null
 
