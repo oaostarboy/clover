@@ -42,7 +42,7 @@ interface Copy {
 
 export const STEP_COPY: Record<(typeof TOUR_STEPS)[number], Copy> = {
   help: { body: 'Type /help and press Enter. That is the whole menu.', title: 'Find everything' },
-  model: { body: 'Type /model and press Enter to see your AI choices. Esc closes it.', title: 'Pick a brain' },
+  model: { body: 'Type /model and press Enter to see your AI choices. Esc closes it.', title: 'Pick your AI' },
   'say-hi': { body: 'Type anything, like "hi", and press Enter.', title: 'Say hi' },
   stop: { body: 'Ask for something long ("write a long poem"), then press Ctrl+C to stop it.', title: 'Stop a reply' }
 }
@@ -101,8 +101,8 @@ export function TourCard({ cols, t }: { cols: number; t: Theme }) {
       <Box flexDirection="column" marginBottom={1}>
         <Lockup cols={cols} t={t} />
         <Text color={GREEN_B}>│</Text>
-        {row(<Text bold>Welcome to Clover 🍀</Text>, 'a')}
-        {row(<Text>Your AI buddy, right in your terminal. It chats, codes and gets things done.</Text>, 'b')}
+        {row(<Text bold>Hi, I’m Clover 🍀</Text>, 'a')}
+        {row(<Text>Your own AI helper. It chats, remembers, and gets things done, right here in your terminal.</Text>, 'b')}
         <Text color={GREEN_B}>│</Text>
         {row(
           <Text>
@@ -119,8 +119,8 @@ export function TourCard({ cols, t }: { cols: number; t: Theme }) {
   if (step === 'done') {
     return (
       <Box flexDirection="column" marginBottom={1}>
-        {row(<Text bold color={GREEN_B}>You struck gold! 🍀 That is all you need.</Text>, 'a')}
-        {row(<Text>Just talk to Clover. Type /tour any time to play this again.</Text>, 'b')}
+        {row(<Text bold color={GREEN_B}>You struck gold! 🍀</Text>, 'a')}
+        {row(<Text>You’re ready. Ask Clover anything. Type /tour to show welcome again.</Text>, 'b')}
         {row(muted('Enter to close'), 'c')}
       </Box>
     )
@@ -139,7 +139,7 @@ export function TourCard({ cols, t }: { cols: number; t: Theme }) {
       {row(
         <Text>
           <Leaves done={n} t={t} />
-          {muted('  Esc skip this step')}
+          {muted('  Esc back · Tab skip')}
         </Text>,
         'b'
       )}

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { $tour, advanceTour, closeTour, openTour, skipTourStep, slashTourEvent, tourDid } from '../app/tourStore.js'
+import { $tour, advanceTour, closeTour, openTour, backTourStep, skipTourStep, slashTourEvent, tourDid } from '../app/tourStore.js'
 
 describe('tour', () => {
   beforeEach(() => closeTour())
@@ -28,14 +28,18 @@ describe('tour', () => {
     expect($tour.get()).toBe('say-hi')
   })
 
-  it('Esc skips one step; on the welcome card it leaves', () => {
+  it('Tab skips one step; Esc goes back, and leaves from the welcome card', () => {
     openTour()
-    skipTourStep()
+    backTourStep()
     expect($tour.get()).toBeNull()
     openTour()
     advanceTour()
     skipTourStep()
     expect($tour.get()).toBe('model')
+    backTourStep()
+    expect($tour.get()).toBe('say-hi')
+    backTourStep()
+    expect($tour.get()).toBe('welcome')
   })
 
   it('does nothing when closed', () => {
