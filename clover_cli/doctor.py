@@ -1,7 +1,7 @@
 """
 Doctor command for clover CLI.
 
-Diagnoses issues with Clover Cognition setup.
+Diagnoses issues with Clover setup.
 """
 
 import os
@@ -2212,7 +2212,7 @@ def run_doctor(args):
         if should_fix:
             soul_path.parent.mkdir(parents=True, exist_ok=True)
             soul_path.write_text(
-                "# Clover Cognition Persona\n\n"
+                "# Clover Persona\n\n"
                 "<!-- Edit this file to customize how Clover communicates. -->\n\n"
                 "You are Clover, a helpful AI assistant.\n",
                 encoding="utf-8",

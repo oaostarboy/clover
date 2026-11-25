@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Clover Cognition CLI - Interactive Terminal Interface
+Clover CLI - Interactive Terminal Interface
 
-A beautiful command-line interface for the Clover Cognition, inspired by Claude Code.
+A beautiful command-line interface for the Clover, inspired by Claude Code.
 Features ASCII art branding, interactive REPL, toolset selection, and rich formatting.
 
 Usage:
@@ -4779,7 +4779,7 @@ def _build_compact_banner() -> str:
         line1 = "☘ CLOVER CLOVER - AI Agent Framework"
         tiny_line = "☘ CLOVER CLOVER"
     else:
-        agent_name = _skin.get_branding("agent_name", "Clover Cognition") if _skin else "Clover Cognition"
+        agent_name = _skin.get_branding("agent_name", "Clover") if _skin else "Clover"
         line1 = f"{agent_name} - AI Agent Framework"
         tiny_line = agent_name
 
@@ -4787,13 +4787,13 @@ def _build_compact_banner() -> str:
         from clover_cli import __release_date__ as _release_date
         from clover_cli import __version__ as _version
 
-        version_line = f"Clover Cognition v{_version} ({_release_date})"
+        version_line = f"Clover v{_version} ({_release_date})"
     else:
         version_line = format_banner_version_label()
 
     w = min(shutil.get_terminal_size().columns - 2, 88)
     if w < 30:
-        return f"\n[{title_color}]{tiny_line}[/] [dim {dim_color}]- Clover Cognition[/]\n"
+        return f"\n[{title_color}]{tiny_line}[/] [dim {dim_color}]- Clover[/]\n"
 
     inner = w - 2  # inside the box border
     bar = "═" * w
@@ -5075,7 +5075,7 @@ def _should_seed_interactive(query, image, quiet: bool, oneshot: bool) -> bool:
 
 class CloverCLI(CLIAgentSetupMixin, CLICommandsMixin):
     """
-    Interactive CLI for the Clover Cognition.
+    Interactive CLI for the Clover.
     
     Provides a REPL interface with rich formatting, command history,
     and tool execution capabilities.
@@ -8981,8 +8981,8 @@ class CloverCLI(CLIAgentSetupMixin, CLICommandsMixin):
         if is_clover_clover_non_agentic(model_name):
             self._console_print()
             self._console_print(
-                "[bold yellow]⚠  Clover Cognition Clover 3 & 4 models are NOT agentic and are not "
-                "designed for use with Clover Cognition.[/]"
+                "[bold yellow]⚠  Clover 3 & 4 models are NOT agentic and are not "
+                "designed for use with Clover.[/]"
             )
             self._console_print(
                 "[dim]   They lack tool-calling capabilities required for agent workflows. "
@@ -18064,10 +18064,10 @@ class CloverCLI(CLIAgentSetupMixin, CLICommandsMixin):
         try:
             from clover_cli.skin_engine import get_active_skin
             _welcome_skin = get_active_skin()
-            _welcome_text = _welcome_skin.get_branding("welcome", "Welcome to Clover Cognition! Type your message or /help for commands.")
+            _welcome_text = _welcome_skin.get_branding("welcome", "Welcome to Clover! Type your message or /help for commands.")
             _welcome_color = _welcome_skin.get_color("banner_text", "#FFF8DC")
         except Exception:
-            _welcome_text = "Welcome to Clover Cognition! Type your message or /help for commands."
+            _welcome_text = "Welcome to Clover! Type your message or /help for commands."
             _welcome_color = "#FFF8DC"
         self._console_print(f"[{_welcome_color}]{_welcome_text}[/]")
 
@@ -19393,7 +19393,7 @@ class CloverCLI(CLIAgentSetupMixin, CLICommandsMixin):
             import signal as _sig
             from prompt_toolkit.application import run_in_terminal
             from clover_cli.skin_engine import get_active_skin
-            agent_name = get_active_skin().get_branding("agent_name", "Clover Cognition")
+            agent_name = get_active_skin().get_branding("agent_name", "Clover")
             msg = f"\n{agent_name} has been suspended. Run `fg` to bring {agent_name} back."
             def _suspend():
                 os.write(1, msg.encode())
@@ -21579,7 +21579,7 @@ def main(
     activity_events: bool = False,
 ):
     """
-    Clover Cognition CLI - Interactive AI Assistant
+    Clover CLI - Interactive AI Assistant
     
     Args:
         query: Query to run. On a real TTY this seeds an interactive session

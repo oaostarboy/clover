@@ -1,5 +1,5 @@
 """
-Single source of truth for provider identity in Clover Cognition.
+Single source of truth for provider identity in Clover.
 
 Two data sources, merged at runtime:
 

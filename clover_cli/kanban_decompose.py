@@ -49,7 +49,7 @@ from clover_cli import profiles as profiles_mod
 logger = logging.getLogger(__name__)
 
 
-_SYSTEM_PROMPT = """You are the Kanban decomposer for the Clover Cognition board.
+_SYSTEM_PROMPT = """You are the Kanban decomposer for the Clover board.
 
 A user dropped a rough idea into the Triage column. Your job is to break it
 into a small graph of concrete child tasks and route each one to the best-

@@ -1,5 +1,5 @@
 """
-Multi-provider authentication system for Clover Cognition.
+Multi-provider authentication system for Clover.
 
 Supports OAuth device-code / PKCE flows (OpenAI Codex, xAI, MiniMax, ...) and
 traditional API key providers (OpenRouter, custom endpoints). Auth state

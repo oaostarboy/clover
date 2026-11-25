@@ -5,7 +5,7 @@ Prior to this check, the warning fired on any model whose name contained
 local Modelfiles such as ``clover-brain:qwen3-14b-ctx16k`` — a tool-capable
 Qwen3 wrapper that happens to live under the "clover" tag namespace.
 
-``is_clover_clover_non_agentic`` should only match the actual Clover Cognition
+``is_clover_clover_non_agentic`` should only match the actual Clover
 Clover-3 / Clover-4 chat family.
 """
 

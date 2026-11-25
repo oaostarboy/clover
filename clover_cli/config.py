@@ -1,5 +1,5 @@
 """
-Configuration management for Clover Cognition.
+Configuration management for Clover.
 
 Config files are stored in ~/.clover/ for easy access:
 - ~/.clover/config.yaml  - All settings (model, toolsets, terminal, etc.)
@@ -666,7 +666,7 @@ def recommended_update_command() -> str:
 _DOCKER_UPDATE_MESSAGE = """\
 ✗ ``clover update`` doesn't apply inside the Docker container.
 
-Clover Cognition runs as a published image (cloverc1/clover-c1), not a
+Clover runs as a published image (cloverc1/clover-c1), not a
 git checkout — the container has no working tree to pull into.  Update by
 pulling a fresh image and restarting your container instead:
 

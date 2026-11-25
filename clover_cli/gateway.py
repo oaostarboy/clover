@@ -2988,7 +2988,7 @@ def _windows_gateway_breakaway_state() -> bool | None:
 # =============================================================================
 
 _SERVICE_BASE = "clover-gateway"
-SERVICE_DESCRIPTION = "Clover Cognition Gateway - Messaging Platform Integration"
+SERVICE_DESCRIPTION = "Clover Gateway - Messaging Platform Integration"
 
 
 def _profile_suffix() -> str:

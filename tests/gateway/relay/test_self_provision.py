@@ -244,14 +244,14 @@ def test_no_nas_token_is_non_fatal(monkeypatch):
 
 
 def test_relay_display_name_suppresses_stock_brand(monkeypatch):
-    """The default 'Clover Cognition' brand is identical on every install — forwarding
+    """The default 'Clover' brand is identical on every install — forwarding
     it would shadow the connector's linked-owner fallback (which actually
     disambiguates) with a uniform label. Only customized names are forwarded."""
     monkeypatch.delenv("GATEWAY_RELAY_DISPLAY_NAME", raising=False)
 
     class _Skin:
         def get_branding(self, key, fallback=""):
-            return "Clover Cognition" if key == "agent_name" else fallback
+            return "Clover" if key == "agent_name" else fallback
 
     monkeypatch.setattr("clover_cli.skin_engine.get_active_skin", lambda: _Skin())
     assert relay.relay_display_name() is None

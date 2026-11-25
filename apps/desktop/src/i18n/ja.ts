@@ -2345,7 +2345,7 @@ export const ja = defineLocale({
     applyRemote: '適用して再接続',
     backToSetup: '戻る',
     failedTitle: 'インストールに失敗しました',
-    settingUpTitle: 'Clover Cognition を設定中',
+    settingUpTitle: 'Clover を設定中',
     finishingTitle: '仕上げ中',
     failedDesc:
       'インストール手順のいずれかが失敗しました。Windows では、別の Clover CLI またはデスクトップインスタンスが実行中の場合に発生することがあります。実行中の Clover インスタンスをすべて停止してから再試行してください。詳細は以下またはデスクトップログで確認できます。',
@@ -2368,7 +2368,7 @@ export const ja = defineLocale({
   },
 
   onboarding: {
-    headerTitle: 'Clover Cognition のセットアップをしましょう',
+    headerTitle: 'Clover のセットアップをしましょう',
     headerDesc: 'チャットを始めるにはモデルプロバイダーを接続してください。ほとんどのオプションはワンクリックです。',
     preparingInstall: 'Clover はインストールを完了中です。初回実行では通常 1 分以内に完了します。',
     starting: 'Clover を起動中…',

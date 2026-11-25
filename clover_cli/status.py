@@ -1,7 +1,7 @@
 """
 Status command for clover CLI.
 
-Shows the status of all Clover Cognition components.
+Shows the status of all Clover components.
 """
 
 import os
@@ -124,12 +124,12 @@ def _estop_status_line():
 
 
 def show_status(args):
-    """Show status of all Clover Cognition components."""
+    """Show status of all Clover components."""
     deep = getattr(args, 'deep', False)
 
     print()
     print(color("┌─────────────────────────────────────────────────────────┐", Colors.CYAN))
-    print(color("│                 ☘ Clover Cognition Status                  │", Colors.CYAN))
+    print(color("│                 ☘ Clover Status                  │", Colors.CYAN))
     print(color("└─────────────────────────────────────────────────────────┘", Colors.CYAN))
 
     _paused_line = _estop_status_line()

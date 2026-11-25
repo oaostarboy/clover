@@ -1,4 +1,4 @@
-"""On-demand supply-chain audit for Clover Cognition installs.
+"""On-demand supply-chain audit for Clover installs.
 
 Scans three surfaces a Clover user actually controls and we can map to
 upstream advisories without auth or extra binaries:

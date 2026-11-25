@@ -1,5 +1,5 @@
 """
-Shared platform registry for Clover Cognition.
+Shared platform registry for Clover.
 
 Single source of truth for platform metadata consumed by both
 skills_config (label display) and tools_config (default toolset

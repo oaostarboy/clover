@@ -16,8 +16,8 @@ def build_uninstall_parser(subparsers, *, cmd_uninstall: Callable) -> None:
     # =========================================================================
     uninstall_parser = subparsers.add_parser(
         "uninstall",
-        help="Uninstall Clover Cognition",
-        description="Remove Clover Cognition from your system. Can keep configs/data for reinstall.",
+        help="Uninstall Clover",
+        description="Remove Clover from your system. Can keep configs/data for reinstall.",
     )
     uninstall_parser.add_argument(
         "--full",

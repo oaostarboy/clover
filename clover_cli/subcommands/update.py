@@ -16,7 +16,7 @@ def build_update_parser(subparsers, *, cmd_update: Callable) -> None:
     # =========================================================================
     update_parser = subparsers.add_parser(
         "update",
-        help="Update Clover Cognition to the latest version",
+        help="Update Clover to the latest version",
         description="Pull the latest changes from git and reinstall dependencies",
     )
     update_parser.add_argument(

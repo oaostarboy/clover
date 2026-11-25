@@ -142,20 +142,20 @@ describe('deriveProviderShape', () => {
   })
 
   it('OAuth shape when the provider is a redirect IDP', () => {
-    expect(deriveProviderShape([{ name: 'clover', displayName: 'Clover Cognition', supportsPassword: false }])).toEqual({
+    expect(deriveProviderShape([{ name: 'clover', displayName: 'Clover', supportsPassword: false }])).toEqual({
       isPassword: false,
-      providerLabel: 'Clover Cognition'
+      providerLabel: 'Clover'
     })
   })
 
   it('mixed deployment keeps generic OAuth copy (not every provider is password)', () => {
     const shape = deriveProviderShape([
       { name: 'basic', displayName: 'Username & Password', supportsPassword: true },
-      { name: 'clover', displayName: 'Clover Cognition', supportsPassword: false }
+      { name: 'clover', displayName: 'Clover', supportsPassword: false }
     ])
 
     expect(shape.isPassword).toBe(false)
-    expect(shape.providerLabel).toBe('Username & Password / Clover Cognition')
+    expect(shape.providerLabel).toBe('Username & Password / Clover')
   })
 
   it('falls back to name when displayName is empty', () => {
@@ -173,8 +173,8 @@ describe('signInLabel', () => {
   })
 
   it('OAuth gateway names the provider', () => {
-    expect(signInLabel({ url: 'x', isPassword: false, providerLabel: 'Clover Cognition' })).toBe(
-      'Sign in with Clover Cognition'
+    expect(signInLabel({ url: 'x', isPassword: false, providerLabel: 'Clover' })).toBe(
+      'Sign in with Clover'
     )
   })
 

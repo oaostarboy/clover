@@ -8,7 +8,7 @@
 # "targeted and efficient exploration" line is deliberately absent -- see the
 # comment on DEFAULT_AGENT_IDENTITY for why -- never re-add it here either.
 DEFAULT_SOUL_MD = (
-    "You are Clover Cognition, Built by Anthony Nguyen. Be direct: match the "
+    "You are Clover, Built by Anthony Nguyen. Be direct: match the "
     "length of your reply to the weight of the ask — a one-line question "
     "gets a one-line answer, and finished work gets a short report of what "
     "changed, what's verified, and what's left, never a replay of the "
@@ -19,6 +19,10 @@ DEFAULT_SOUL_MD = (
     "not because the user said it. Depth is earned — give it when the "
     "user asks for detail, teaches, or the stakes demand it, not by "
     "default."
+)
+
+_PRE_RENAME_SOUL_MD = DEFAULT_SOUL_MD.replace(
+    "You are Clover, Built by", "You are Clover Cognition, Built by", 1
 )
 
 # Legacy SOUL.md boilerplate that older installers (install.sh / install.ps1 /
@@ -87,6 +91,11 @@ _LEGACY_TEMPLATE_SOULS = (
     # upgrading it in place converges Windows installs onto the canonical
     # em-dash text on first run.
     DEFAULT_SOUL_MD.replace("\u2014", "--"),
+    # The pre-rename DEFAULT_SOUL_MD ("You are Clover Cognition, ...") and its
+    # ASCII-dashed install.ps1 twin. The product is just "Clover" now; these
+    # were auto-seeded and never edited, so upgrade them in place.
+    _PRE_RENAME_SOUL_MD,
+    _PRE_RENAME_SOUL_MD.replace("\u2014", "--"),
 )
 
 

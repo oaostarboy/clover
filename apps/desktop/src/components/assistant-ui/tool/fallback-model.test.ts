@@ -134,14 +134,14 @@ describe('buildToolView web-search query', () => {
   it('keeps the query separate from structured search results', () => {
     const view = buildToolView(
       part({
-        args: { query: 'Clover Cognition Desktop tool calls' },
+        args: { query: 'Clover Desktop tool calls' },
         result: { web: [{ snippet: 'Desktop docs', title: 'Clover docs', url: 'https://example.com/docs' }] },
         toolName: 'web_search'
       }),
       ''
     )
 
-    expect(view.searchQuery).toBe('Clover Cognition Desktop tool calls')
+    expect(view.searchQuery).toBe('Clover Desktop tool calls')
     expect(view.searchHits).toEqual([
       { snippet: 'Desktop docs', title: 'Clover docs', url: 'https://example.com/docs' }
     ])

@@ -1,5 +1,5 @@
 """
-Clover Cognition — Web UI server.
+Clover — Web UI server.
 
 Provides a FastAPI backend serving the Vite/React frontend and REST API
 endpoints for managing configuration, environment variables, and sessions.
@@ -523,7 +523,7 @@ def _get_pty_active_session_files(app: "FastAPI") -> dict[str, Path]:
         return app.state.pty_active_session_files
 
 
-app = FastAPI(title="Clover Cognition", version=__version__, lifespan=_lifespan)
+app = FastAPI(title="Clover", version=__version__, lifespan=_lifespan)
 
 
 # Memory-provider OAuth connect routes live in the memory layer, not here.
@@ -4014,7 +4014,7 @@ async def get_status(profile: Optional[str] = None):
 
         # Dashboard auth gate (Phase 7): surface whether the gate is engaged
         # and which providers are registered so ``clover status`` and the
-        # SPA's StatusPage can show "OAuth gate ON via Clover Cognition" or
+        # SPA's StatusPage can show "OAuth gate ON via Clover" or
         # "loopback only — no auth gate" with no extra round trips.
         auth_required = bool(getattr(app.state, "auth_required", False))
         auth_providers: list[str] = []
@@ -10941,7 +10941,7 @@ _OAUTH_PROVIDER_CATALOG: tuple[Dict[str, Any], ...] = (
     },
     {
         "id": "claude-code",
-        "name": "Anthropic OAuth: Required Extra Usage Credits to Use Subscription",
+        "name": "Anthropic (Claude subscription)",
         "flow": "external",
         "cli_command": "claude setup-token",
         "docs_url": "https://docs.claude.com/en/docs/claude-code",

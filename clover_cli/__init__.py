@@ -1,5 +1,5 @@
 """
-Clover CLI - Unified command-line interface for Clover Cognition.
+Clover CLI - Unified command-line interface for Clover.
 
 Provides subcommands for:
 - clover chat          - Interactive chat (same as ./clover)

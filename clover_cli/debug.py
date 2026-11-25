@@ -1,4 +1,4 @@
-"""``clover debug`` debug tools for Clover Cognition.
+"""``clover debug`` debug tools for Clover.
 
 Currently supports:
     clover debug share    Upload debug report (system info + logs) to a

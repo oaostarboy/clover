@@ -244,7 +244,7 @@ foreach ($lnk in $targets) {{
         $sc.TargetPath = '{str(target_exe)}'
         $sc.WorkingDirectory = '{str(work_dir)}'
         $sc.IconLocation = '{icon_loc}'
-        $sc.Description = 'Clover Cognition'
+        $sc.Description = 'Clover'
         $sc.Save()
     }} catch {{}}
 }}

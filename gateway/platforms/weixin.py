@@ -1,7 +1,7 @@
 """
 Weixin platform adapter.
 
-Connects Clover Cognition to WeChat personal accounts via Tencent's iLink Bot API.
+Connects Clover to WeChat personal accounts via Tencent's iLink Bot API.
 
 Design notes:
 - Long-poll ``getupdates`` drives inbound delivery.
