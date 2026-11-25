@@ -246,6 +246,39 @@ def _clover_home_for_pid(pid: int) -> str | None:
     return None
 
 
+def _own_clover_home() -> tuple[str, bool]:
+    """Return (normalized own CLOVER_HOME, is_default_home)."""
+    try:
+        from clover_constants import get_clover_home
+
+        own = Path(get_clover_home())
+    except Exception:
+        own = Path.home() / ".clover"
+    try:
+        default = Path.home() / ".clover"
+        is_default = own.resolve() == default.resolve()
+    except (OSError, RuntimeError, ValueError):
+        is_default = False
+    return _normalized_home_for_compare(str(own)), is_default
+
+
+def _home_is_mine(home: str | None) -> bool:
+    """True when *home* (a process/unit CLOVER_HOME) is this Clover home.
+
+    An unreadable or unset home counts as "not mine" unless we ARE the
+    default home (a process with no CLOVER_HOME runs on the default home).
+    """
+    own_key, is_default = _own_clover_home()
+    if not home:
+        return is_default
+    return _normalized_home_for_compare(home) == own_key
+
+
+def _filter_pids_to_own_home(pids: list[int]) -> list[int]:
+    """Drop pids that belong to a different Clover home."""
+    return [pid for pid in pids if _home_is_mine(_clover_home_for_pid(pid))]
+
+
 def _is_ephemeral_port_zero_backend(argv: list[str]) -> bool:
     """True for Desktop-style ``serve|dashboard --port 0`` backends (#78821).
 

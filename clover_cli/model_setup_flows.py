@@ -667,6 +667,61 @@ def _model_flow_minimax_oauth(config, current_model="", args=None):
     print(f"\u2713 Using MiniMax model: {selected}")
 
 
+def _custom_model_context_problem(model_name, base_url, api_key):
+    """Return the model's context size when it is below Clover's minimum.
+
+    Uses the same lookup chat uses at start-up, so setup and the first chat
+    agree. Returns ``None`` when the model is fine or the size is unknown.
+    """
+    if not model_name:
+        return None
+    try:
+        from agent.model_metadata import MINIMUM_CONTEXT_LENGTH, get_model_context_length
+
+        ctx = get_model_context_length(
+            model_name, base_url=base_url, api_key=api_key or "", provider="custom"
+        )
+    except Exception:
+        return None
+    if ctx and ctx < MINIMUM_CONTEXT_LENGTH:
+        return ctx
+    return None
+
+
+def _quick_pick_custom_model(detected_models, base_url, api_key):
+    """Quick-start model pick; rejects models whose memory is below the minimum."""
+    from clover_cli import lucky
+    from clover_cli.main import _prompt_provider_choice
+
+    while True:
+        if len(detected_models) == 1:
+            name = detected_models[0]
+            lucky.rail(f"Using model: {name}", dim=True)
+            lucky.gap()
+        elif detected_models:
+            pick = _prompt_provider_choice(
+                list(detected_models),
+                default=0,
+                title="Which model should Clover use?",
+                rail=True,
+                back=True,
+            )
+            name = detected_models[pick if pick is not None else 0]
+        else:
+            name = lucky.ask("Which model?", "Its name, e.g. llama3.2", back=True)
+        ctx = _custom_model_context_problem(name, base_url, api_key)
+        if ctx is None:
+            return name
+        lucky.rail(
+            f"That model's memory is too small for Clover ({ctx:,} tokens; "
+            "it needs at least 64,000). Pick a bigger one.",
+        )
+        lucky.gap()
+        # Offer another pick: with one detected model the only way is to type
+        # a name (or Esc back to the provider list).
+        detected_models = [m for m in detected_models if m != name]
+
+
 def _model_flow_custom(config, quick=False):
     """Custom endpoint: collect URL, API key, and model name.
 
@@ -683,6 +738,7 @@ def _model_flow_custom(config, quick=False):
         save_env_value,
     )
     from clover_cli.secret_prompt import masked_secret_prompt
+    from clover_cli import lucky as lucky_mod
 
     current_url = get_env_value("OPENAI_BASE_URL") or ""
     current_key = get_env_value("OPENAI_API_KEY") or ""
@@ -702,6 +758,7 @@ def _model_flow_custom(config, quick=False):
             base_url = lucky.ask(
                 "Where's your model running?",
                 "Paste its web address. Example: http://127.0.0.1:11434/v1 (Ollama on this computer)",
+                back=True,
             )
         else:
             base_url = line_input(
@@ -713,6 +770,8 @@ def _model_flow_custom(config, quick=False):
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
         return
+    except lucky_mod.GoBack:
+        raise lucky_mod.GoBackToProviders() from None
 
     if not base_url and not current_url:
         print("No URL provided. Cancelled.")
@@ -818,23 +877,8 @@ def _model_flow_custom(config, quick=False):
     model_name = ""
     detected_models = probe.get("models") or []
     try:
-        if quick and detected_models:
-            if len(detected_models) == 1:
-                model_name = detected_models[0]
-                from clover_cli import lucky
-
-                lucky.rail(f"Using model: {model_name}", dim=True)
-                lucky.gap()
-            else:
-                from clover_cli.main import _prompt_provider_choice
-
-                _pick = _prompt_provider_choice(
-                    list(detected_models),
-                    default=0,
-                    title="Which model should Clover use?",
-                    rail=True,
-                )
-                model_name = detected_models[_pick if _pick is not None else 0]
+        if quick:
+            model_name = _quick_pick_custom_model(detected_models, effective_url, effective_key)
         elif len(detected_models) == 1:
             print(f"  Detected model: {detected_models[0]}")
             confirm = input("  Use this model? [Y/n]: ").strip().lower()
@@ -853,10 +897,6 @@ def _model_flow_custom(config, quick=False):
                 model_name = detected_models[int(pick) - 1]
             elif pick:
                 model_name = pick
-        elif quick:
-            from clover_cli import lucky
-
-            model_name = lucky.ask("Which model?", "Its name, e.g. llama3.2")
         else:
             model_name = line_input("Model name (e.g. gpt-4, llama-3-70b): ").strip()
 
@@ -875,6 +915,8 @@ def _model_flow_custom(config, quick=False):
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
         return
+    except lucky_mod.GoBack:
+        raise lucky_mod.GoBackToProviders() from None
 
     context_length = None
     if context_length_str:

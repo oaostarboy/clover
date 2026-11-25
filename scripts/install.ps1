@@ -77,6 +77,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Windows PowerShell 5.1 cannot load the modules of PowerShell 7. When this
+# script is started from a pwsh 7 terminal (or from an app that was), the
+# inherited PSModulePath lists the PowerShell 7 module folders first, and then
+# even Get-ExecutionPolicy fails with "module could not be loaded". The uv
+# installer we spawn below hits exactly that, and the whole install stops.
+# Drop the PowerShell 6/7 folders from this process (and so from every child).
+if ($PSVersionTable.PSEdition -eq 'Desktop' -and $env:PSModulePath) {
+    $env:PSModulePath = (($env:PSModulePath -split ';' | Where-Object {
+        $_ -and ($_ -notmatch '(?i)[\\/]PowerShell[\\/][67]([\\/]|$)')
+    }) -join ';')
+}
+
 # Suppress Invoke-WebRequest's per-chunk progress bar.  Windows PowerShell
 # 5.1's progress UI repaints synchronously on every received byte, which
 # pegs CPU on a single core and throttles downloads by 10-100x (a 57MB

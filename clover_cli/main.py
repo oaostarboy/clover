@@ -4173,12 +4173,16 @@ def select_provider_and_model(args=None, *, short_list=False):
         )
         if provider_idx is not None and ordered[provider_idx][0] == "more":
             ordered = _full_ordered
-            provider_idx = _prompt_provider_choice(
-                [label for _, label, _ in ordered],
-                default=default_idx,
-                title="All providers",
-                rail=True,
-            )
+            try:
+                provider_idx = _prompt_provider_choice(
+                    [label for _, label, _ in ordered],
+                    default=default_idx,
+                    title="All providers",
+                    rail=True,
+                    back=True,
+                )
+            except _lucky.GoBack:
+                raise _lucky.GoBackToProviders() from None
     else:
         provider_idx = _prompt_provider_choice(
             [label for _, label, _ in ordered],
@@ -8609,8 +8613,11 @@ def _find_stale_dashboard_pids(
     *,
     exclude_pids: set[int] | None = None,
 ) -> list[int]:
-    """Return PIDs of stale ``dashboard``/``serve`` processes for update cleanup."""
-    return [pid for pid, _cmd in _self()._scan_dashboard_processes(exclude_pids=exclude_pids)]
+    """Return PIDs of stale ``dashboard``/``serve`` processes of THIS home."""
+    from clover_cli.dashboard_procs import _filter_pids_to_own_home
+
+    pids = [pid for pid, _cmd in _self()._scan_dashboard_processes(exclude_pids=exclude_pids)]
+    return _filter_pids_to_own_home(pids)
 
 
 def _parse_dashboard_runtime(command: str) -> tuple[str, str, int] | None:
@@ -8669,6 +8676,44 @@ def _dashboard_probe_host(host: str | None) -> str:
 _DASHBOARD_SYSTEMD_UNIT = "clover-dashboard.service"
 
 
+def _systemd_unit_belongs_to_this_home(unit: str, scope: tuple, run) -> bool:
+    """True when *unit* runs against this process's CLOVER_HOME.
+
+    Reads Environment/WorkingDirectory/MainPID via ``systemctl show``. A unit
+    whose home can't be determined is "not mine" unless we are the default home.
+    """
+    from clover_cli.dashboard_procs import _clover_home_for_pid, _home_is_mine
+
+    try:
+        res = run(
+            *scope, "show", unit, "-p", "Environment", "-p", "MainPID",
+            "--no-pager",
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+    if res.returncode != 0:
+        return False
+    env_home = None
+    main_pid = 0
+    for line in (res.stdout or "").splitlines():
+        if line.startswith("Environment="):
+            try:
+                toks = shlex.split(line[len("Environment="):])
+            except ValueError:
+                toks = line[len("Environment="):].split()
+            for tok in toks:
+                if tok.startswith("CLOVER_HOME="):
+                    env_home = tok.split("=", 1)[1] or None
+        elif line.startswith("MainPID="):
+            try:
+                main_pid = int(line.split("=", 1)[1])
+            except ValueError:
+                main_pid = 0
+    if not env_home and main_pid > 0:
+        env_home = _clover_home_for_pid(main_pid)
+    return _home_is_mine(env_home)
+
+
 def _restart_managed_dashboard_service(
     reason: str,
     unit: str = _DASHBOARD_SYSTEMD_UNIT,
@@ -8716,6 +8761,11 @@ def _restart_managed_dashboard_service(
             break
 
     if scope is None or listed is None:
+        return False
+
+    # The unit name is fixed, so it may belong to ANOTHER Clover home (e.g. a
+    # throwaway-HOME `clover update` must not restart the real dashboard).
+    if not _systemd_unit_belongs_to_this_home(unit, scope, _systemctl):
         return False
 
     try:

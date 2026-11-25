@@ -32,6 +32,17 @@ from clover_cli.main import (
 
 
 @pytest.fixture(autouse=True)
+def _fake_pids_belong_to_this_home(monkeypatch):
+    """Fake PIDs in these tests have no /proc entry; treat them as ours."""
+    from clover_constants import get_clover_home
+
+    monkeypatch.setattr(
+        "clover_cli.dashboard_procs._clover_home_for_pid",
+        lambda pid: str(get_clover_home()),
+    )
+
+
+@pytest.fixture(autouse=True)
 def _refresh_bindings_against_live_module():
     """Rebind module-level names to the *current* ``clover_cli.main``.
 
@@ -230,6 +241,9 @@ class TestKillStaleDashboardPosix:
             calls.append(list(args))
             if args == ["systemctl", "--user", "list-unit-files", "clover-dashboard.service", "--no-legend", "--no-pager"]:
                 return MagicMock(returncode=0, stdout="clover-dashboard.service enabled enabled\n", stderr="")
+            if args[:4] == ["systemctl", "--user", "show", "clover-dashboard.service"]:
+                from clover_constants import get_clover_home
+                return MagicMock(returncode=0, stdout=f"Environment=CLOVER_HOME={get_clover_home()}\nMainPID=0\n", stderr="")
             if args == ["systemctl", "--user", "is-active", "clover-dashboard.service"]:
                 return MagicMock(returncode=0, stdout="active\n", stderr="")
             if args == ["systemctl", "--user", "is-enabled", "clover-dashboard.service"]:
@@ -245,6 +259,7 @@ class TestKillStaleDashboardPosix:
 
         assert calls == [
             ["systemctl", "--user", "list-unit-files", "clover-dashboard.service", "--no-legend", "--no-pager"],
+            ["systemctl", "--user", "show", "clover-dashboard.service", "-p", "Environment", "-p", "MainPID", "--no-pager"],
             ["systemctl", "--user", "is-active", "clover-dashboard.service"],
             ["systemctl", "--user", "is-enabled", "clover-dashboard.service"],
             ["systemctl", "--user", "restart", "clover-dashboard.service"],
