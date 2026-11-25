@@ -10,6 +10,8 @@ enabled = true
 head_sampling_rate = 1
 
 [vars]
+# New phones allowed per network (IP) per UTC day. Code default is 10; raised so a whole office can connect.
+MAX_ENROLLMENTS_PER_IP_DAY = "50"
 ENROLLMENT_ENABLED = "true"
 ALLOW_LEGACY_TEST_TRANSPORT = "true"
 
