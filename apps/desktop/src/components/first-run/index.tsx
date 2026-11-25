@@ -7,6 +7,7 @@ import { saveCloverConfig } from '@/clover'
 import { ApiKeyForm, providerTitle, sortProviders } from '@/components/onboarding'
 import { FlowPanel, Status } from '@/components/onboarding/flow'
 import { Button } from '@/components/ui/button'
+import { CopyButton } from '@/components/ui/copy-button'
 import { Input } from '@/components/ui/input'
 import { Check, Loader2 } from '@/lib/icons'
 import { formatCountdown, type PairedDevice, type PhonePairingCode, type PhonePairingStatus } from '@/lib/phone-pairing'
@@ -27,7 +28,7 @@ import { CloverStar } from './clover-star'
 
 // Plain words. No jargon on the main path.
 export const COPY = {
-  welcomeTitle: 'Hi, I’m Clover.',
+  welcomeTitle: 'Hi, I’m Clover 🍀',
   welcomeLine: 'Your own AI helper. It chats, remembers, and gets things done, on your computer and your phone.',
   start: 'Start',
   aiTitle: 'Let’s get Clover thinking',
@@ -37,8 +38,8 @@ export const COPY = {
   nameTitle: 'Give your Clover a name',
   nameLine: 'Pick anything you like. You can change it later.',
   namePlaceholder: 'Luna',
-  phoneTitle: 'Take Clover with you',
-  phoneLine: 'Open Clover on your iPhone and scan this code. That’s it.',
+  phoneTitle: 'Connect your phone',
+  phoneLine: 'Open Clover on your iPhone and scan this code. Can’t scan? Copy the code and type it in.',
   phoneSkip: 'Skip, do it later',
   phoneLater: 'You can do this any time in Settings → Phone.',
   next: 'Continue',
@@ -48,7 +49,7 @@ export const COPY = {
 export function previewGreeting(name: string): string {
   const n = name.trim() || 'Luna'
 
-  return `Hi, I’m ${n}.`
+  return `Hi, I’m ${n} 🍀`
 }
 
 // ── Layout ──────────────────────────────────────────────────────────────────
@@ -414,6 +415,9 @@ function PhoneStep() {
               </span>
             )}
           </div>
+          {code?.uri && !connected && !expired ? (
+            <CopyButton appearance="button" buttonVariant="ghost" label="Copy code" showLabel text={code.uri} />
+          ) : null}
           <div className="flex h-5 items-center gap-1.5 text-sm text-(--ui-text-tertiary)">
             {!connected && code && !expired ? <span className="tabular-nums">Expires in {formatCountdown(remaining)} ·</span> : null}
             <button className="hover:text-foreground" onClick={() => void newCode()} type="button">
@@ -499,7 +503,7 @@ export function FirstRunOverlay({ ctx, enabled }: { ctx: OnboardingContext; enab
           onClick={() => finishFirstRun({ tour: false })}
           type="button"
         >
-          Skip setup
+          Skip
         </button>
       )}
     </div>

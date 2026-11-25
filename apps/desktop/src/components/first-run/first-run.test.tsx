@@ -7,8 +7,8 @@ import { BUSY_LINE, COPY, isBusyError, previewGreeting } from './index'
 
 describe('first-run copy', () => {
   it('previews the name live, and falls back to Luna', () => {
-    expect(previewGreeting('')).toBe('Hi, I’m Luna.')
-    expect(previewGreeting('  Nova ')).toBe('Hi, I’m Nova.')
+    expect(previewGreeting('')).toBe('Hi, I’m Luna 🍀')
+    expect(previewGreeting('  Nova ')).toBe('Hi, I’m Nova 🍀')
   })
 
   it('keeps the tour to three stops and ends on the gold line', () => {
