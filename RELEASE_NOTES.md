@@ -15,6 +15,14 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.12 | Clover C2.1.12 | 2026-11-24
+
+- New, friendlier setup: a fun step-by-step screen with a side rail that walks you through naming and picking your AI.
+- Clover has a new look: the Clover star logo, everywhere.
+- The installer now speaks plain words, with less noise and clear progress.
+- It's just "Clover" now. Old extra names are gone.
+- New double-click installers for Windows, Mac and Linux. They are unsigned for now, so your computer may ask you to confirm.
+
 ## 2.1.11.1 | Clover C2.1.11.1 | 2026-11-24
 
 - Helper checklists now tick off each step as the helper finishes it, not all at the end.
