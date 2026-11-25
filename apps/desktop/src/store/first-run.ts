@@ -120,9 +120,13 @@ export const $extraWindowControls = persistentAtom<boolean>(
   Codecs.bool
 )
 
+/** New-install calm chrome: plain sidebar, no grid, tucked controls. Existing users keep their layout. */
+export const $calmDesktop = atom<boolean>(INSTALL_KIND === 'new')
+
 /** The backend already has a working setup: this is not a new install after all. */
 export function adoptExistingProfile() {
   writeKey(INSTALL_KIND_KEY, 'existing')
+  $calmDesktop.set(false)
   $extraPet.set(true)
   $extraStarmap.set(true)
   $extraHud.set(true)

@@ -1,5 +1,6 @@
 import { useStore } from '@nanostores/react'
 
+import { revealTreePane, setStripTabHidden } from '@/components/pane-shell/tree/store'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import {
@@ -10,7 +11,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import { registry } from '@/contrib/registry'
 import { $extraStarmap } from '@/store/first-run'
+import { setSessionPickerOpen } from '@/store/session'
 
 import {
   AGENTS_ROUTE,
@@ -26,6 +29,8 @@ import {
 } from '../../routes'
 
 export interface MoreEntry {
+  /** Runs instead of opening a route (History, Bots). */
+  action?: () => void
   detail: string
   icon: string
   id: string
@@ -44,10 +49,20 @@ export interface MoreGroup {
  * to sit in the sidebar is one click away here.
  */
 export function moreGroups(starmap: boolean): MoreGroup[] {
+  const bots = registry.getArea('panes').some(c => c.id === 'clover-bots:pane')
+
   const groups: MoreGroup[] = [
     {
       label: 'Do more',
       entries: [
+        {
+          id: 'history',
+          label: 'Chat history',
+          detail: 'Find an older chat.',
+          icon: 'history',
+          route: '',
+          action: () => setSessionPickerOpen(true)
+        },
         { id: 'skills', label: 'Skills', detail: 'Things Clover knows how to do.', icon: 'symbol-misc', route: SKILLS_ROUTE },
         { id: 'cron', label: 'Scheduled jobs', detail: 'Tasks that run on their own, on a timer.', icon: 'watch', route: CRON_ROUTE },
         { id: 'artifacts', label: 'Files Clover made', detail: 'Documents, images and code from your chats.', icon: 'files', route: ARTIFACTS_ROUTE }
@@ -66,6 +81,21 @@ export function moreGroups(starmap: boolean): MoreGroup[] {
         { id: 'agents', label: 'Helpers', detail: 'See who is working for you right now.', icon: 'organization', route: AGENTS_ROUTE },
         { id: 'profiles', label: 'Profiles', detail: 'Separate Clovers for work, home or anything else.', icon: 'account', route: PROFILES_ROUTE },
         { id: 'command-center', label: 'Command center', detail: 'One page with the whole picture.', icon: 'dashboard', route: COMMAND_CENTER_ROUTE },
+        ...(bots
+          ? [
+              {
+                id: 'bots',
+                label: 'Bots',
+                detail: 'Clovers that talk to each other.',
+                icon: 'hubot',
+                route: '',
+                action: () => {
+                  setStripTabHidden('clover-bots:pane', false)
+                  revealTreePane('clover-bots:pane')
+                }
+              }
+            ]
+          : []),
         ...(starmap
           ? [{ id: 'starmap', label: 'Star map', detail: 'How your memory and skills connect.', icon: 'star-empty', route: STARMAP_ROUTE }]
           : [])
@@ -113,7 +143,7 @@ export function SidebarCorner({ compact, onOpen, settingsActive }: Props) {
                 <DropdownMenuItem
                   className="flex-col items-start gap-0 rounded-md px-2.5 py-1.5"
                   key={entry.id}
-                  onSelect={() => onOpen(entry.route)}
+                  onSelect={() => (entry.action ? entry.action() : onOpen(entry.route))}
                 >
                   <span className="text-[0.8125rem] text-foreground">{entry.label}</span>
                   <span className="text-xs text-(--ui-text-secondary)">{entry.detail}</span>

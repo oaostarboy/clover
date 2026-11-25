@@ -32,6 +32,7 @@ import { normalizeSessionSource, sessionSourceLabel } from '@/lib/session-source
 import { cn } from '@/lib/utils'
 import { $activeConnectionId } from '@/store/connections'
 import { $cronJobs } from '@/store/cron'
+import { $calmDesktop } from '@/store/first-run'
 import { $bindings } from '@/store/keybinds'
 import {
   $dismissedAutoProjectIds,
@@ -365,6 +366,7 @@ export function ChatSidebar({
   )
 
   const panesFlipped = useStore($panesFlipped)
+  const calm = useStore($calmDesktop)
   const grouping = useStore($sidebarGrouping)
   const ordering = useStore($sidebarOrdering)
   const statusFilter = useStore($sidebarStatusFilter)
@@ -1502,7 +1504,7 @@ export function ChatSidebar({
       data-tip-region=""
       data-tour="sessions-sidebar"
     >
-      <div className="clover-rail-heading">
+      <div className="clover-rail-heading" style={calm ? { display: 'none' } : undefined}>
         <Tip label={compactNavigation ? s.expandNavigation : s.collapseNavigation}>
           <Button
             aria-expanded={!compactNavigation}
@@ -1951,11 +1953,13 @@ export function ChatSidebar({
           </div>
         )}
 
-        {!showSessionSections && <SidebarBlankState onNewProject={openProjectCreate} />}
+        {!showSessionSections && <SidebarBlankState calm={calm} onNewProject={openProjectCreate} />}
 
-        <div className="shrink-0 px-0.5 pb-1 pt-0.5">
-          <ProfileRail />
-        </div>
+        {!calm && (
+          <div className="shrink-0 px-0.5 pb-1 pt-0.5">
+            <ProfileRail />
+          </div>
+        )}
         <SidebarCorner
           compact={compactNavigation}
           onOpen={route => onNavigate({ id: route, label: '', icon: () => null, route })}

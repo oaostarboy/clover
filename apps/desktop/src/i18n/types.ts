@@ -1825,6 +1825,7 @@ export interface Translations {
     shiftClickHint: string
     noWorkspace: string
     projectEmpty: string
+    noChatsLuck?: string
     noSessions: string
     noFilterMatches: string
     projects: {

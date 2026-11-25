@@ -1,10 +1,10 @@
 import { type ComposerTarget, requestComposerInsert } from './focus'
 
 const suggestions = [
-  ['explore ideas', 'Help me explore ideas for'],
-  ['refine my writing', 'Help me refine my writing:'],
-  ['plan a project', 'Help me plan a project:'],
-  ['research a topic', 'Help me research a topic:']
+  ['Draft a quote', 'Help me draft a quote for'],
+  ['Plan my week', 'Help me plan my week:'],
+  ['Reply to a client', 'Help me reply to a client:'],
+  ['Feeling lucky?', 'Surprise me with an idea for']
 ] as const
 
 /** Fill the draft, rather than invoking a slash command that may not exist. */
@@ -18,7 +18,7 @@ export function LandingSuggestions({ target }: { target: ComposerTarget }) {
           onClick={() => requestComposerInsert(prompt, { target })}
           type="button"
         >
-          <span aria-hidden>/</span>{label}
+          {label}
         </button>
       ))}
     </div>

@@ -23,9 +23,13 @@ export function SidebarSessionSkeletons() {
   )
 }
 
-export function SidebarBlankState({ onNewProject }: { onNewProject: () => void }) {
+export function SidebarBlankState({ calm = false, onNewProject }: { calm?: boolean; onNewProject: () => void }) {
   const { t } = useI18n()
   const s = t.sidebar
+
+  if (calm) {
+    return <p className="px-3 pt-2 text-xs leading-5 text-(--ui-text-tertiary)">{s.noChatsLuck ?? s.noSessions}</p>
+  }
 
   return (
     <div className="grid min-h-0 flex-1 place-items-center px-4 text-center">

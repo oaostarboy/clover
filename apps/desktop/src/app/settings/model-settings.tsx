@@ -25,6 +25,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useI18n } from '@/i18n'
 import { AlertTriangle, Loader2 } from '@/lib/icons'
+import { displayModelName } from '@/lib/model-status-label'
 import { DEFAULT_REASONING_EFFORT, REASONING_EFFORT_VALUES } from '@/lib/reasoning-effort'
 import { cn } from '@/lib/utils'
 import { setMainModelAssignment } from '@/store/cron-model-impact'
@@ -123,6 +124,11 @@ const AUX_TASKS: readonly AuxTaskMeta[] = [
 const FAST_MODEL_TASKS: ReadonlySet<string> = new Set(['title_generation', 'delegation_router'])
 
 const NO_PROVIDERS: readonly ModelOptionProvider[] = [{ name: '—', slug: '', models: [] }]
+
+// Known families get a plain name (Claude Sonnet 4.5, GPT-5); anything else
+// (local or custom ids) stays exactly as the user named it.
+const plainModelName = (model: string): string =>
+  /^(claude|gpt|gemini)-/i.test(model.split('/').pop() ?? '') ? displayModelName(model) : model
 
 // Radix <Select> renders a blank trigger when `value` matches no <SelectItem>.
 // A custom model (e.g. one added via config that isn't in the provider's
@@ -847,7 +853,7 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
                 <SelectContent>
                   {withActive(selectedProviderModels, selectedModel).map(model => (
                     <SelectItem key={model} value={model}>
-                      {model}
+                      {plainModelName(model)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1006,7 +1012,7 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
                           <SelectContent>
                             {withActive(auxDraftProviderModels, auxDraft.model).map(model => (
                               <SelectItem key={model} value={model}>
-                                {model}
+                                {plainModelName(model)}
                               </SelectItem>
                             ))}
                           </SelectContent>

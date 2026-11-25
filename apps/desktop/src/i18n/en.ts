@@ -504,7 +504,7 @@ export const en: Translations = {
       completionSoundPreview: 'Preview'
     },
     sections: {
-      model: 'Model',
+      model: 'Your AI',
       chat: 'Chat',
       appearance: 'Appearance',
       workspace: 'Workspace',
@@ -2152,6 +2152,7 @@ export const en: Translations = {
     noWorkspace: 'No workspace',
     projectEmpty: 'No chats yet — luck is on its way',
     noSessions: 'No chats yet',
+    noChatsLuck: 'No chats yet. Your luck starts with the first one.',
     noFilterMatches: 'No sessions match these filters',
     projects: {
       sectionLabel: 'Projects',
