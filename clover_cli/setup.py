@@ -470,8 +470,15 @@ def _prompt_api_key(var: dict):
         print_warning("  Skipped (configure later with 'clover setup')")
 
 
+# Set by `clover` when it is about to open the app right after setup: the app's
+# own welcome tour replaces the 'say hi' chat, and 'type clover' would be silly.
+HANDOFF_TO_TUI = False
+
+
 def _offer_first_chat(config: dict) -> None:
     """'Say hi now?' - start a real chat whose first message greets the new name."""
+    if HANDOFF_TO_TUI:
+        return
     from clover_cli import lucky
 
     name = str((config.get("branding") or {}).get("agent_name") or "Clover")
@@ -497,7 +504,7 @@ def _print_quick_done(provider_ready: bool, config: dict | None = None) -> None:
         lucky.flourish(
             "You struck gold! Clover is ready.",
             [
-                color("Next: type ", Colors.DIM) + color("clover", Colors.GREEN, Colors.BOLD) + color(" to start chatting.", Colors.DIM),
+                (color("Next: opening Clover for a quick hello…", Colors.DIM) if HANDOFF_TO_TUI else color("Next: type ", Colors.DIM) + color("clover", Colors.GREEN, Colors.BOLD) + color(" to start chatting.", Colors.DIM)),
                 "",
                 f"{color('clover setup --full', Colors.GREEN)}   Add tools, Telegram and more",
                 f"{color('clover doctor', Colors.GREEN)}         Check that everything works",

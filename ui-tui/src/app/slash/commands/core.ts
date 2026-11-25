@@ -24,6 +24,7 @@ import {
 import type { Msg, PanelSection } from '../../../types.js'
 import type { StatusBarMode } from '../../interfaces.js'
 import { patchOverlayState } from '../../overlayStore.js'
+import { openTour } from '../../tourStore.js'
 import { patchUiState } from '../../uiStore.js'
 import type { SlashCommand } from '../types.js'
 
@@ -91,6 +92,13 @@ export const DASHBOARD_UPDATE_DISABLED_MESSAGE =
 
 export const coreCommands: SlashCommand[] = [
   {
+    aliases: ['welcome'],
+    help: 'replay the welcome + 1-minute hands-on tour',
+    name: 'tour',
+    run: () => openTour()
+  },
+
+  {
     help: 'list commands + hotkeys',
     name: 'help',
     run: (_arg, ctx) => {
@@ -111,6 +119,7 @@ export const coreCommands: SlashCommand[] = [
               '/details <section> [hidden|collapsed|expanded|reset]',
               'override one section (thinking/tools/subagents/activity)'
             ],
+            ['/tour (or /welcome)', 'replay the welcome + 1-minute hands-on tour'],
             ['/fortune [random|daily]', 'show a random or daily local fortune'],
             ['/grid-test [cols]x[rows]', 'open the interactive widget-grid demo'],
             ['/dialog-test [zone]', 'open a sample dialog overlay with a faked backdrop']

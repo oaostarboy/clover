@@ -12,6 +12,7 @@ import { Check, ChevronLeft, KeyRound, Loader2 } from '@/lib/icons'
 import { isProviderSetupErrorMessage } from '@/lib/provider-setup-errors'
 import { cn } from '@/lib/utils'
 import { $desktopBoot, type DesktopBootState } from '@/store/boot'
+import { $firstRunActive } from '@/store/first-run'
 import {
   $desktopOnboarding,
   clearPendingProviderOAuth,
@@ -29,7 +30,6 @@ import {
 } from '@/store/onboarding'
 import type { ModelOptionProvider, OAuthProvider } from '@/types/clover'
 
-import { DesktopTourOverlay } from './desktop-tour'
 import { DocsLink, FlowPanel, Status } from './flow'
 import { FireworksProviderRow, OpenRouterProviderRow, ProviderRow, sortProviders } from './providers'
 
@@ -184,6 +184,7 @@ export function DesktopOnboardingOverlay({
   const { t } = useI18n()
   const onboarding = useStore($desktopOnboarding)
   const boot = useStore($desktopBoot)
+  const firstRunActive = useStore($firstRunActive)
   const ctxRef = useRef<OnboardingContext>({ requestGateway, onCompleted, profile })
   ctxRef.current = { requestGateway, onCompleted, profile }
 
@@ -262,9 +263,13 @@ export function DesktopOnboardingOverlay({
   // EXCEPTION: manual mode (user opened the selector from a working app to
   // add/switch a provider) shows the overlay regardless of configured state.
   if (onboarding.configured === true && !onboarding.manual) {
-    if (onboarding.desktopTourCompleted !== true) {
-      return <DesktopTourOverlay onDismiss={() => ctx.onCompleted?.()} />
-    }
+    // The old "Superpowers" tour used to be forced on everyone who was already
+    // set up. It is gone from the main path: the welcome flow owns first run.
+    return null
+  }
+
+  // While the welcome flow is on screen it owns provider sign-in too.
+  if (firstRunActive && !onboarding.manual) {
     return null
   }
 

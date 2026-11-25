@@ -15,6 +15,14 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.13 | Clover C2.1.13 | 2026-11-25
+
+- Clover in the terminal now opens with a friendly welcome and a short hands-on tour. Type /tour to see it again.
+- The desktop app has a new first-run: pick your AI, name your Clover, connect your phone, then a quick tour.
+- Desktop starts calmer for new installs: chats first, with extras like the pet and starmap switched on in Settings.
+- Terminal, desktop and phone now say the same things in the same order, with Skip on every step.
+- Show welcome again is in Settings on desktop and phone, and /tour in the terminal.
+
 ## 2.1.12.1 | Clover C2.1.12.1 | 2026-11-25
 
 - Updating Clover no longer restarts a dashboard that belongs to a different Clover folder.

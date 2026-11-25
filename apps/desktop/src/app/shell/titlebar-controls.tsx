@@ -13,6 +13,7 @@ import { compactNumber } from '@/lib/format'
 import { triggerHaptic } from '@/lib/haptics'
 import { formatModifierToken } from '@/lib/keybinds/combo'
 import { cn } from '@/lib/utils'
+import { $extraHud, $extraWindowControls } from '@/store/first-run'
 import { $hapticsMuted, toggleHapticsMuted } from '@/store/haptics'
 import { toggleHud } from '@/store/hud'
 import {
@@ -135,6 +136,8 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
   const location = useLocation()
   const modHeld = useModifierHeld()
   const hapticsMuted = useStore($hapticsMuted)
+  const extraHud = useStore($extraHud)
+  const extraControls = useStore($extraWindowControls)
   const fileBrowserOpen = useStore($fileBrowserOpen)
   const panesFlipped = useStore($panesFlipped)
   const sidebarOpen = useStore($sidebarOpen)
@@ -179,6 +182,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
     {
       actionId: 'view.flipPanes',
       icon: <TitlebarIcon name="arrow-swap" />,
+      hidden: !extraControls,
       id: 'flip-panes',
       label: t.titlebar.swapSidebarSides,
       onSelect: () => {
@@ -208,6 +212,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
       className: 'group/tool',
       // Hover + held ⌘/Ctrl morphs the glyph into its reset form (see
       // LayoutGlyph) — the mod-click telegraphs itself before it happens.
+      hidden: !extraControls,
       icon: <LayoutGlyph modHeld={modHeld} />,
       id: 'layout',
       label: t.titlebar.layoutEditor,
@@ -230,6 +235,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
       // crowds the ⌘⇧H hint off the tooltip. Label only — the hint is appended
       // from the action registry, same as every other tool here.
       actionId: 'view.toggleHud',
+      hidden: !extraHud,
       icon: <TitlebarIcon name="comment-discussion" />,
       id: 'hud',
       label: t.titlebar.enterHud,
@@ -240,6 +246,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
     },
     {
       active: hapticsMuted,
+      hidden: !extraControls,
       icon: <TitlebarIcon name={hapticsMuted ? 'mute' : 'unmute'} />,
       id: 'haptics',
       label: hapticsMuted ? t.titlebar.unmuteHaptics : t.titlebar.muteHaptics,

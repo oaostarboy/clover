@@ -2901,6 +2901,18 @@ def _launch_tui(
     os.close(active_session_fd)
     env["CLOVER_TUI_ACTIVE_SESSION_FILE"] = active_session_file
     env.setdefault("NODE_ENV", "development" if tui_dev else "production")
+    # Real Clover star for the TUI welcome: detect the image protocol here (we
+    # still own the tty) with the same code `clover setup` uses.
+    try:
+        from clover_cli import lucky as _lucky
+
+        _proto = _lucky.image_protocol()
+        if _proto:
+            _cols, _rows, _top, _shift = _lucky.logo_box(_proto, _lucky.cell_px())
+            env["CLOVER_LOGO"] = f"{_proto};{_cols};{_rows};{_lucky.SIXEL_PX}"
+            env["CLOVER_LOGO_DIR"] = str(Path(_lucky.__file__).parent / "data")
+    except Exception:
+        logger.debug("Image-protocol detection for the TUI logo failed", exc_info=True)
 
     wt_info = None
     if worktree:
@@ -3297,27 +3309,45 @@ def cmd_chat(args):
             print()
             print("No Clover configuration found — launching onboarding setup...")
             print()
-            cmd_setup(args)
-            return
+            if use_tui:
+                # Quick start, then straight into the app: the welcome + tour
+                # opens there, so skip setup's own "say hi" chat.
+                from clover_cli import setup as _setup_mod
 
-        print()
-        print(
-            "It looks like Clover isn't configured yet -- no API keys or providers found."
-        )
-        print()
-        print("  Run:  clover setup")
-        print()
-
-        try:
-            reply = input("Run setup now? [Y/n] ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            reply = "n"
-        if reply in {"", "y", "yes"}:
+                _setup_mod.HANDOFF_TO_TUI = True
             cmd_setup(args)
-            return
-        print()
-        print("You can run 'clover setup' at any time to configure.")
-        sys.exit(1)
+            if not (use_tui and _has_any_provider_configured()):
+                return
+            reply = None  # set up just now: carry on into the app
+        else:
+            print()
+            print(
+                "It looks like Clover isn't configured yet -- no API keys or providers found."
+            )
+            print()
+            print("  Run:  clover setup")
+            print()
+
+            try:
+                reply = input("Run setup now? [Y/n] ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                reply = "n"
+        if reply is None:
+            pass
+        elif reply in {"", "y", "yes"}:
+            if use_tui:
+                from clover_cli import setup as _setup_mod
+
+                _setup_mod.HANDOFF_TO_TUI = True
+            cmd_setup(args)
+            if use_tui and _has_any_provider_configured():
+                print()
+            else:
+                return
+        else:
+            print()
+            print("You can run 'clover setup' at any time to configure.")
+            sys.exit(1)
 
     # Start update check in background (runs while other init happens).
     # On Termux this imports rich/prompt_toolkit in the foreground and then
