@@ -44,7 +44,7 @@ class _Adapter:
 @pytest.fixture(autouse=True)
 def _clean():
     ac.reset_for_tests()
-    ac.set_style_for_tests("detailed")
+    ac.set_style_for_tests("unified")
     da._ACK_EDITORS.clear()
     yield
     ac.reset_for_tests()
@@ -402,7 +402,7 @@ async def test_a_roster_card_already_posted_is_removed_once_the_delegation_is_ow
     cb("subagent.start", preview="Read the Windows check result")
     await pub.drain()
     assert adapter.status_calls, "precondition: the early 🔀 card was posted"
-    ac.set_style_for_tests("detailed")
+    ac.set_style_for_tests("unified")
     posted = list(adapter.status_calls)
     # ownership arrives late (the old race)
     _card()

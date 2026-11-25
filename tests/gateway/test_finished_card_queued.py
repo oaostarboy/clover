@@ -95,7 +95,7 @@ async def _setup(event):
     from gateway.session import SessionSource
 
     ack.ac.reset_for_tests()
-    ack.ac.set_style_for_tests("detailed")
+    ack.ac.set_style_for_tests("unified")
     da._ACK_EDITORS.clear()
     da._LIVE.clear()
     da._LAST_OUT.clear()
@@ -188,7 +188,7 @@ async def test_a_human_queued_followup_never_reposts_the_card(monkeypatch, tmp_p
 @pytest.mark.asyncio
 async def test_hand_over_settles_an_unfired_outer_completion_turn_silently():
     ack.ac.reset_for_tests()
-    ack.ac.set_style_for_tests("detailed")
+    ack.ac.set_style_for_tests("unified")
     da._ACK_EDITORS.clear()
     chat = _CardChat()
     await ack._finished_card_on_real_chat(chat)

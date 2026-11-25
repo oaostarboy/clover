@@ -418,7 +418,7 @@ async def test_external_report_reaches_classification_and_finalized_card(parser,
 
     skin_engine.init_skin_from_config({'display': {'skin': 'default'}})
     ac.reset_for_tests()
-    ac.set_style_for_tests('detailed')
+    ac.set_style_for_tests('unified')
     card = ac.card_for([DispatchReceipt(delegation_id='external-report', seq=1,
         goals=('check external report',), summary='checking work → verified result')])
     assert card is not None
@@ -515,7 +515,7 @@ def test_registered_jobs_keep_publisher_index_on_independent_cards(job_count, ve
             self.events.append((event_type, kw))
 
     ac.reset_for_tests()
-    ac.set_style_for_tests("detailed")
+    ac.set_style_for_tests("unified")
     sink = Sink()
     try:
         for index in range(job_count):

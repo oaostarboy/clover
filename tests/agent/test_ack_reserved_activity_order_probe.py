@@ -31,7 +31,7 @@ PLANS = (("inspect alpha", "check alpha"), ("inspect beta", "check beta"))
 def isolated_cards():
     # tests/conftest.py isolates CLOVER_HOME before collection and per test.
     ac.reset_for_tests()
-    ac.set_style_for_tests("detailed")
+    ac.set_style_for_tests("unified")
     yield
     ac.reset_for_tests()
 

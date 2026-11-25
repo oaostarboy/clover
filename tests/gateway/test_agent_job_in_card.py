@@ -57,7 +57,7 @@ class _Session:
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch):
     ac.reset_for_tests()
-    ac.set_style_for_tests("detailed")
+    ac.set_style_for_tests("unified")
     for reg in (da._ACK_EDITORS, da._LIVE, da._LAST_OUT, da._LAST_PLAIN, da._FOLLOW_TIMERS):
         reg.clear()
     monkeypatch.setattr(da, "FOLLOW_DEBOUNCE_SECONDS", 0.0)

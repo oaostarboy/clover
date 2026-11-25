@@ -27,7 +27,7 @@ _CREDS = {'model': 'm', 'provider': None, 'base_url': None, 'api_key': None,
 def _clean():
     ad._reset_for_tests()
     ac.reset_for_tests()
-    ac.set_style_for_tests("detailed")
+    ac.set_style_for_tests("unified")
     yield
     ad._reset_for_tests()
     ac.reset_for_tests()

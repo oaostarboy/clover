@@ -43,7 +43,7 @@ def _clean():
     ad._reset_for_tests(drain_timeout=5)
     inflight.reset_for_tests()
     ac.reset_for_tests()
-    ac.set_style_for_tests("detailed")
+    ac.set_style_for_tests("unified")
     da._ACK_EDITORS.clear()
     _drain_queue()
     yield

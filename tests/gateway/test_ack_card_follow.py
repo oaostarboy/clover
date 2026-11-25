@@ -55,7 +55,7 @@ class _NoDeleteChat(_Chat):
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch):
     ac.reset_for_tests()
-    ac.set_style_for_tests("detailed")
+    ac.set_style_for_tests("unified")
     da._ACK_EDITORS.clear()
     da._LIVE.clear()
     da._LAST_OUT.clear()

@@ -70,7 +70,7 @@ class Endpoint(BaseRequest):
 async def launch(monkeypatch):
     ad._reset_for_tests()
     ac.reset_for_tests()
-    ac.set_style_for_tests('detailed')
+    ac.set_style_for_tests('unified')
     da._ACK_EDITORS.clear()
     endpoint = Endpoint()
     app = Application.builder().token('123456:test-token').request(endpoint).build()
@@ -219,7 +219,7 @@ async def test_observed_rows_and_ids_survive_record_restart_and_real_relaunch(la
     # Lose in-memory card state just as a new gateway does. Re-enter its actual
     # resume launch function, using the saved per-task record and real delegate.
     ac.reset_for_tests()
-    ac.set_style_for_tests('detailed')
+    ac.set_style_for_tests('unified')
     restored = resume._launch(SimpleNamespace(), record, launch.root,
                              SessionSource(platform=Platform.TELEGRAM, chat_id='100', chat_type='dm'),
                              launch.pub, resume.build_resume_tasks(record, [0]))

@@ -28,7 +28,7 @@ def test_result_tells_child_the_seeded_ids():
 
 
 def test_card_has_no_duplicate_lines():
-    ac.reset_for_tests(); ac.set_style_for_tests("detailed")
+    ac.reset_for_tests(); ac.set_style_for_tests("unified")
     steps = [[t, "in_progress" if i == 0 else "pending"] for i, t in enumerate(STEPS)]
     ids = ["s1", "s2", "s3", "s4"]
     todos = [{"id": "s1", "content": STEPS[0], "status": "in_progress"},
@@ -44,7 +44,7 @@ def test_card_has_no_duplicate_lines():
 
 def test_rendered_card_text_has_no_duplicate_line():
     from agent import foreground_time_limit as fl
-    ac.reset_for_tests(); ac.set_style_for_tests("detailed")
+    ac.reset_for_tests(); ac.set_style_for_tests("unified")
     r = fl.DispatchReceipt(delegation_id="d", seq=1, goals=("Fix the gallery",), summary="\U0001f504 fixing the bugs \u2192 test build", steps=tuple(STEPS), say="")
     card = ac.card_for([r])
     ac.on_child_event("subagent.todo", delegation_id="d", todos=[
