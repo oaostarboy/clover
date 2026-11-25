@@ -55,15 +55,34 @@ export const advanceTour = () => {
   }
 }
 
-// Esc: skip just this step. On the welcome card it leaves the tour.
+// Tab: skip just this step.
 export const skipTourStep = () => {
+  const cur = $tour.get()
+
+  if (cur && cur !== 'welcome') {
+    $tour.set(nextTourStep(cur))
+  }
+}
+
+// Esc: back one step. On the welcome card it leaves the tour.
+export const backTourStep = () => {
   const cur = $tour.get()
 
   if (!cur) {
     return
   }
 
-  $tour.set(cur === 'welcome' ? null : nextTourStep(cur))
+  if (cur === 'welcome') {
+    return $tour.set(null)
+  }
+
+  if (cur === 'done') {
+    return $tour.set(TOUR_STEPS[TOUR_STEPS.length - 1])
+  }
+
+  const i = TOUR_STEPS.indexOf(cur)
+
+  $tour.set(i <= 0 ? 'welcome' : TOUR_STEPS[i - 1])
 }
 
 // The user did something real. Only moves on if it's the step we're waiting for.

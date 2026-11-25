@@ -26,7 +26,7 @@ import {
   type OverlayState
 } from './interfaces.js'
 import { $isBlocked, $overlayState, patchOverlayState } from './overlayStore.js'
-import { advanceTour, getTour, skipTourStep, tourActive, tourDid } from './tourStore.js'
+import { advanceTour, backTourStep, getTour, skipTourStep, tourActive, tourDid } from './tourStore.js'
 import { turnController } from './turnController.js'
 import { patchTurnState } from './turnStore.js'
 import { getUiState } from './uiStore.js'
@@ -363,6 +363,10 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
       const step = getTour()
 
       if (key.escape) {
+        return backTourStep()
+      }
+
+      if (key.tab && step !== 'welcome' && step !== 'done') {
         return skipTourStep()
       }
 
