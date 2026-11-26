@@ -1,3 +1,4 @@
+import { useStore } from '@nanostores/react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
@@ -29,6 +30,7 @@ import { displayModelName } from '@/lib/model-status-label'
 import { DEFAULT_REASONING_EFFORT, REASONING_EFFORT_VALUES } from '@/lib/reasoning-effort'
 import { cn } from '@/lib/utils'
 import { setMainModelAssignment } from '@/store/cron-model-impact'
+import { $calmDesktop } from '@/store/first-run'
 import { notifyError } from '@/store/notifications'
 import { startManualLocalEndpoint, startManualOnboarding, startManualProviderOAuth } from '@/store/onboarding'
 
@@ -130,6 +132,27 @@ const NO_PROVIDERS: readonly ModelOptionProvider[] = [{ name: '—', slug: '', m
 const plainModelName = (model: string): string =>
   /^(claude|gpt|gemini)-/i.test(model.split('/').pop() ?? '') ? displayModelName(model) : model
 
+// Calm layout: a provider id becomes a name people know ('openai-codex' -> ChatGPT).
+const PLAIN_PROVIDER_NAMES: Record<string, string> = {
+  anthropic: 'Claude',
+  gemini: 'Gemini',
+  google: 'Gemini',
+  'openai-codex': 'ChatGPT',
+  openai: 'OpenAI',
+  openrouter: 'OpenRouter',
+  xai: 'Grok'
+}
+
+const plainProviderName = (slug: string, names?: string): string =>
+  names || PLAIN_PROVIDER_NAMES[slug.toLowerCase()] || slug
+
+// 'gpt-5.5' -> 'GPT-5.5'; 'deepseek/deepseek-v4-pro' -> 'deepseek-v4-pro'.
+const plainSlotModel = (model: string): string => {
+  const base = model.split('/').pop() ?? model
+
+  return /^gpt-/i.test(base) ? base.replace(/^gpt/i, 'GPT') : plainModelName(model).split('/').pop() || model
+}
+
 // Radix <Select> renders a blank trigger when `value` matches no <SelectItem>.
 // A custom model (e.g. one added via config that isn't in the provider's
 // curated list) would vanish — surface the active value so it stays selectable.
@@ -212,6 +235,7 @@ function FieldLabel({ children, label }: { children: ReactNode; label: string })
 export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSettingsProps) {
   const { t } = useI18n()
   const m = t.settings.model
+  const calm = useStore($calmDesktop)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [mainModel, setMainModel] = useState<{ model: string; provider: string } | null>(null)
@@ -336,6 +360,9 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
   // that would create a recursive MoA tree (the backend rejects it on save).
   // Hide it from the slot selectors so it isn't offered as a dead choice.
   const moaSlotProviderOptions = providerOptions.filter(provider => (provider.slug || '').toLowerCase() !== 'moa')
+
+  const providerNameFor = (slug: string) =>
+    PLAIN_PROVIDER_NAMES[slug.toLowerCase()] ? undefined : moaSlotProviderOptions.find(p => p.slug === slug)?.name
 
   const selectedProviderRow = useMemo(
     () => providers.find(provider => provider.slug === selectedProvider),
@@ -1078,7 +1105,7 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
       </details>
       {moa && currentMoaPreset && (
         <details className="group border-t border-(--stroke-clover) pt-5">
-          <summary className="mb-4 flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
             <span>
               <span className="block text-base leading-6 font-medium text-foreground">Team of AIs</span>
               <span className="block text-[0.9375rem] leading-6 text-(--ui-text-secondary)">
@@ -1087,7 +1114,7 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
             </span>
             <span className="shrink-0 text-sm text-(--ui-text-secondary) group-open:hidden">Show</span>
           </summary>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div className="mt-4 mb-2 flex flex-wrap items-center gap-2">
             <Select onValueChange={setSelectedMoaPreset} value={selectedMoaPreset || moa.default_preset}>
               <SelectTrigger className={cn('min-w-40', CONTROL_TEXT)}>
                 <SelectValue placeholder="Preset" />
@@ -1180,7 +1207,7 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
             </Button>
           </div>
           <div className="mb-2 text-xs text-muted-foreground">
-            Default: <span className="font-mono">{moa.default_preset}</span>
+            Default: <span className={calm ? undefined : 'font-mono'}>{moa.default_preset}</span>
           </div>
           <div className="grid gap-1">
             {currentMoaPreset.reference_models.map((slot, index) => (
@@ -1225,7 +1252,7 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
 
                           return (
                             <SelectItem key={slug} value={slug}>
-                              {provider?.name || slug}
+                              {calm ? plainProviderName(slug, provider?.name) : provider?.name || slug}
                             </SelectItem>
                           )
                         })}
@@ -1248,7 +1275,7 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
                       <SelectContent>
                         {withActive(modelsForProvider(slot.provider), slot.model).map(model => (
                           <SelectItem key={model} value={model}>
-                            {model}
+                            {calm ? plainSlotModel(model) : model}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1270,12 +1297,19 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
                 }
                 className={cn(slot.enabled === false && 'opacity-60')}
                 description={
-                  <span className="font-mono text-[0.68rem]">
-                    {slot.provider} · {slot.model || m.model}
-                  </span>
+                  calm ? (
+                    <span className="text-sm">
+                      {plainProviderName(slot.provider, providerNameFor(slot.provider))} ·{' '}
+                      {slot.model ? plainSlotModel(slot.model) : m.model}
+                    </span>
+                  ) : (
+                    <span className="font-mono text-[0.68rem]">
+                      {slot.provider} · {slot.model || m.model}
+                    </span>
+                  )
                 }
                 key={`${selectedMoaPreset}-${index}`}
-                title={`Reference ${index + 1}`}
+                title={calm ? `AI ${index + 1}` : `Reference ${index + 1}`}
               />
             ))}
             <Button
@@ -1315,7 +1349,7 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
 
                         return (
                           <SelectItem key={slug} value={slug}>
-                            {provider?.name || slug}
+                            {calm ? plainProviderName(slug, provider?.name) : provider?.name || slug}
                           </SelectItem>
                         )
                       })}
@@ -1339,7 +1373,7 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
                         currentMoaPreset.aggregator.model
                       ).map(model => (
                         <SelectItem key={model} value={model}>
-                          {model}
+                          {calm ? plainSlotModel(model) : model}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1347,11 +1381,21 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
                 </div>
               }
               description={
-                <span className="font-mono text-[0.68rem]">
-                  {currentMoaPreset.aggregator.provider} · {currentMoaPreset.aggregator.model}
-                </span>
+                calm ? (
+                  <span className="text-sm">
+                    {plainProviderName(
+                      currentMoaPreset.aggregator.provider,
+                      providerNameFor(currentMoaPreset.aggregator.provider)
+                    )}{' '}
+                    · {plainSlotModel(currentMoaPreset.aggregator.model)}
+                  </span>
+                ) : (
+                  <span className="font-mono text-[0.68rem]">
+                    {currentMoaPreset.aggregator.provider} · {currentMoaPreset.aggregator.model}
+                  </span>
+                )
               }
-              title="Aggregator"
+              title={calm ? 'Writes the final answer' : 'Aggregator'}
             />
           </div>
         </details>

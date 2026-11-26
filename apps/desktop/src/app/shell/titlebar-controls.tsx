@@ -13,7 +13,7 @@ import { compactNumber } from '@/lib/format'
 import { triggerHaptic } from '@/lib/haptics'
 import { formatModifierToken } from '@/lib/keybinds/combo'
 import { cn } from '@/lib/utils'
-import { $extraHud, $extraWindowControls } from '@/store/first-run'
+import { $calmDesktop, $extraHud, $extraWindowControls } from '@/store/first-run'
 import { $hapticsMuted, toggleHapticsMuted } from '@/store/haptics'
 import { toggleHud } from '@/store/hud'
 import {
@@ -137,6 +137,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
   const location = useLocation()
   const modHeld = useModifierHeld()
   const hapticsMuted = useStore($hapticsMuted)
+  const calm = useStore($calmDesktop)
   const extraHud = useStore($extraHud)
   const extraControls = useStore($extraWindowControls)
   const fileBrowserOpen = useStore($fileBrowserOpen)
@@ -255,6 +256,8 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
     },
     {
       actionId: 'nav.settings',
+      // Calm layout: Settings already sits at the bottom of the sidebar.
+      hidden: calm,
       icon: <TitlebarIcon name="settings-gear" />,
       id: 'settings',
       label: t.titlebar.openSettings,

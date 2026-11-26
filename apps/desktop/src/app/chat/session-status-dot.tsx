@@ -3,6 +3,7 @@ import { useStore } from '@nanostores/react'
 import { type Translations, useI18n } from '@/i18n'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
+import { $calmDesktop } from '@/store/first-run'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
 import { $sessionDotStateById, type SessionDotState } from '@/store/session-dot-state'
 import type { SessionInfo } from '@/types/clover'
@@ -137,7 +138,12 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
     storedSessionId ? (states[storedSessionId] ?? 'idle') : 'draft'
   )
 
+  const calm = useStore($calmDesktop)
   const variant = DOT_VARIANTS[dotState]
+
+  // Calm layout swaps the row's moving arc for one slow pulse on the dot.
+  const dotClassName =
+    calm && dotState === 'working' ? cn(variant.className, 'calm-working-pulse') : variant.className
 
   return (
     <span className={cn('flex items-center gap-0.5', className)}>
@@ -154,7 +160,7 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
       ) : (
         <span
           aria-label={variant.ariaLabel?.(r)}
-          className={variant.className}
+          className={dotClassName}
           role={variant.role}
           title={variant.title?.(r)}
         />

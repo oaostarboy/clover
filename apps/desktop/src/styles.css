@@ -48,6 +48,7 @@
     .glyph-spinner__strip
   ),
 :root[data-renderer-animations-paused] .arc-border::before,
+:root[data-renderer-animations-paused] .calm-working-pulse,
 :root[data-renderer-animations-paused]
   [data-slot='aui_assistant-message-content']
   .aui-md
@@ -3552,4 +3553,27 @@ html:has([data-hud-shell]) [data-slot='popover-content'] {
 .fr-star { animation: fr-rise 420ms cubic-bezier(0.23, 1, 0.32, 1) both; }
 @media (prefers-reduced-motion: reduce) {
   .fr-step, .fr-ring, .fr-star { animation: none; }
+}
+
+/* Calm layout: a working chat breathes once every 2.4s on its dot, in mint.
+   Opacity only; no line, no glow. */
+@keyframes calm-working-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.calm-working-pulse {
+  background-color: #5fd4a0;
+  animation: calm-working-pulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .calm-working-pulse {
+    animation: none;
+  }
 }
