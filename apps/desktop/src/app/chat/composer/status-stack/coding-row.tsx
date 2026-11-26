@@ -18,6 +18,7 @@ import type { CloverGitBranch } from '@/global'
 import { useI18n } from '@/i18n'
 import { displayPath } from '@/lib/display-path'
 import { openWorktreeDialog, registerRepoStatusCwd, repoStatusForCwd, repoWorktreesForCwd } from '@/store/coding-status'
+import { $calmDesktop } from '@/store/first-run'
 import { notifyError } from '@/store/notifications'
 import { $pullRequestsByBranch, branchPrKey, refreshPullRequests } from '@/store/pull-requests'
 
@@ -71,6 +72,7 @@ export const CodingStatusRow = memo(function CodingStatusRow({
   // the main pane's branch/± onto a tile whose cwd hadn't resolved yet. That
   // fallback bought nothing (the primary's computed is keyed to `$currentCwd`,
   // which is blank in exactly the same case) and cost a wrong-tree rail.
+  const calm = useStore($calmDesktop)
   const status = useStore(repoStatusForCwd(resolvedRepoPath))
   const worktrees = useStore(repoWorktreesForCwd(resolvedRepoPath))
 
@@ -114,7 +116,8 @@ export const CodingStatusRow = memo(function CodingStatusRow({
     void openWorktreeDialog({ base, repoPath: resolvedRepoPath })
   }
 
-  if (!status) {
+  // New-install calm layout is for owners, not coders: no branch / diff strip.
+  if (!status || calm) {
     return null
   }
 

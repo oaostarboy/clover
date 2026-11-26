@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   getAuxiliaryModels,
@@ -196,6 +196,17 @@ interface ModelSettingsProps {
    *  Request-shaped on purpose — the API helpers treat `null` as "deliberately
    *  target the primary/default backend", so this prop never carries null. */
   scopeProfile?: string
+}
+
+const FIELD_BOX = 'rounded-lg border border-(--ui-stroke-tertiary) bg-transparent'
+
+function FieldLabel({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <div className="grid gap-1.5">
+      <span className="text-sm font-medium text-foreground">{label}</span>
+      {children}
+    </div>
+  )
 }
 
 export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSettingsProps) {
@@ -801,19 +812,21 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
       <section>
         <h2 className="text-base leading-6 font-medium text-foreground">{m.mainTitle ?? 'Your AI'}</h2>
         <p className="mt-0.5 mb-4 text-[0.9375rem] leading-6 text-(--ui-text-secondary)">{m.appliesDesc}</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <Select onValueChange={setSelectedProvider} value={selectedProvider}>
-            <SelectTrigger className={cn('min-w-40', CONTROL_TEXT)}>
-              <SelectValue placeholder={m.provider} />
-            </SelectTrigger>
-            <SelectContent>
-              {mainProviderOptions.map(provider => (
-                <SelectItem key={provider.slug || 'none'} value={provider.slug || 'none'}>
-                  {provider.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex flex-wrap items-end gap-3">
+          <FieldLabel label="AI service">
+            <Select onValueChange={setSelectedProvider} value={selectedProvider}>
+              <SelectTrigger className={cn('h-9 w-56 text-sm', FIELD_BOX)}>
+                <SelectValue placeholder="Choose a service" />
+              </SelectTrigger>
+              <SelectContent>
+                {mainProviderOptions.map(provider => (
+                  <SelectItem key={provider.slug || 'none'} value={provider.slug || 'none'}>
+                    {provider.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FieldLabel>
           {needsSetup ? (
             setupIsApiKey ? (
               <>
@@ -846,25 +859,27 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
             )
           ) : (
             <>
-              <Select onValueChange={setSelectedModel} value={selectedModel}>
-                <SelectTrigger className={cn('min-w-60', CONTROL_TEXT)}>
-                  <SelectValue placeholder={m.model} />
-                </SelectTrigger>
-                <SelectContent>
-                  {withActive(selectedProviderModels, selectedModel).map(model => (
-                    <SelectItem key={model} value={model}>
-                      {plainModelName(model)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <FieldLabel label="Model">
+                <Select onValueChange={setSelectedModel} value={selectedModel}>
+                  <SelectTrigger className={cn('h-9 w-64 text-sm', FIELD_BOX)}>
+                    <SelectValue placeholder="Choose a model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {withActive(selectedProviderModels, selectedModel).map(model => (
+                      <SelectItem key={model} value={model}>
+                        {plainModelName(model)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FieldLabel>
               <Button
+                className="h-9 px-4 text-sm"
                 disabled={!selectedProvider || !selectedModel || applying}
                 onClick={() => void applyMainModel()}
-                size="sm"
               >
                 {applying && <Loader2 className="size-3.5 animate-spin" />}
-                {applying ? m.applying : t.common.apply}
+                {applying ? m.applying : 'Save'}
               </Button>
             </>
           )}

@@ -273,7 +273,7 @@ describe('ModelSettings', () => {
     fireEvent.click(modelSelect)
     fireEvent.click(await screen.findByRole('option', { name: 'qwen3:latest' }))
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Apply' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
       expect(setModelAssignment).toHaveBeenCalledWith({
@@ -388,7 +388,7 @@ describe('ModelSettings', () => {
     await renderModelSettings()
     await waitFor(() => expect(getGlobalModelInfo).toHaveBeenCalled())
 
-    const applyButton = await screen.findByRole('button', { name: 'Apply' })
+    const applyButton = await screen.findByRole('button', { name: 'Save' })
     fireEvent.click(applyButton)
 
     // The switch-time notice names the pinned provider and offers a reset.

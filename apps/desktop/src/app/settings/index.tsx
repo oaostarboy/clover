@@ -1,3 +1,4 @@
+import { useStore } from '@nanostores/react'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 
@@ -28,8 +29,10 @@ import {
 } from '@/lib/icons'
 import { isEditableTarget } from '@/lib/keybinds/combo'
 import { typeToFocusChar } from '@/lib/keybinds/composer-focus-keys'
+import { cn } from '@/lib/utils'
 import { $commandPaletteOpen, openCommandPalettePage } from '@/store/command-palette'
 import { confirm } from '@/store/confirm'
+import { $calmDesktop } from '@/store/first-run'
 import { bindingsFor } from '@/store/keybinds'
 import { notifyError } from '@/store/notifications'
 
@@ -309,7 +312,9 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
 
   const activeLabel = navGroups.flatMap(group => [group, ...(group.children ?? [])]).find(item => item.active)?.label ?? ''
 
-  const navFooter = (
+  const calm = useStore($calmDesktop)
+
+  const iconFooter = (
     <>
       <Tip label={t.settings.exportConfig}>
         <OverlayIconButton onClick={() => void exportConfig()}>
@@ -339,6 +344,40 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
       </Tip>
     </>
   )
+
+  // Calm layout: the same three actions as plain words, not bare icons.
+  const textBtn =
+    'rounded-md px-2 py-1 text-xs text-(--ui-text-secondary) transition-colors hover:bg-(--chrome-action-hover) hover:text-foreground'
+
+  const calmFooter = (
+    <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
+      <button className={textBtn} onClick={() => void exportConfig()} type="button">
+        Export settings
+      </button>
+      <button
+        className={textBtn}
+        onClick={() => {
+          triggerHaptic('open')
+          importInputRef.current?.click()
+        }}
+        type="button"
+      >
+        Import settings
+      </button>
+      <button
+        className={cn(textBtn, 'hover:text-destructive')}
+        onClick={() => {
+          triggerHaptic('warning')
+          void resetConfig()
+        }}
+        type="button"
+      >
+        Reset to defaults
+      </button>
+    </div>
+  )
+
+  const navFooter = calm ? calmFooter : iconFooter
 
   const activeSettingsContent =
     activeView === 'config:appearance' ? (
