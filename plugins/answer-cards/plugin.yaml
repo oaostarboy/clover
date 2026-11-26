@@ -1,0 +1,5 @@
+name: answer-cards
+version: 1.0.0
+description: "Opt-in `answer_card` tool: show a forecast or schedule as a live card in ACP clients (desktop). Enable with plugins.enabled: [answer-cards]."
+provides_tools:
+  - answer_card

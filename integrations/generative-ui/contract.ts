@@ -28,3 +28,9 @@ export function validateRecord(value:unknown): NativeRecord|null {
  } catch {return null}
 }
 export const recordKey=(r:NativeRecord)=>JSON.stringify({stored_session_id:r.identity.stored_session_id,assistant_row_id:r.identity.assistant_row_id,tool_call_id:r.identity.tool_call_id,turn_row_id:r.identity.turn_row_id})
+// Answer cards (plugins/answer-cards). Same family as clover.structured-tool/1, but a tiny
+// closed record that ACP clients read from `_meta.clover.card` on a tool call update.
+type WeatherIcon = 'sun'|'cloud'|'rain'
+export interface ForecastCard { v:1; type:'forecast'; place:string; now:{temp:number;summary:string;icon:WeatherIcon}; days:{label:string;icon:WeatherIcon;hi:number;lo:number;rain?:number}[] }
+export interface ScheduleCard { v:1; type:'schedule'; title:string; events:{start:string;end:string;title:string;where?:string}[] }
+export type AnswerCard = ForecastCard|ScheduleCard

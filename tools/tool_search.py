@@ -231,7 +231,7 @@ def _core_tool_names() -> frozenset[str]:
 
 # Session-gated GUI toolsets. Off ``_CLOVER_CORE_TOOLS`` so non-GUI clients
 # never pay their schema; once a session enables them they stay direct.
-_DIRECT_SURFACE_TOOLSETS = frozenset({"desktop_ui", "project"})
+_DIRECT_SURFACE_TOOLSETS = frozenset({"desktop_ui", "project", "answer-cards"})
 
 
 def is_deferrable_tool_name(name: str) -> bool:

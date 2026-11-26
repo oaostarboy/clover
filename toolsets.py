@@ -431,6 +431,7 @@ TOOLSETS = {
             "todo", "memory",
             "session_search",
             "execute_code", "delegate_task",
+            "answer_card",  # only exists when the answer-cards plugin is enabled
         ],
         "includes": []
     },
