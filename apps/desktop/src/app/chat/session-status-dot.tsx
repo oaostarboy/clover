@@ -3,6 +3,7 @@ import { useStore } from '@nanostores/react'
 import { type Translations, useI18n } from '@/i18n'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
+import { $calmDesktop } from '@/store/first-run'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
 import { $sessionDotStateById, type SessionDotState } from '@/store/session-dot-state'
 import type { SessionInfo } from '@/types/clover'
@@ -137,7 +138,12 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
     storedSessionId ? (states[storedSessionId] ?? 'idle') : 'draft'
   )
 
+  const calm = useStore($calmDesktop)
   const variant = DOT_VARIANTS[dotState]
+
+  // Calm layout swaps the row's moving arc for one slow pulse on the dot.
+  const dotClassName =
+    calm && dotState === 'working' ? cn(variant.className, 'calm-working-pulse') : variant.className
 
   return (
     <span className={cn('flex items-center gap-0.5', className)}>
@@ -154,11 +160,45 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
       ) : (
         <span
           aria-label={variant.ariaLabel?.(r)}
-          className={variant.className}
+          className={dotClassName}
           role={variant.role}
           title={variant.title?.(r)}
         />
       )}
+    </span>
+  )
+}
+
+// T3 puts a word next to the dot, not only a color: color alone is a guess.
+// Plain words for a small-business user, only for the states worth a glance:
+// idle, draft and background chats stay quiet.
+export const SESSION_STATUS_WORDS: Partial<Record<SessionDotState, string>> = {
+  'needs-input': 'Needs you',
+  stalled: 'Working',
+  unread: 'Done',
+  working: 'Working'
+}
+
+export function SessionStatusWord({ storedSessionId }: { storedSessionId: null | string }) {
+  const word = useStoreSelector($sessionDotStateById, states =>
+    storedSessionId ? SESSION_STATUS_WORDS[states[storedSessionId] ?? 'idle'] ?? null : null
+  )
+
+  if (!word) {
+    return null
+  }
+
+  const needs = word === 'Needs you'
+
+  return (
+    <span
+      className={cn(
+        'shrink-0 text-[0.6875rem]',
+        needs ? 'font-medium text-amber-500' : 'text-(--ui-text-tertiary)'
+      )}
+      data-slot="session-status-word"
+    >
+      {word}
     </span>
   )
 }

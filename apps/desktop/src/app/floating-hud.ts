@@ -32,6 +32,10 @@ export const HUD_ITEM = 'gap-2 px-2 py-1'
 export const HUD_HEADING =
   '**:[[cmdk-group-heading]]:static **:[[cmdk-group-heading]]:bg-transparent **:[[cmdk-group-heading]]:px-2.5 **:[[cmdk-group-heading]]:pb-1 **:[[cmdk-group-heading]]:pt-2.5 **:[[cmdk-group-heading]]:text-[0.64rem] **:[[cmdk-group-heading]]:font-semibold **:[[cmdk-group-heading]]:uppercase **:[[cmdk-group-heading]]:tracking-[0.16em] **:[[cmdk-group-heading]]:text-(--theme-primary)'
 
+// New-install calm variant: sentence case, muted, no tracked caps.
+export const HUD_HEADING_CALM =
+  '**:[[cmdk-group-heading]]:static **:[[cmdk-group-heading]]:bg-transparent **:[[cmdk-group-heading]]:px-2.5 **:[[cmdk-group-heading]]:pb-1 **:[[cmdk-group-heading]]:pt-2.5 **:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:font-medium **:[[cmdk-group-heading]]:text-(--ui-text-tertiary)'
+
 // A short note trailing a row's label — a version, a count, a live state. Sits
 // closer than the row's icon-to-label `gap-2` because it reads as a suffix of
 // the label, not as another item in the row.

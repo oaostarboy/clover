@@ -24,6 +24,7 @@ import { handoffOriginSource, sessionSourceLabel } from '@/lib/session-source'
 import { coarseElapsed } from '@/lib/time'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
+import { $calmDesktop } from '@/store/first-run'
 import { $sidebarRowMeta } from '@/store/layout'
 import { normalizeProfileKey } from '@/store/profile'
 import { $projects } from '@/store/projects'
@@ -34,7 +35,7 @@ import { $openStoredSessionIds } from '@/store/session-states'
 import { sessionCostUsd } from '@/store/sidebar-archive'
 import { $todoProgressBySession } from '@/store/todos'
 
-import { SessionStatusDot } from '../session-status-dot'
+import { SessionStatusDot, SessionStatusWord } from '../session-status-dot'
 
 import {
   SIDEBAR_ROW_CARD_MIN_H,
@@ -147,6 +148,7 @@ function SidebarSessionRowImpl({
   const { cancelPrewarm, startPrewarm } = useProfilePrewarm(session.profile)
   const title = sessionTitle(session)
   const density = useStore($sessionListDensity)
+  const calm = useStore($calmDesktop)
   const fmt = t.sidebar
 
   const details = sessionRowDetails(session, {
@@ -402,7 +404,7 @@ function SidebarSessionRowImpl({
         style={style}
         {...rest}
       >
-        {showsRunningArc(dotState) && <span aria-hidden="true" className="arc-border arc-row" />}
+        {!calm && showsRunningArc(dotState) && <span aria-hidden="true" className="arc-border arc-row" />}
         <SidebarRowBody
           // Every trailing figure lives in the actions slot, which the row
           // measures — so the title needs a gap from it and nothing else. Hover
@@ -526,6 +528,7 @@ function SidebarSessionRowImpl({
                       </span>
                     )}
                   </span>
+                  <SessionStatusWord storedSessionId={session.id} />
                 </>
               )
             }

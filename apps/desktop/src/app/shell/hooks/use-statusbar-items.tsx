@@ -21,6 +21,7 @@ import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
 import { resolveVersionStatus } from '@/lib/version-status'
 import { copyFilePath, revealFile } from '@/store/file-actions'
+import { $calmDesktop } from '@/store/first-run'
 import { revealFileInTree } from '@/store/layout'
 import { $activeGatewayProfile } from '@/store/profile'
 import { $projectTree, projectNameForCwd } from '@/store/projects'
@@ -604,9 +605,16 @@ export function useStatusbarItems({
     ]
   )
 
+  // New-install calm layout: drop the coder-only left items (unlabeled command
+  // icon, working-folder chip). Existing users keep them.
+  const calm = useStore($calmDesktop)
+
   const leftStatusbarItems = useMemo(
-    () => [...coreLeftStatusbarItems, ...extraLeftItems],
-    [coreLeftStatusbarItems, extraLeftItems]
+    () => [
+      ...coreLeftStatusbarItems.filter(item => !calm || (item.id !== 'command-center' && item.id !== 'workspace-cwd')),
+      ...extraLeftItems
+    ],
+    [calm, coreLeftStatusbarItems, extraLeftItems]
   )
 
   const statusbarItems = useMemo(

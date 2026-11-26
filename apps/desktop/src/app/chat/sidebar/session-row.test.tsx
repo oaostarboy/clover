@@ -8,6 +8,7 @@ import { createClientSessionState } from '@/lib/chat-runtime'
 import type * as ChatRuntime from '@/lib/chat-runtime'
 import type * as Time from '@/lib/time'
 import type * as ComposerStatusStore from '@/store/composer-status'
+import { $calmDesktop } from '@/store/first-run'
 import type * as SessionStore from '@/store/session'
 import { clearAllSessionStates, publishSessionState } from '@/store/session-states'
 import type * as SessionStatesStore from '@/store/session-states'
@@ -195,6 +196,21 @@ describe('SidebarSessionRow running arc', () => {
     const { container } = renderRow(makeSession({ title: 'Running' }))
 
     expect(arc(container)).toBeTruthy()
+  })
+
+  it('calm layout: no arc, one mint pulse on the dot instead', () => {
+    $calmDesktop.set(true)
+
+    try {
+      publishSessionState('rt1', { ...createClientSessionState('s1'), busy: true })
+
+      const { container } = renderRow(makeSession({ title: 'Running' }))
+
+      expect(arc(container)).toBeNull()
+      expect(container.querySelectorAll('.calm-working-pulse')).toHaveLength(1)
+    } finally {
+      $calmDesktop.set(false)
+    }
   })
 
   // The row owns its status subscription so a turn starting repaints that row

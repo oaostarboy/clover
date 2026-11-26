@@ -10,6 +10,7 @@ import { triggerHaptic } from '@/lib/haptics'
 import {
   Archive,
   Bell,
+  Clock,
   Download,
   Globe,
   Info,
@@ -31,6 +32,7 @@ import { typeToFocusChar } from '@/lib/keybinds/composer-focus-keys'
 import { cn } from '@/lib/utils'
 import { $commandPaletteOpen, openCommandPalettePage } from '@/store/command-palette'
 import { confirm } from '@/store/confirm'
+import { $calmDesktop } from '@/store/first-run'
 import { bindingsFor } from '@/store/keybinds'
 import { notifyError } from '@/store/notifications'
 
@@ -38,7 +40,7 @@ import { useRouteEnumParam } from '../hooks/use-route-enum-param'
 import { OverlayIconButton } from '../overlays/overlay-chrome'
 import { OverlayMain, OverlayNav, type OverlayNavGroup, OverlaySplitLayout } from '../overlays/overlay-split-layout'
 import { OverlayView } from '../overlays/overlay-view'
-import { SKILLS_ROUTE } from '../routes'
+import { CRON_ROUTE, SKILLS_ROUTE } from '../routes'
 
 import { AboutSettings } from './about-settings'
 import { AppearanceSettings } from './appearance-settings'
@@ -194,14 +196,24 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
       onSelect: () => setActiveView(view)
     })
 
-    // Calm by default: everyday things first. Everything technical (keys,
-    // gateways, plugins, shortcuts, terminal, safety...) sits under one
-    // "Advanced" entry. Nothing was removed, only tucked away.
-    const everyday = ['model', 'chat', 'appearance']
-    const advancedSections = SECTIONS.filter(x => !everyday.includes(x.id)).map(x => sectionLink(x.id))
+    // T3's shape, Clover's words: small group captions over a wide rail.
+    // Connections first (phone, notifications), then the AI itself, then the
+    // everyday Clover pieces, and everything technical last under Advanced.
+    // Nothing was removed, only grouped. (Check-ins have no desktop page yet,
+    // so they have no slot here.)
+    const everydayClover = ['chat', 'appearance']
+    const advancedIds = SECTIONS.filter(x => !['model', ...everydayClover].includes(x.id)).map(x => x.id)
 
-    const advancedChildren = [
-      ...advancedSections,
+    const routeLink = (id: string, icon: OverlayNavGroup['icon'], label: string, route: string) => ({
+      active: false,
+      icon,
+      id,
+      label,
+      onSelect: () => navigate(route)
+    })
+
+    const advanced: OverlayNavGroup[] = [
+      ...advancedIds.map(sectionLink),
       link('terminal', Terminal, 'Terminal'),
       link('providers', Zap, t.settings.nav.providers),
       {
@@ -230,26 +242,29 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
       link('keybinds', Keyboard, t.settings.nav.keybinds)
     ]
 
-    const advancedActive = advancedChildren.some(c => c.active)
-
     return [
-      ...everyday.map(sectionLink),
-      link('phone', Smartphone, 'Phone & devices'),
-      link('extras', Starmap, 'Extras'),
+      { ...link('phone', Smartphone, 'Phone & devices'), groupLabel: 'Connections' },
       link('notifications', Bell, t.settings.nav.notifications),
+      { ...sectionLink('model'), groupLabel: 'Your AI' },
+      { ...sectionLink('chat'), groupLabel: 'Clover' },
+      sectionLink('appearance'),
+      routeLink('cron', Clock, 'Scheduled tasks', CRON_ROUTE),
+      routeLink('skills', Package, 'Skills', SKILLS_ROUTE),
+      link('extras', Starmap, 'Extras'),
       link('sessions', Archive, t.settings.nav.archivedChats),
+      // One quiet entry: its pages open underneath once you are inside it.
       {
-        active: advancedActive,
-        children: advancedChildren,
-        gapBefore: true,
+        active: advanced.some(item => item.active),
+        children: advanced,
+        groupLabel: 'Advanced',
         icon: Settings2,
         id: 'advanced',
-        label: 'Advanced',
-        onSelect: () => setActiveView(advancedSections[0].id as SettingsViewId)
+        label: 'More settings',
+        onSelect: () => advanced[0].onSelect()
       },
-      { ...link('about', Info, 'About & help'), gapBefore: true }
+      { ...link('about', Info, 'About & help'), groupLabel: 'Help' }
     ]
-  }, [activeView, keysView, providerView, t, setActiveView, openProviderView, openKeysView])
+  }, [activeView, keysView, providerView, t, setActiveView, openProviderView, openKeysView, navigate])
 
   // Type-to-search: printable keystrokes on the Settings surface (outside any
   // field) open the settings-scoped palette, seeded with the character — same
@@ -275,34 +290,31 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
-  // Fake search pill riding the card's top edge, dead-center and half off it.
-  // Clicking (or just typing) opens the ⌘K palette scoped to settings; while
-  // the palette is up the pill hands over to it — grows slightly and fades,
-  // then fades back when the palette closes. It renders as chrome, not an
-  // input — no border, recessed fill, live ⌘K hint.
+  // T3's search row heads the rail. It is chrome, not an input: clicking (or
+  // just typing) opens the Ctrl+K palette scoped to settings.
   const searchCombo = bindingsFor('nav.commandPalette')[0]
-  const paletteOpen = useStore($commandPaletteOpen)
 
-  const searchPill = (
+  const searchRow = (
     <button
-      className={cn(
-        'flex h-(--titlebar-control-height) items-center gap-1.5 rounded-full border border-(--ui-stroke-secondary) bg-(--ui-chat-surface-background) px-2.5 text-(--ui-text-tertiary) shadow-sm transition-all duration-200 ease-out hover:text-foreground motion-reduce:transition-none',
-        paletteOpen && 'pointer-events-none scale-110 opacity-0'
-      )}
+      className="mb-1 flex h-8 w-full items-center gap-2 rounded-md border border-(--ui-stroke-tertiary) px-2 text-left text-(--ui-text-tertiary) transition-colors hover:bg-(--chrome-action-hover) hover:text-foreground"
+      data-slot="settings-search"
       onClick={() => {
         triggerHaptic('open')
         openCommandPalettePage('settings')
       }}
-      tabIndex={paletteOpen ? -1 : undefined}
       type="button"
     >
-      <Search className="size-3" />
-      <span className="text-xs">{t.settings.search.pill}</span>
+      <Search className="size-4 shrink-0" />
+      <span className="flex-1 text-[length:var(--conversation-text-font-size)]">{t.settings.search.pill}</span>
       {searchCombo && <KbdCombo combo={searchCombo} size="sm" variant="ghost" />}
     </button>
   )
 
-  const navFooter = (
+  const activeLabel = navGroups.flatMap(group => [group, ...(group.children ?? [])]).find(item => item.active)?.label ?? ''
+
+  const calm = useStore($calmDesktop)
+
+  const iconFooter = (
     <>
       <Tip label={t.settings.exportConfig}>
         <OverlayIconButton onClick={() => void exportConfig()}>
@@ -332,6 +344,40 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
       </Tip>
     </>
   )
+
+  // Calm layout: the same three actions as plain words, not bare icons.
+  const textBtn =
+    'rounded-md px-2 py-1 text-xs text-(--ui-text-secondary) transition-colors hover:bg-(--chrome-action-hover) hover:text-foreground'
+
+  const calmFooter = (
+    <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
+      <button className={textBtn} onClick={() => void exportConfig()} type="button">
+        Export settings
+      </button>
+      <button
+        className={textBtn}
+        onClick={() => {
+          triggerHaptic('open')
+          importInputRef.current?.click()
+        }}
+        type="button"
+      >
+        Import settings
+      </button>
+      <button
+        className={cn(textBtn, 'hover:text-destructive')}
+        onClick={() => {
+          triggerHaptic('warning')
+          void resetConfig()
+        }}
+        type="button"
+      >
+        Reset to defaults
+      </button>
+    </div>
+  )
+
+  const navFooter = calm ? calmFooter : iconFooter
 
   const activeSettingsContent =
     activeView === 'config:appearance' ? (
@@ -376,11 +422,24 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
     )
 
   return (
-    <OverlayView closeLabel={t.settings.closeSettings} edgeBadge={searchPill} onClose={onClose}>
-      <OverlaySplitLayout>
-        <OverlayNav footer={navFooter} groups={navGroups} />
+    <OverlayView closeLabel={t.settings.closeSettings} onClose={onClose} page>
+      <OverlaySplitLayout className="grid-cols-[16rem_minmax(0,1fr)]">
+        <OverlayNav footer={navFooter} groups={navGroups} top={searchRow} />
 
-        <OverlayMain className="px-0 pb-0">{activeSettingsContent}</OverlayMain>
+        <OverlayMain className="px-0 pb-0">
+          <nav
+            aria-label="Breadcrumb"
+            className="flex shrink-0 items-center gap-2 pl-[calc(clamp(0.8333rem,2.6667vw,2.6667rem)+1.25rem)] pr-[clamp(0.8333rem,2.6667vw,2.6667rem)] pb-3 text-[length:var(--conversation-text-font-size)]"
+            data-slot="settings-breadcrumb"
+          >
+            <span className="text-(--ui-text-tertiary)">Settings</span>
+            <span aria-hidden className="text-(--ui-text-quaternary)">
+              /
+            </span>
+            <span className="text-foreground">{activeLabel}</span>
+          </nav>
+          {activeSettingsContent}
+        </OverlayMain>
       </OverlaySplitLayout>
     </OverlayView>
   )

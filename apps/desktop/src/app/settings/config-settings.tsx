@@ -122,6 +122,9 @@ function ConfigSettingsInner({
   // Seed the local draft once, the first time the shared record lands.
   // Background refetches thereafter must not clobber in-progress edits.
   const configSeeded = useRef(false)
+  // Bumped when the draft is dropped so the seed effect runs again even though
+  // the shared query record itself did not change (it is already cached).
+  const [seedEpoch, setSeedEpoch] = useState(0)
 
   // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (see eslint rule comment)
   useEffect(() => {
@@ -130,7 +133,7 @@ function ConfigSettingsInner({
       savedDiscoverySignatureRef.current = repoDiscoveryPolicySignature(repoDiscoveryPolicyFromConfig(loadedConfig))
       setConfig(loadedConfig)
     }
-  }, [loadedConfig])
+  }, [loadedConfig, seedEpoch])
 
   // A profile switch invalidates (but doesn't clear) the shared config query, so
   // the local draft would otherwise keep profile A's data and autosave it into
@@ -140,6 +143,7 @@ function ConfigSettingsInner({
     configSeeded.current = false
     savedDiscoverySignatureRef.current = undefined
     setConfig(null)
+    setSeedEpoch(epoch => epoch + 1)
     saveVersionRef.current = 0
     setSaveVersion(0)
   })
