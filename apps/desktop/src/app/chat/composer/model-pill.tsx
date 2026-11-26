@@ -11,8 +11,9 @@ import { releaseTypingFocus } from '@/components/ui/keyboard-first'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { ChevronDown } from '@/lib/icons'
-import { formatModelStatusLabel } from '@/lib/model-status-label'
+import { displayModelName, formatModelStatusLabel } from '@/lib/model-status-label'
 import { cn } from '@/lib/utils'
+import { $calmDesktop } from '@/store/first-run'
 import { $currentModelSource, $defaultReasoningEffort, setModelPickerOpen } from '@/store/session'
 
 import { onComposerModelMenuRequest } from './focus'
@@ -59,6 +60,7 @@ export function ModelPill({
   const modelSource = useStore($currentModelSource)
   const defaultEffort = useStore($defaultReasoningEffort)
   const runtimeId = useStore(view.$runtimeId)
+  const calm = useStore($calmDesktop)
   const [open, setOpen] = useState(false)
   const scope = useComposerScope()
   const hasLiveMenu = Boolean(model.modelMenuContent)
@@ -101,7 +103,7 @@ export function ModelPill({
     <>
       {currentModel.trim() ? (
         <span className="truncate">
-          {formatModelStatusLabel(currentModel, { defaultEffort, fastMode, reasoningEffort })}
+          {calm ? displayModelName(currentModel) : formatModelStatusLabel(currentModel, { defaultEffort, fastMode, reasoningEffort })}
         </span>
       ) : (
         <GlyphSpinner className="opacity-50" spinner="braille" />

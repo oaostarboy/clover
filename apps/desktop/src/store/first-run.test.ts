@@ -61,23 +61,14 @@ describe('first-run store', () => {
     expect(m.INSTALL_KIND).toBe('new')
   })
 
-  it('shows once: finishing stores the flag and starts the tour', async () => {
+  it('shows once: finishing stores the flag', async () => {
     const m = await load()
 
     m.finishFirstRun()
 
     expect(m.$welcomeDone.get()).toBe(true)
     expect(m.$firstRunActive.get()).toBe(false)
-    expect(m.$mainTourActive.get()).toBe(true)
     expect(window.localStorage.getItem('clover.desktop.welcomeDone')).toBe('true')
-  })
-
-  it('skip setup finishes without a tour', async () => {
-    const m = await load()
-
-    m.finishFirstRun({ tour: false })
-
-    expect(m.$mainTourActive.get()).toBe(false)
   })
 
   it('can be reopened later, from the first step, without clearing the flag', async () => {
@@ -86,25 +77,21 @@ describe('first-run store', () => {
     m.showWelcomeAgain()
 
     expect(m.$firstRunActive.get()).toBe(true)
-    expect(m.$firstRunStep.get()).toBe('welcome')
+    expect(m.$firstRunStep.get()).toBe('setup')
     expect(m.$welcomeDone.get()).toBe(true)
 
-    m.finishFirstRun({ tour: false })
+    m.finishFirstRun()
 
     expect(m.$firstRunActive.get()).toBe(false)
   })
 
-  it('walks welcome → ai → name → phone and clamps at the ends', async () => {
+  it('is a single screen: next and previous clamp', async () => {
     const m = await load()
 
     m.nextFirstRunStep()
-    expect(m.$firstRunStep.get()).toBe('ai')
-    m.nextFirstRunStep()
-    m.nextFirstRunStep()
-    m.nextFirstRunStep()
-    expect(m.$firstRunStep.get()).toBe('phone')
+    expect(m.$firstRunStep.get()).toBe('setup')
     m.previousFirstRunStep()
-    expect(m.$firstRunStep.get()).toBe('name')
+    expect(m.$firstRunStep.get()).toBe('setup')
   })
 
   it('adopting an existing profile turns the extras on and steps the welcome aside', async () => {

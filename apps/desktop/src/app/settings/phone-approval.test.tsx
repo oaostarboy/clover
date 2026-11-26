@@ -7,6 +7,12 @@ const notify = vi.fn()
 vi.mock('@/api/client', () => ({ cloverApi: (req: unknown) => api(req) }))
 vi.mock('@/store/notifications', () => ({ notifyError: vi.fn() }))
 
+vi.mock('@/store/first-run', async () => {
+  const { atom } = await import('nanostores')
+
+  return { $firstRunActive: atom(false) }
+})
+
 import { PhoneApprovalHost } from './phone-approval'
 
 const pendingDevice = (over: Record<string, unknown> = {}) => ({

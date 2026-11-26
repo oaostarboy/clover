@@ -3,8 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 import { $subagentsBySession, upsertSubagent } from '@/store/subagents'
 
-import { SubagentStrip } from './subagent-strip'
-vi.mock('@/components/assistant-ui/thread/delegation-particles', () => ({ DelegationBerths: () => <span /> }))
+import { helperSummary, SubagentStrip } from './subagent-strip'
 const request = vi.fn().mockResolvedValue({ found: true })
 vi.mock('@/store/session-states', () => ({ requestForOwnedSession: (...args: unknown[]) => request(...args) }))
 vi.mock('@/store/windows', () => ({ openSessionInNewWindow: vi.fn() }))
@@ -34,11 +33,30 @@ it('keeps real thinking and Stop available without animation finishing the job',
   )
   expect(screen.getByText('Backend failure')).toBeTruthy()
 })
-it('distinguishes failed workers from those still running', () => {
+it('summarises the helpers in one plain line', () => {
   upsertSubagent('s', { subagent_id: 'a', goal: 'One', status: 'running' })
   upsertSubagent('s', { subagent_id: 'b', goal: 'Two', status: 'running' })
-  upsertSubagent('s', { subagent_id: 'b', status: 'failed' }, false, 'subagent.complete')
+  upsertSubagent('s', { subagent_id: 'c', goal: 'Three', status: 'running' })
+  upsertSubagent('s', { subagent_id: 'b', status: 'failed', summary: 'No access' }, false, 'subagent.complete')
+  upsertSubagent('s', { subagent_id: 'c', status: 'completed' }, false, 'subagent.complete')
   render(<SubagentStrip sessionId="s" />)
-  expect(screen.getByRole('button', { expanded: false }).textContent).toContain('1 Running')
-  expect(screen.getByRole('button', { expanded: false }).textContent).toContain('1 Failed')
+  expect(screen.getByTestId('helper-summary').textContent).toBe('3 helpers · 1 working · 1 done · 1 failed')
+  // Failure is visible without opening anything.
+  expect(screen.getByText('No access')).toBeTruthy()
+  const dots = [...document.querySelectorAll('.helper-dot')].map(d => d.getAttribute('data-tone'))
+  expect(dots).toEqual(['working', 'failed', 'done'])
+})
+
+it('formats singular and stopped', () => {
+  const base = { filesRead: [], filesWritten: [], goal: 'x', parentId: null, startedAt: 0, stream: [], taskCount: 1, taskIndex: 0, updatedAt: 0 }
+
+  expect(helperSummary([{ ...base, id: 'a', status: 'running' }])).toBe('1 helper · 1 working')
+  expect(helperSummary([{ ...base, id: 'a', status: 'interrupted' }])).toBe('1 helper · 1 stopped')
+})
+
+it('shows Stop only while a helper is active', () => {
+  upsertSubagent('s', { subagent_id: 'a', goal: 'One', status: 'running' })
+  upsertSubagent('s', { subagent_id: 'b', goal: 'Two', status: 'completed' })
+  render(<SubagentStrip sessionId="s" />)
+  expect(screen.getAllByRole('button', { name: 'Stop' })).toHaveLength(1)
 })

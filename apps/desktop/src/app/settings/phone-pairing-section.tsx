@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cloverApi } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/ui/copy-button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { Check, QrCode, Scan, Smartphone } from '@/lib/icons'
 import {
@@ -284,7 +285,9 @@ function GatewayAddressForm({ onSaved }: { onSaved: () => void }) {
   )
 }
 
-export function PhonePairingSection() {
+/** compact = T3-style: a calm row with a Connect button; the one-time code opens in a dialog. */
+export function PhonePairingSection({ compact = false }: { compact?: boolean }) {
+  const [dialogOpen, setDialogOpen] = useState(false)
   const [status, setStatus] = useState<null | PhonePairingStatus>(null)
   const [failed, setFailed] = useState(false)
   const [code, setCode] = useState<null | PhonePairingCode>(null)
@@ -324,12 +327,12 @@ export function PhonePairingSection() {
       .then(s => {
         setStatus(s)
 
-        if (s.configured) {
+        if (s.configured && !compact) {
           void newCode()
         }
       })
       .catch(() => setFailed(true))
-  }, [newCode])
+  }, [newCode, compact])
 
   useEffect(load, [load])
 
@@ -396,29 +399,13 @@ export function PhonePairingSection() {
 
   const remaining = Math.max(0, (expiresAt - now) / 1000)
   const expired = Boolean(code) && !connected && remaining <= 0
-  // The phone for the code on screen isn't a "device" until it connects; hide it from the list until then.
-  const paired = devices.filter(d => d.connected && !(code?.device?.id === d.id && !connected))
 
-  return (
-    <section className="mb-8">
-      {failed ? (
-        <div className="flex items-center gap-3 py-2 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
-          Could not load pairing details.
-          <Button onClick={load} size="sm" variant="secondary">
-            Try again
-          </Button>
-        </div>
-      ) : !status ? null : status.reason === 'relay_auth_rejected' ? (
-        <div className="flex items-center gap-3 py-2 text-[length:var(--conversation-caption-font-size)] text-destructive" role="alert">
-          The phone relay rejected this computer, so the link is stopped. Check your Clover account or reinstall, then try again.
-          <Button onClick={load} size="sm" variant="secondary">
-            Try again
-          </Button>
-        </div>
-      ) : !status.configured ? (
-        <GatewayAddressForm onSaved={load} />
-      ) : (
-        <>
+  // The phone for the code on screen isn't a "device" until it connects; hide it from the list until then.
+  const paired = devices.filter(
+    d => (d.connected || (compact && d.status === 'pending')) && !(code?.device?.id === d.id && !connected)
+  )
+
+  const qrCard = (
           <div className="flex flex-wrap items-center gap-x-12 gap-y-8 rounded-2xl bg-(--ui-bg-quaternary) px-10 py-10">
             <div className="flex flex-col items-center gap-3">
               <QrTile>
@@ -453,7 +440,7 @@ export function PhonePairingSection() {
             </div>
 
             <div className="min-w-0 flex-1 basis-64">
-              <h3 className="text-3xl font-semibold tracking-tight text-foreground">Connect your iPhone</h3>
+              <h3 className={compact ? 'text-lg font-medium text-foreground' : 'text-3xl font-semibold tracking-tight text-foreground'}>Connect your iPhone</h3>
               <p className="mt-1.5 text-[length:var(--conversation-text-font-size)] text-(--ui-text-secondary)">
                 Open Clover on your iPhone and scan this code. That&apos;s it.
               </p>
@@ -473,11 +460,76 @@ export function PhonePairingSection() {
               </ul>
               {code?.uri && !connected ? (
                 <div className="mt-5 -ml-2">
-                  <CopyButton appearance="button" buttonVariant="ghost" label="Copy link" showLabel text={code.uri} />
+                  <CopyButton appearance="button" buttonVariant="ghost" label={compact ? 'Copy code' : 'Copy link'} showLabel text={code.uri} />
                 </div>
               ) : null}
             </div>
           </div>
+  )
+
+  const connectPhone = () => {
+    setDialogOpen(true)
+    void newCode()
+  }
+
+  return (
+    <section className="mb-8">
+      {failed ? (
+        <div className="flex items-center gap-3 py-2 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
+          Could not load pairing details.
+          <Button onClick={load} size="sm" variant="secondary">
+            Try again
+          </Button>
+        </div>
+      ) : !status ? null : status.reason === 'relay_auth_rejected' ? (
+        <div className="flex items-center gap-3 py-2 text-[length:var(--conversation-caption-font-size)] text-destructive" role="alert">
+          The phone relay rejected this computer, so the link is stopped. Check your Clover account or reinstall, then try again.
+          <Button onClick={load} size="sm" variant="secondary">
+            Try again
+          </Button>
+        </div>
+      ) : !status.configured ? (
+        <GatewayAddressForm onSaved={load} />
+      ) : (
+        <>
+          {compact ? null : qrCard}
+
+          {compact ? (
+            <>
+              <div className="flex items-center gap-4 rounded-2xl bg-(--ui-bg-quaternary) px-5 py-4">
+                <Smartphone className="size-5 shrink-0 text-(--ui-text-tertiary)" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[length:var(--conversation-text-font-size)] font-medium text-foreground">
+                    Connect your phone
+                  </div>
+                  <div className="text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
+                    Scan a one-time code with Clover on your iPhone. Lucky you, it takes ten seconds.
+                  </div>
+                </div>
+                <Button onClick={connectPhone} size="sm">
+                  Connect your phone
+                </Button>
+              </div>
+              <Dialog
+                onOpenChange={open => {
+                  setDialogOpen(open)
+
+                  if (!open) {
+                    setConnected(false)
+                  }
+                }}
+                open={dialogOpen}
+              >
+                <DialogContent className="max-w-3xl">
+                  <DialogHeader>
+                    <DialogTitle>Connect your phone</DialogTitle>
+                    <DialogDescription>One code, one phone. It stops working after you use it.</DialogDescription>
+                  </DialogHeader>
+                  {qrCard}
+                </DialogContent>
+              </Dialog>
+            </>
+          ) : null}
 
           <div className="mt-6 px-1">
             <h4 className="text-[length:var(--conversation-text-font-size)] font-medium text-foreground">
@@ -496,7 +548,7 @@ export function PhonePairingSection() {
               </ul>
             ) : (
               <p className="mt-1.5 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
-                No phones connected yet. Scan the code above to add one.
+                {compact ? 'No phones yet. Connect one and it shows up here.' : 'No phones connected yet. Scan the code above to add one.'}
               </p>
             )}
           </div>

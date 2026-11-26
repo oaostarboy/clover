@@ -234,7 +234,7 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
 
     return [
       ...everyday.map(sectionLink),
-      link('phone', Smartphone, 'Phone'),
+      link('phone', Smartphone, 'Phone & devices'),
       link('extras', Starmap, 'Extras'),
       link('notifications', Bell, t.settings.nav.notifications),
       link('sessions', Archive, t.settings.nav.archivedChats),

@@ -19,8 +19,8 @@ vi.mock('@/i18n', () => ({
   useI18n: () => ({
     t: {
       composer: {
-        newSessionPlaceholders: ['Give Clover a task'],
-        followUpPlaceholders: ['Send a follow-up'],
+        newSessionPlaceholders: ['Ask Clover anything…'],
+        followUpPlaceholders: ['Ask Clover anything…'],
         placeholderStarting: 'Starting Clover...',
         placeholderReconnecting: 'Reconnecting to Clover…'
       }
@@ -132,7 +132,7 @@ describe('composer identity follows the focused chat owner', () => {
     act(() => $botMeta.set({ 'source-a::default': { title: 'Captain' } }))
     expect(input.getAttribute('data-placeholder')).toBe('Ask Captain anything…')
     rerender(<Input />)
-    expect(input.getAttribute('data-placeholder')).toBe('Give Captain a task')
+    expect(input.getAttribute('data-placeholder')).toBe('Ask Captain anything…')
     rerender(<Input disabled landing reconnecting />)
     expect(input.getAttribute('data-placeholder')).toBe('Reconnecting to Clover…')
     rerender(<Input disabled landing />)

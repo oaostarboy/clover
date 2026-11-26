@@ -14,10 +14,10 @@ afterEach(() => {
 
 describe('landing suggestions', () => {
   it.each([
-    ['explore ideas', 'Help me explore ideas for'],
-    ['refine my writing', 'Help me refine my writing:'],
-    ['plan a project', 'Help me plan a project:'],
-    ['research a topic', 'Help me research a topic:']
+    ['Draft a quote', 'Help me draft a quote for'],
+    ['Plan my week', 'Help me plan my week:'],
+    ['Reply to a client', 'Help me reply to a client:'],
+    ['Feeling lucky?', 'Surprise me with an idea for']
   ])('puts %s into the intended composer without submitting', (label, prompt) => {
     render(<LandingSuggestions target="tile:example" />)
     fireEvent.click(screen.getByRole('button', { name: label }))

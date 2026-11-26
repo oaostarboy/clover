@@ -38,3 +38,8 @@ if (typeof (globalThis as any).localStorage === 'undefined') {
 // CPU contention in CI. Success still resolves the instant the node appears;
 // the wider deadline only absorbs a starved runner, killing timing flakes.
 configure({ asyncUtilTimeout: 5000 })
+
+// Tests describe the classic layout; the calm new-install layout has its own tests.
+try {
+  localStorage.setItem('clover.desktop.installKind', 'existing')
+} catch {}

@@ -25,6 +25,7 @@ import { FirstRunHost } from '@/components/first-run/host'
 import { GatewayConnectingOverlay } from '@/components/gateway-connecting-overlay'
 import { NotificationStack } from '@/components/notifications'
 import { DesktopOnboardingOverlay } from '@/components/onboarding'
+import { setCalmChrome } from '@/components/pane-shell/tree/renderer/strip-visibility'
 import { $newSessionTabAction, registerPaneCloser } from '@/components/pane-shell/tree/store'
 import {
   $workspaceMode,
@@ -45,7 +46,7 @@ import { $desktopBoot } from '@/store/boot'
 import { requestVoiceConversationStart } from '@/store/composer'
 import { $activeConnectionId } from '@/store/connections'
 import { $cronReviewRequest, setCronFocusJobId } from '@/store/cron'
-import { $extraHud, $extraPet, $extraWindowControls } from '@/store/first-run'
+import { $calmDesktop, $extraHud, $extraPet, $extraWindowControls } from '@/store/first-run'
 import { $pinnedSessionIds, pinSession, restoreWorktree, unpinSession } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
 import { $previewTarget } from '@/store/preview'
@@ -171,6 +172,7 @@ const StarmapView = lazy(async () => ({ default: (await import('../starmap')).St
 export { WiredPane } from './context'
 
 export function ContribWiring({ children }: { children: ReactNode }) {
+  setCalmChrome($calmDesktop.get())
   const queryClient = useQueryClient()
   const location = useLocation()
   const navigate = useNavigate()

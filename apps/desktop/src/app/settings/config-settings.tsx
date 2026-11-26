@@ -387,7 +387,7 @@ function ConfigSettingsInner({
           where image-attachment behavior already lives, so this sits above the
           schema fields for that section. */}
       {activeSectionId === 'chat' ? <AttachmentSizeSetting /> : null}
-      {visibleFields.length === 0 && activeSectionId !== 'chat' ? (
+      {visibleFields.length === 0 && activeSectionId !== 'chat' && activeSectionId !== 'model' ? (
         <EmptyState description={c.emptyDesc} title={c.emptyTitle} />
       ) : visibleFields.length === 0 ? null : (
         <div className="grid gap-1">

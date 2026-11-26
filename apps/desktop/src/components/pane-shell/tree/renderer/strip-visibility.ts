@@ -63,8 +63,20 @@ function stranded(shown: readonly StripPane[]): boolean {
   return shown.length === 1 && shown[0].collapsePane
 }
 
+// New installs start calm: a zone of only hide-only tabs (SESSIONS | BOTS) shows no strip.
+// Set once from the app shell; the zone menu and the More menu still reach Bots.
+let calmChrome = false
+
+export function setCalmChrome(value: boolean) {
+  calmChrome = value
+}
+
 export function resolveTabStripVisible(zone: StripZone): boolean {
   if (zone.shown.length === 0) {
+    return false
+  }
+
+  if (calmChrome && zone.shown.every(pane => pane.hideOnly)) {
     return false
   }
 
