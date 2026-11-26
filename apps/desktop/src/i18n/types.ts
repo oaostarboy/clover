@@ -904,6 +904,8 @@ export interface Translations {
     model: {
       loading: string
       appliesDesc: string
+      mainTitle?: string
+      auxiliaryShow?: string
       provider: string
       model: string
       applying: string
@@ -1823,6 +1825,7 @@ export interface Translations {
     shiftClickHint: string
     noWorkspace: string
     projectEmpty: string
+    noChatsLuck?: string
     noSessions: string
     noFilterMatches: string
     projects: {

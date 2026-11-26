@@ -20,6 +20,10 @@ const HEADLINES = [
   "I brought luck. What’s the plan?",
   "Good thing you picked this leaf.",
   "Coincidence? I prefer credit.",
+  "Feeling lucky? Ask me anything.",
+  "What should we get lucky with today?",
+  "Odds are good. Ask away.",
+  "Got a hunch? Let’s test your luck.",
 ]
 
 afterEach(cleanup)

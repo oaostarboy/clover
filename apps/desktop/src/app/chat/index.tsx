@@ -31,7 +31,7 @@ import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
 import { migrateSessionDraft } from '@/store/composer'
 import { migrateQueuedPrompts, parkQueuedPrompts } from '@/store/composer-queue'
-import { $extraBackdrop } from '@/store/first-run'
+import { $calmDesktop, $extraBackdrop } from '@/store/first-run'
 import { $introSplash } from '@/store/intro-splash'
 import { $pinnedSessionIds } from '@/store/layout'
 import { $petActive } from '@/store/pet'
@@ -620,6 +620,7 @@ const ChatViewContent = memo(function ChatViewContent({
 
   const continuationRef = useConversationContinuation(showIntro)
   const extraBackdrop = useStore($extraBackdrop)
+  const calm = useStore($calmDesktop)
 
   return (
     <div
@@ -627,6 +628,7 @@ const ChatViewContent = memo(function ChatViewContent({
         'relative isolate flex h-full min-w-0 flex-col overflow-hidden bg-(--ui-chat-surface-background)',
         className
       )}
+      data-calm={calm ? '' : undefined}
       data-chat-surface=""
       data-chat-unfocused={surfaceFocused ? undefined : ''}
       data-composer-surface-id={composerSurfaceId}
@@ -636,7 +638,7 @@ const ChatViewContent = memo(function ChatViewContent({
       ref={continuationRef}
     >
       <Backdrop />
-      {showIntro && (
+      {showIntro && !calm && (
         <Button className="landing-history" onClick={() => setSessionPickerOpen(true)} size="sm" type="button" variant="outline">
           History
         </Button>

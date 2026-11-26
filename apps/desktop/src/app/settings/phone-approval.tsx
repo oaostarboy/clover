@@ -1,3 +1,4 @@
+import { useStore } from '@nanostores/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { cloverApi } from '@/api/client'
@@ -11,6 +12,7 @@ import {
   PHONE_RIGHTS,
   type PhoneRightId
 } from '@/lib/phone-pairing'
+import { $firstRunActive } from '@/store/first-run'
 import { notifyError } from '@/store/notifications'
 
 const POLL_MS = 4000
@@ -151,6 +153,8 @@ function ApprovalSheet({ device, onDone }: { device: PairedDevice; onDone: () =>
  * approval sheet. A request already answered elsewhere drops out on the next poll.
  */
 export function PhoneApprovalHost() {
+  // The first-run phone step shows its own one-click approval.
+  const firstRun = useStore($firstRunActive)
   const [devices, setDevices] = useState<PairedDevice[]>([])
   const [dismissed, setDismissed] = useState<null | string>(null)
   const announced = useRef(new Set<string>())
@@ -190,7 +194,7 @@ export function PhoneApprovalHost() {
     })
   }, [device, request])
 
-  if (!device || !request || dismissed === request.request_id) {
+  if (firstRun || !device || !request || dismissed === request.request_id) {
     return null
   }
 

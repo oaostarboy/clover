@@ -368,8 +368,8 @@ export const FREE_INPUT_KEYS = new Set([
 
 export const FIELD_LABELS: Record<string, string> = defineFieldCopy({
   model: 'Default Model',
-  modelContextLength: 'Context Window',
-  fallbackProviders: 'Fallback Models',
+  modelContextLength: 'How much the AI remembers',
+  fallbackProviders: 'Backup AIs',
   toolsets: 'Enabled Toolsets',
   timezone: 'Timezone',
   display: {
@@ -537,8 +537,8 @@ export const FIELD_LABELS: Record<string, string> = defineFieldCopy({
 
 export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
   model: 'Used for new chats unless you pick a different model in the composer.',
-  modelContextLength: "Leave at 0 to use the selected model's detected context window.",
-  fallbackProviders: 'Backup provider:model entries to try if the default model fails.',
+  modelContextLength: "Leave at 0 and Clover uses the most your AI can handle.",
+  fallbackProviders: 'Other AIs Clover tries if your main one is down or fails.',
   display: {
     personality: 'Default assistant style for new sessions.',
     showReasoning: 'Show reasoning sections when the backend provides them.'
@@ -624,9 +624,9 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
 export const SECTIONS: DesktopConfigSection[] = [
   {
     id: 'model',
-    label: 'Model',
+    label: 'Your AI',
     icon: Box,
-    keys: ['model_context_length', 'fallback_providers']
+    keys: []
   },
   {
     id: 'chat',
@@ -746,6 +746,8 @@ export const SECTIONS: DesktopConfigSection[] = [
     label: 'Advanced',
     icon: Wrench,
     keys: [
+      'model_context_length',
+      'fallback_providers',
       'toolsets',
       'terminal.backend',
       'terminal.timeout',

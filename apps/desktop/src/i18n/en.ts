@@ -277,7 +277,7 @@ export const en: Translations = {
       'nav.artifacts': 'Open artifacts',
       'nav.cron': 'Open scheduled jobs',
       'nav.agents': 'Open agents',
-      'session.new': 'New session',
+      'session.new': 'New chat',
       'session.newTab': 'New session tab',
       'session.newWindow': 'New window',
       'session.next': 'Next session',
@@ -504,7 +504,7 @@ export const en: Translations = {
       completionSoundPreview: 'Preview'
     },
     sections: {
-      model: 'Model',
+      model: 'Your AI',
       chat: 'Chat',
       appearance: 'Appearance',
       workspace: 'Workspace',
@@ -1038,7 +1038,8 @@ export const en: Translations = {
     },
     model: {
       loading: 'Loading model configuration...',
-      appliesDesc: 'Applies to new sessions. Use the model picker in the composer to hot-swap the active chat.',
+      mainTitle: 'Your AI',
+      appliesDesc: 'The AI Clover thinks with in new chats. You can switch any chat from the box where you type.',
       provider: 'Provider',
       model: 'Model',
       applying: 'Applying...',
@@ -1046,9 +1047,10 @@ export const en: Translations = {
       reasoning: 'Reasoning',
       reasoningOff: 'Off',
       defaultsFailed: 'Failed to save model defaults',
-      auxiliaryTitle: 'Auxiliary models',
+      auxiliaryTitle: 'Helper AIs',
+      auxiliaryShow: 'Show',
       resetAllToMain: 'Reset all to main',
-      auxiliaryDesc: 'Helper tasks run on the main model by default. Assign a dedicated model to any task to override.',
+      auxiliaryDesc: 'Small jobs like titles and image reading use your main AI. Change one only if you want to.',
       setToMain: 'Set to main',
       change: 'Change',
       autoUseMain: 'auto · use main model',
@@ -1469,7 +1471,7 @@ export const en: Translations = {
       usage: 'Token, cost, and skill activity over time'
     },
     nav: {
-      newChat: { title: 'New session', detail: 'Start a fresh session' },
+      newChat: { title: 'New chat', detail: 'Start a fresh chat' },
       settings: { title: 'Settings', detail: 'Configure Clover desktop' },
       skills: { title: 'Capabilities', detail: 'Skills, tools, and MCP servers' },
       messaging: { title: 'Messaging', detail: 'Set up Telegram, Slack, Discord, and more' },
@@ -2123,7 +2125,7 @@ export const en: Translations = {
 
   sidebar: {
     nav: {
-      'new-session': 'New session',
+      'new-session': 'New chat',
       skills: 'Capabilities',
       messaging: 'Messaging',
       artifacts: 'Artifacts',
@@ -2132,12 +2134,12 @@ export const en: Translations = {
     expandNavigation: 'Sessions and projects',
     collapseNavigation: 'Collapse navigation',
     searchAria: 'Search sessions',
-    searchPlaceholder: 'Search sessions…',
+    searchPlaceholder: 'Search chats…',
     clearSearch: 'Clear search',
     noMatch: query => `No sessions match “${query}”.`,
     results: 'Results',
     pinned: 'Pinned',
-    sessions: 'Sessions',
+    sessions: 'Chats',
     cronJobs: 'Cron jobs',
     groupAriaGrouped: 'Show sessions as a single list',
     groupAriaUngrouped: 'Group sessions by workspace',
@@ -2148,8 +2150,9 @@ export const en: Translations = {
     allPinned: 'Everything here is pinned. Unpin a chat to show it in recents.',
     shiftClickHint: 'Shift-click a chat to pin',
     noWorkspace: 'No workspace',
-    projectEmpty: 'No sessions yet',
-    noSessions: 'No sessions yet',
+    projectEmpty: 'No chats yet — luck is on its way',
+    noSessions: 'No chats yet',
+    noChatsLuck: 'No chats yet. Your luck starts with the first one.',
     noFilterMatches: 'No sessions match these filters',
     projects: {
       sectionLabel: 'Projects',
@@ -2299,22 +2302,20 @@ export const en: Translations = {
     placeholderReconnecting: 'Reconnecting to Clover…',
     placeholderFollowUp: 'Send follow-up',
     newSessionPlaceholders: [
-      'What are we building?',
-      'Give Clover a task',
-      "What's on your mind?",
-      'Describe what you need',
-      'What should we tackle?',
-      'Ask anything',
-      'Start with a goal'
+      'Feeling lucky? Ask away',
+      'Luck favors the curious',
+      'Ask anything. The odds are good',
+      'Push your luck a little',
+      'Got an idea? Let’s get lucky',
+      'Ask anything'
     ],
     followUpPlaceholders: [
       'Send a follow-up',
       'Add more context',
-      'Refine the request',
-      "What's next?",
-      'Keep it going',
-      'Push it further',
-      'Adjust or continue'
+      'Keep the streak going',
+      'Press your luck',
+      'Add a little more luck',
+      'One more roll?'
     ],
     startVoice: 'Start voice conversation',
     openDirective: 'Open',
