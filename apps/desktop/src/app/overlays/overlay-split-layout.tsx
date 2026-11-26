@@ -155,6 +155,9 @@ export interface OverlayNavGroup extends OverlayNavLink {
   /** Visual break before this group — a spacer on the rail, a separator in
    *  the dropdown. */
   gapBefore?: boolean
+  /** Small caption above this item, like T3's "Connections" / "Agents". It
+   *  replaces the spacer: a labelled group starts a new section on its own. */
+  groupLabel?: string
 }
 
 // Data-driven pane nav: one model renders a persistent left rail on wide
@@ -162,13 +165,32 @@ export interface OverlayNavGroup extends OverlayNavLink {
 // dropdown in PageSearchShell), so every OverlaySplitLayout pane degrades the
 // same way instead of stacking its whole sidebar. Drop it in as the first
 // child of an OverlaySplitLayout, before OverlayMain.
-export function OverlayNav({ footer, groups }: { footer?: ReactNode; groups: OverlayNavGroup[] }) {
+export function OverlayNav({
+  footer,
+  groups,
+  top
+}: {
+  footer?: ReactNode
+  groups: OverlayNavGroup[]
+  /** Pinned above the links on the wide rail (the page's search row). */
+  top?: ReactNode
+}) {
   return (
     <>
       <OverlaySidebar className={RAIL_HIDDEN}>
+        {top}
         {groups.map(group => (
           <Fragment key={group.id}>
-            {group.gapBefore && <div aria-hidden className="h-2" />}
+            {group.groupLabel ? (
+              <div
+                className="px-2 pb-1 pt-4 text-[0.6875rem] font-medium text-(--ui-text-quaternary)"
+                data-slot="nav-group-label"
+              >
+                {group.groupLabel}
+              </div>
+            ) : (
+              group.gapBefore && <div aria-hidden className="h-2" />
+            )}
             <OverlayNavItem
               active={group.active}
               icon={group.icon}
@@ -217,7 +239,7 @@ export function OverlayNav({ footer, groups }: { footer?: ReactNode; groups: Ove
                 id: group.id,
                 label: group.label,
                 onSelect: group.onSelect,
-                separatorBefore: group.gapBefore
+                separatorBefore: group.gapBefore || Boolean(group.groupLabel)
               },
               ...(group.children ?? []).map(child => ({
                 active: child.active,

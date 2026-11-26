@@ -162,3 +162,37 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
     </span>
   )
 }
+
+// T3 puts a word next to the dot, not only a color: color alone is a guess.
+// Plain words for a small-business user, only for the states worth a glance:
+// idle, draft and background chats stay quiet.
+export const SESSION_STATUS_WORDS: Partial<Record<SessionDotState, string>> = {
+  'needs-input': 'Needs you',
+  stalled: 'Working',
+  unread: 'Done',
+  working: 'Working'
+}
+
+export function SessionStatusWord({ storedSessionId }: { storedSessionId: null | string }) {
+  const word = useStoreSelector($sessionDotStateById, states =>
+    storedSessionId ? SESSION_STATUS_WORDS[states[storedSessionId] ?? 'idle'] ?? null : null
+  )
+
+  if (!word) {
+    return null
+  }
+
+  const needs = word === 'Needs you'
+
+  return (
+    <span
+      className={cn(
+        'shrink-0 text-[0.6875rem]',
+        needs ? 'font-medium text-amber-500' : 'text-(--ui-text-tertiary)'
+      )}
+      data-slot="session-status-word"
+    >
+      {word}
+    </span>
+  )
+}

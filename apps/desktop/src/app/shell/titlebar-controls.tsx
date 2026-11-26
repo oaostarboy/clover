@@ -34,6 +34,7 @@ import {
   titlebarIconSizeCss,
   titlebarToolClusterClass
 } from './titlebar'
+import { TitlebarChatTitle } from './titlebar-chat-title'
 import { TitlebarIcon } from './titlebar-icon'
 
 export interface TitlebarTool {
@@ -277,6 +278,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
 
   return (
     <>
+      <TitlebarChatTitle />
       <div
         aria-label={t.shell.windowControls}
         className={cn(
