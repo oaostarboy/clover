@@ -115,7 +115,7 @@ function fallbackCopyForPersonality(personalityKey: string): IntroCopy[] {
 
   return [
     {
-      headline: `${label} mode is on. What should we work on?`,
+      headline: `${label} mode is on. Feeling lucky?`,
       body: "Send the task, file, or rough idea. I'll use your configured voice and keep the work grounded in this repo."
     },
     {
@@ -127,11 +127,11 @@ function fallbackCopyForPersonality(personalityKey: string): IntroCopy[] {
       body: "Send the problem, file, or idea. I'll follow the personality you've configured."
     },
     {
-      headline: `What should ${label} Clover tackle?`,
+      headline: `${label} Clover feels lucky.`,
       body: "Drop the task here. I'll keep the work grounded in the repo."
     },
     {
-      headline: 'Where should we begin?',
+      headline: 'Luck starts here.',
       body: `Give me the context and I'll answer in ${label} mode.`
     }
   ]

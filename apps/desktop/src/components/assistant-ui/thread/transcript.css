@@ -280,3 +280,8 @@
   width: 28px !important;
   height: 28px !important;
 }
+
+/* Helper rows: status dot. Working breathes gently; reduced motion holds still. */
+@keyframes helper-breathe { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .55; transform: scale(.82); } }
+.helper-dot-working { animation: helper-breathe 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .helper-dot-working { animation: none; } }

@@ -4,6 +4,7 @@ import spinners, { type BrailleSpinnerName } from 'unicode-animations'
 
 import { THINKING_COT_MAX } from '../config/limits.js'
 import { sectionMode } from '../domain/details.js'
+import { helperRows, helperSummary } from '../lib/helperRows.js'
 import {
   buildSubagentTree,
   fmtTokens,
@@ -743,6 +744,7 @@ export const ToolTrail = memo(function ToolTrail({
   const [openThinking, setOpenThinking] = useState(thinkingDefaultExpanded || reasoningAlwaysVisible)
   const [openTools, setOpenTools] = useState(visible.tools === 'expanded')
   const [openSubagents, setOpenSubagents] = useState(visible.subagents === 'expanded')
+  const [calmClosed, setCalmClosed] = useState(false)
   const [deepSubagents, setDeepSubagents] = useState(visible.subagents === 'expanded')
   const [openMeta, setOpenMeta] = useState(visible.activity === 'expanded')
 
@@ -1008,21 +1010,60 @@ export const ToolTrail = memo(function ToolTrail({
       ? 'warn'
       : 'dim'
 
-  const renderSubagentList = (rails: boolean[]) => (
-    <Box flexDirection="column">
-      {spawnTree.map((node, index) => (
-        <SubagentAccordion
-          branch={index === spawnTree.length - 1 ? 'last' : 'mid'}
-          expanded={visible.subagents === 'expanded' || deepSubagents}
-          key={node.item.id}
-          node={node}
-          peak={spawnPeak}
-          rails={rails}
-          t={t}
-        />
-      ))}
-    </Box>
-  )
+  const calmHelpers = visible.subagents !== 'expanded' && !deepSubagents && spawnTree.every(n => !n.children.length)
+
+  // Calm card (default): one row per helper — mark, task, timer.  Open the
+  // panel with shift+click (or /agents) for the full tree.
+  const renderHelperRows = (rails: boolean[]) => {
+    const { more, shown } = helperRows(
+      spawnTree.map(n => n.item),
+      now
+    )
+
+    return (
+      <Box flexDirection="column">
+        {inlineDelegateKey ? (
+          <TreeTextRow branch="mid" color={t.color.text} content={helperSummary(subagents)} rails={rails} t={t} />
+        ) : null}
+        {shown.map((row, index) => (
+          <TreeTextRow
+            branch={index === shown.length - 1 && !more ? 'last' : 'mid'}
+            color={row.kind === 'failed' ? t.color.error : row.kind === 'working' ? t.color.text : t.color.muted}
+            content={
+              <>
+                {row.text}
+                {row.reason ? <Text color={t.color.muted}>{`  ${row.reason}`}</Text> : null}
+              </>
+            }
+            dimColor={row.kind === 'done' || row.kind === 'waiting' || row.kind === 'stopped'}
+            key={row.id}
+            rails={rails}
+            t={t}
+          />
+        ))}
+        {more ? <TreeTextRow branch="last" color={t.color.muted} content={more} dimColor rails={rails} t={t} /> : null}
+      </Box>
+    )
+  }
+
+  const renderSubagentList = (rails: boolean[]) =>
+    calmHelpers ? (
+      renderHelperRows(rails)
+    ) : (
+      <Box flexDirection="column">
+        {spawnTree.map((node, index) => (
+          <SubagentAccordion
+            branch={index === spawnTree.length - 1 ? 'last' : 'mid'}
+            expanded={visible.subagents === 'expanded' || deepSubagents}
+            key={node.item.id}
+            node={node}
+            peak={spawnPeak}
+            rails={rails}
+            t={t}
+          />
+        ))}
+      </Box>
+    )
 
   const panels: {
     header: ReactNode
@@ -1150,29 +1191,35 @@ export const ToolTrail = memo(function ToolTrail({
   if (hasSubagents && !inlineDelegateKey && visible.subagents !== 'hidden') {
     // Spark + summary give a one-line read on the branch shape before
     // opening the subtree.  `/agents` opens the full-screen audit overlay.
-    const suffix = spawnSpark ? `${spawnSummaryLabel}  ${spawnSpark}  (/agents)` : `${spawnSummaryLabel}  (/agents)`
+    const suffix = calmHelpers
+      ? '(/agents)'
+      : spawnSpark
+        ? `${spawnSummaryLabel}  ${spawnSpark}  (/agents)`
+        : `${spawnSummaryLabel}  (/agents)`
 
     panels.push({
       header: (
         <Chevron
-          count={spawnTotals.descendantCount}
+          count={calmHelpers ? undefined : spawnTotals.descendantCount}
           onClick={shift => {
             if (shift) {
               expandAll()
               setDeepSubagents(true)
+            } else if (calmHelpers) {
+              setCalmClosed(v => !v)
             } else {
               setOpenSubagents(v => !v)
               setDeepSubagents(false)
             }
           }}
-          open={openSubagents}
+          open={calmHelpers ? !calmClosed : openSubagents}
           suffix={suffix}
           t={t}
-          title="Spawn tree"
+          title={calmHelpers ? helperSummary(subagents) : 'Spawn tree'}
         />
       ),
       key: 'subagents',
-      open: openSubagents,
+      open: calmHelpers ? !calmClosed : openSubagents,
       render: renderSubagentList
     })
   }

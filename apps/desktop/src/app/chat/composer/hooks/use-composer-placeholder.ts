@@ -118,7 +118,5 @@ export function useComposerPlaceholder({
     ? reconnecting
       ? t.composer.placeholderReconnecting
       : t.composer.placeholderStarting
-    : landing
-      ? `Ask ${name} anything…`
-      : restingPlaceholder.replace(/Clover/g, () => name)
+    : restingPlaceholder.replace(/Clover/g, () => name)
 }

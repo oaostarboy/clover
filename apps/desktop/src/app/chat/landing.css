@@ -26,7 +26,7 @@
 
 /* The reference uses a fine, low-contrast technical grid behind the content.
    Keep it within the fresh chat only, and derive its ink from the active skin. */
-[data-chat-surface][data-landing] [data-slot='composer-bounds'] {
+[data-chat-surface][data-landing]:not([data-calm]) [data-slot='composer-bounds'] {
   background-image:
     linear-gradient(to right, color-mix(in srgb, var(--ui-text-primary) 3%, transparent) 1px, transparent 1px),
     linear-gradient(to bottom, color-mix(in srgb, var(--ui-text-primary) 3%, transparent) 1px, transparent 1px);
@@ -60,6 +60,7 @@
 }
 
 .landing-suggestion span {
+  display: none;
   color: var(--ui-accent);
   margin-right: 0.2rem;
 }

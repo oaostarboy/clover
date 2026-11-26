@@ -103,6 +103,7 @@ function Fixture() {
       } as any)
 
     let savedAnchor: ReturnType<typeof $delegationAnchors.get>[string] | undefined
+
     let removeSyntheticAnchor: (() => void) | undefined
 
     ;(window as any).delegationFixture = {

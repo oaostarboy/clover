@@ -3,8 +3,8 @@ import { atom, computed } from 'nanostores'
 import { Codecs, persistentAtom } from '@/lib/persisted'
 import { readKey, writeKey } from '@/lib/storage'
 
-// First-run experience for the desktop app: welcome → get Clover thinking →
-// name it → connect a phone, then a short tour on the real main screen that
+// First-run experience for the desktop app: ONE calm screen (name it, sign in
+// to an AI, optionally connect a phone, Start), like T3 Code's first launch, then a short tour on the real main screen that
 // ends with "You struck gold".
 //
 // State is renderer-local on purpose (it is purely this window's presentation):
@@ -50,9 +50,9 @@ export const INSTALL_KIND: InstallKind = typeof window === 'undefined' ? 'existi
 
 // ── Welcome flow ────────────────────────────────────────────────────────────
 
-export type FirstRunStep = 'ai' | 'name' | 'phone' | 'welcome'
+export type FirstRunStep = 'setup'
 
-export const FIRST_RUN_STEPS: readonly FirstRunStep[] = ['welcome', 'ai', 'name', 'phone']
+export const FIRST_RUN_STEPS: readonly FirstRunStep[] = ['setup']
 
 /** True once the welcome was finished, skipped, or not needed. */
 export const $welcomeDone = persistentAtom<boolean>(WELCOME_DONE_KEY, INSTALL_KIND === 'existing', Codecs.bool)
@@ -60,7 +60,7 @@ export const $welcomeDone = persistentAtom<boolean>(WELCOME_DONE_KEY, INSTALL_KI
 /** Set when the user asks to see the welcome again. Not persisted: a restart ends the replay. */
 export const $welcomeReplay = atom(false)
 
-export const $firstRunStep = atom<FirstRunStep>('welcome')
+export const $firstRunStep = atom<FirstRunStep>('setup')
 
 /** Whether the welcome flow owns the screen right now. */
 export const $firstRunActive = computed([$welcomeDone, $welcomeReplay], (done, replay) => !done || replay)
@@ -81,20 +81,16 @@ export function previousFirstRunStep() {
   $firstRunStep.set(FIRST_RUN_STEPS[Math.max(0, i - 1)])
 }
 
-/** Finish (or skip out of) the welcome for good; optionally hand over to the tour. */
-export function finishFirstRun({ tour = true }: { tour?: boolean } = {}) {
+/** Finish (or skip out of) the welcome for good. */
+export function finishFirstRun() {
   $welcomeDone.set(true)
   $welcomeReplay.set(false)
-  $firstRunStep.set('welcome')
-
-  if (tour) {
-    startMainTour()
-  }
+  $firstRunStep.set('setup')
 }
 
 /** Reopen the welcome from Settings or the command palette. */
 export function showWelcomeAgain() {
-  $firstRunStep.set('welcome')
+  $firstRunStep.set('setup')
   $welcomeReplay.set(true)
 }
 
@@ -124,21 +120,13 @@ export const $extraWindowControls = persistentAtom<boolean>(
   Codecs.bool
 )
 
-// ── Guided tour on the real main screen ────────────────────────────────────
-
-export const $mainTourActive = atom(false)
-
-export function startMainTour() {
-  $mainTourActive.set(true)
-}
-
-export function endMainTour() {
-  $mainTourActive.set(false)
-}
+/** New-install calm chrome: plain sidebar, no grid, tucked controls. Existing users keep their layout. */
+export const $calmDesktop = atom<boolean>(INSTALL_KIND === 'new')
 
 /** The backend already has a working setup: this is not a new install after all. */
 export function adoptExistingProfile() {
   writeKey(INSTALL_KIND_KEY, 'existing')
+  $calmDesktop.set(false)
   $extraPet.set(true)
   $extraStarmap.set(true)
   $extraHud.set(true)
