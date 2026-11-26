@@ -39,6 +39,7 @@ class TestToolKindMap:
 
     def test_tool_kind_terminal(self):
         assert get_tool_kind("terminal") == "execute"
+        assert get_tool_kind("delegate_task") == "other"
 
 
 

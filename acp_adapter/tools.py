@@ -50,7 +50,8 @@ TOOL_KIND_MAP: Dict[str, ToolKind] = {
     "browser_back": "execute",
     "browser_get_images": "read",
     # Agent internals
-    "delegate_task": "execute",
+    # Helpers keep their title in ACP clients that collapse "execute" into a bare "Ran command".
+    "delegate_task": "other",
     "vision_analyze": "read",
     "image_generate": "execute",
     "text_to_speech": "execute",

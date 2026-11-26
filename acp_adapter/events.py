@@ -11,10 +11,10 @@ import asyncio
 import json
 import logging
 from collections import deque
-from typing import Any, Callable, Deque, Dict
+from typing import Any, Callable, Deque, Dict, Optional
 
 import acp
-from acp.schema import AgentPlanUpdate, PlanEntry
+from acp.schema import AgentPlanUpdate, PlanEntry, ToolCallProgress
 
 from .tools import (
     build_tool_complete,
@@ -131,7 +131,12 @@ def make_tool_progress_cb(
     ``reasoning.available``) are silently ignored.
     """
 
+    last_helper_call: Dict[str, str] = {}
+
     def _tool_progress(event_type: str, name: str = None, preview: str = None, args: Any = None, **kwargs) -> None:
+        if isinstance(event_type, str) and event_type.startswith("subagent."):
+            _helper_progress(event_type, name, preview, kwargs)
+            return
         # Only emit ACP ToolCallStart for tool.started; ignore other event types
         if event_type != "tool.started":
             return
@@ -152,6 +157,8 @@ def make_tool_progress_cb(
             queue = deque([queue])
             tool_call_ids[name] = queue
         queue.append(tc_id)
+        if name == "delegate_task":
+            last_helper_call["id"] = tc_id
 
         snapshot = None
         if name in {"write_file", "patch", "skill_manage"}:
@@ -179,7 +186,70 @@ def make_tool_progress_cb(
         update = build_tool_start(tc_id, name, args, edit_diff=edit_diff)
         _send_update(conn, session_id, loop, update)
 
+    def _helper_progress(event_type: str, name: Optional[str], preview: Optional[str], kwargs: Dict[str, Any]) -> None:
+        """Stream helper progress as ``_meta.clover.helper`` on the delegate tool call."""
+        meta = build_helper_meta(event_type, name, preview, kwargs)
+        tc_id = last_helper_call.get("id")
+        if meta is None or not tc_id:
+            return
+        # Only keep the call "in progress" while it is still open; a finished
+        # background dispatch must not be reopened by a late helper event.
+        still_open = tc_id in (tool_call_ids.get("delegate_task") or ())
+        update = ToolCallProgress(
+            session_update="tool_call_update",
+            tool_call_id=tc_id,
+            status="in_progress" if still_open else None,
+            field_meta={"clover": {"helper": meta}},
+        )
+        _send_update(conn, session_id, loop, update)
+
     return _tool_progress
+
+
+_HELPER_STEP_EVENTS = {"subagent.tool", "subagent.thinking", "subagent.progress", "subagent.tool_done"}
+
+
+def build_helper_meta(
+    event_type: str, name: Optional[str], preview: Optional[str], kwargs: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Map a relayed ``subagent.*`` event to the ``_meta.clover.helper`` payload.
+
+    Shape (all keys optional except ``event``)::
+
+        {"event": "start" | "step" | "done" | "failed",
+         "subagentId", "taskIndex", "taskCount", "goal", "model", "text",
+         "toolName", "toolCount", "durationSeconds", "summary"}
+
+    Returns None for events that are not part of the helper progress contract.
+    """
+    if event_type == "subagent.start":
+        kind = "start"
+    elif event_type in _HELPER_STEP_EVENTS:
+        kind = "step"
+    elif event_type == "subagent.complete":
+        status = str(kwargs.get("status") or "").lower()
+        kind = "done" if status in ("", "ok", "completed") else "failed"
+    else:
+        return None
+    meta: Dict[str, Any] = {"event": kind}
+    for src, dst in (
+        ("subagent_id", "subagentId"),
+        ("task_index", "taskIndex"),
+        ("task_count", "taskCount"),
+        ("goal", "goal"),
+        ("model", "model"),
+        ("tool_count", "toolCount"),
+        ("duration_seconds", "durationSeconds"),
+        ("summary", "summary"),
+    ):
+        value = kwargs.get(src)
+        if value is not None and value != "":
+            meta[dst] = value
+    if preview:
+        meta["text"] = str(preview)[:300]
+    if name:
+        meta["toolName"] = str(name)
+    return meta
 
 
 # ------------------------------------------------------------------
