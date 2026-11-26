@@ -440,7 +440,7 @@ export function PhonePairingSection({ compact = false }: { compact?: boolean }) 
             </div>
 
             <div className="min-w-0 flex-1 basis-64">
-              <h3 className="text-3xl font-semibold tracking-tight text-foreground">Connect your iPhone</h3>
+              <h3 className={compact ? 'text-lg font-medium text-foreground' : 'text-3xl font-semibold tracking-tight text-foreground'}>Connect your iPhone</h3>
               <p className="mt-1.5 text-[length:var(--conversation-text-font-size)] text-(--ui-text-secondary)">
                 Open Clover on your iPhone and scan this code. That&apos;s it.
               </p>
