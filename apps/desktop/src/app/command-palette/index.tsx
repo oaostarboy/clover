@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router'
 
 import {
   HUD_HEADING,
+  HUD_HEADING_CALM,
   HUD_ITEM,
   HUD_NOTE,
   HUD_NOTE_VARIANT,
@@ -68,7 +69,7 @@ import {
   closeCommandPalette,
   setCommandPaletteOpen
 } from '@/store/command-palette'
-import { $extraStarmap, showWelcomeAgain } from '@/store/first-run'
+import { $calmDesktop, $extraStarmap, showWelcomeAgain } from '@/store/first-run'
 import { $bindings, bindingsFor } from '@/store/keybinds'
 import { $dismissedAutoProjectIds, filterVisibleProjects } from '@/store/layout'
 import { startDesktopTour } from '@/store/onboarding'
@@ -290,6 +291,7 @@ const PaletteGroups = memo(function PaletteGroups({
   search: string
 }) {
   const deferred = useDeferredValue(groups, EMPTY_GROUPS)
+  const calm = useStore($calmDesktop)
   // While the rows are still catching up, an empty list means "not rendered
   // yet", not "nothing matched" — don't flash the empty state on open.
   const pending = deferred !== groups
@@ -302,7 +304,7 @@ const PaletteGroups = memo(function PaletteGroups({
         <div className="py-6 text-center text-sm text-muted-foreground">{noResultsLabel}</div>
       )}
       {deferred.map((group, index) => (
-        <CommandGroup className={HUD_HEADING} heading={group.heading} key={group.heading ?? `palette-group-${index}`}>
+        <CommandGroup className={calm ? HUD_HEADING_CALM : HUD_HEADING} heading={group.heading} key={group.heading ?? `palette-group-${index}`}>
           {group.items.map(item => (
             <PaletteRow
               bindings={bindings}

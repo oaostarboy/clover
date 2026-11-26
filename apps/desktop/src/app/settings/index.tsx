@@ -390,7 +390,7 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
         <OverlayMain className="px-0 pb-0">
           <nav
             aria-label="Breadcrumb"
-            className="flex shrink-0 items-center gap-2 px-[clamp(0.8333rem,2.6667vw,2.6667rem)] pb-3 text-[length:var(--conversation-text-font-size)]"
+            className="flex shrink-0 items-center gap-2 pl-[calc(clamp(0.8333rem,2.6667vw,2.6667rem)+1.25rem)] pr-[clamp(0.8333rem,2.6667vw,2.6667rem)] pb-3 text-[length:var(--conversation-text-font-size)]"
             data-slot="settings-breadcrumb"
           >
             <span className="text-(--ui-text-tertiary)">Settings</span>
