@@ -253,3 +253,55 @@ class TestSendUpdate:
             and "_session_update" in str(w.message)
         ]
         assert runtime_warnings == []
+
+
+class TestHelperProgressMeta:
+    """Helpers stream start/step/done/failed as ``_meta.clover.helper`` on the delegate call."""
+
+    def _run(self, mock_conn, loop, events):
+        sent = []
+        tool_call_ids = {}
+        with patch("acp_adapter.events.make_tool_call_id", return_value="tc-helper"), \
+             patch("acp_adapter.events._send_update", side_effect=lambda c, s, l, u: sent.append(u)):
+            cb = make_tool_progress_cb(mock_conn, "session-1", loop, tool_call_ids, {})
+            cb("tool.started", "delegate_task", None, {"goal": "find the bug"})
+            for ev in events:
+                cb(*ev[:4], **ev[4])
+        return sent, tool_call_ids
+
+    def test_start_step_done_stream_as_meta(self, mock_conn, event_loop_fixture):
+        sent, _ = self._run(mock_conn, event_loop_fixture, [
+            ("subagent.start", None, "find the bug", None, {"goal": "find the bug", "model": "m1", "subagent_id": "sa-1"}),
+            ("subagent.tool", "read_file", "read a.py", None, {"tool_count": 1}),
+            ("subagent.complete", None, "fixed", None, {"status": "completed", "duration_seconds": 4.2}),
+        ])
+        assert sent[0].kind == "other" and sent[0].title == "delegate: find the bug"
+        metas = [u.field_meta["clover"]["helper"] for u in sent[1:]]
+        assert [m["event"] for m in metas] == ["start", "step", "done"]
+        assert metas[0]["goal"] == "find the bug" and metas[0]["model"] == "m1"
+        assert metas[1]["toolName"] == "read_file" and metas[1]["text"] == "read a.py"
+        assert metas[2]["durationSeconds"] == 4.2
+        assert all(u.session_update == "tool_call_update" and u.tool_call_id == "tc-helper" for u in sent[1:])
+
+    def test_failed_status_maps_to_failed(self, mock_conn, event_loop_fixture):
+        sent, _ = self._run(mock_conn, event_loop_fixture, [
+            ("subagent.complete", None, "boom", None, {"status": "error"}),
+        ])
+        assert sent[1].field_meta["clover"]["helper"]["event"] == "failed"
+
+    def test_unrelated_subagent_events_are_ignored(self, mock_conn, event_loop_fixture):
+        sent, _ = self._run(mock_conn, event_loop_fixture, [
+            ("subagent.late_result", None, None, None, {}),
+        ])
+        assert len(sent) == 1
+
+    def test_closed_call_is_not_reopened(self, mock_conn, event_loop_fixture):
+        sent = []
+        with patch("acp_adapter.events.make_tool_call_id", return_value="tc-helper"), \
+             patch("acp_adapter.events._send_update", side_effect=lambda c, s, l, u: sent.append(u)):
+            ids = {}
+            cb = make_tool_progress_cb(mock_conn, "session-1", event_loop_fixture, ids, {})
+            cb("tool.started", "delegate_task", None, {"goal": "g"})
+            ids["delegate_task"].clear()  # step callback closed the dispatch
+            cb("subagent.tool", "read_file", "x", None)
+        assert sent[1].status is None
