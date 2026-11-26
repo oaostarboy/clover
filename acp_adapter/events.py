@@ -202,6 +202,26 @@ def make_thinking_cb(
     return _thinking
 
 
+_CARD_TYPES = {"forecast", "schedule"}
+
+
+def card_meta_from_result(tool_name: str | None, result: Any) -> Dict[str, Any] | None:
+    """Return the ``_meta.clover.card`` record from an ``answer_card`` result, else None.
+
+    The plugin already validated the card; this only re-checks the envelope so a
+    stray tool can never forge one.
+    """
+    if tool_name != "answer_card" or not isinstance(result, str):
+        return None
+    try:
+        card = json.loads(result).get("clover_card")
+    except (ValueError, AttributeError):
+        return None
+    if not isinstance(card, dict) or card.get("v") != 1 or card.get("type") not in _CARD_TYPES:
+        return None
+    return card
+
+
 # ------------------------------------------------------------------
 # Step callback
 # ------------------------------------------------------------------
@@ -248,6 +268,9 @@ def make_step_cb(
                         function_args=function_args or meta.get("args"),
                         snapshot=meta.get("snapshot"),
                     )
+                    card = card_meta_from_result(tool_name, result)
+                    if card is not None:
+                        update.field_meta = {**(update.field_meta or {}), "clover": {"card": card}}
                     _send_update(conn, session_id, loop, update)
                     if tool_name == "todo":
                         plan_update = _build_plan_update_from_todo_result(result)
