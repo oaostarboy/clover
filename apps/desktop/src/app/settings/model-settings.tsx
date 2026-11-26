@@ -876,8 +876,32 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
               : `${selectedProviderRow?.name} signs in through your browser — Clover runs the flow for you.`}
           </p>
         )}
+        {error && <div className="mt-2 text-xs text-destructive">{error}</div>}
+        {switchStaleAux.length > 0 && (
+          <div className="mt-2">
+            <StaleAuxWarning
+              applying={applying}
+              onReset={() => void resetAuxiliaryModels()}
+              slots={switchStaleAux}
+              taskLabel={auxiliaryTaskLabel}
+            />
+          </div>
+        )}
+      </section>
+
+      {config && mainModel && (reasoningSupported || fastSupported) && (
+        <details className="group border-t border-(--stroke-clover) pt-5" data-testid="advanced-defaults">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
+            <span>
+              <span className="block text-base leading-6 font-medium text-foreground">Advanced</span>
+              <span className="block text-[0.9375rem] leading-6 text-(--ui-text-secondary)">
+                How hard your AI thinks. The default is fine.
+              </span>
+            </span>
+            <span className="shrink-0 text-sm text-(--ui-text-secondary) group-open:hidden">Show</span>
+          </summary>
         {config && mainModel && (reasoningSupported || fastSupported) && (
-          <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3">
+          <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3">
             <span className="text-xs text-muted-foreground">{m.defaultsLabel}</span>
             {reasoningSupported && (
               <div className="flex items-center gap-2 text-xs">
@@ -911,18 +935,8 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
             )}
           </div>
         )}
-        {error && <div className="mt-2 text-xs text-destructive">{error}</div>}
-        {switchStaleAux.length > 0 && (
-          <div className="mt-2">
-            <StaleAuxWarning
-              applying={applying}
-              onReset={() => void resetAuxiliaryModels()}
-              slots={switchStaleAux}
-              taskLabel={auxiliaryTaskLabel}
-            />
-          </div>
-        )}
-      </section>
+        </details>
+      )}
 
       <details className="group border-t border-(--stroke-clover) pt-5">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
