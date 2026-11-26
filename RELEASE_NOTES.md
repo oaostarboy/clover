@@ -15,6 +15,14 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.14 | Clover C2.1.14 | 2026-11-25
+
+- The desktop app is simpler, with the same layout and flow as T3 Code in Clover's own look. Harness your luck.
+- Setup now fits on one screen: pick your AI, name your Clover, and you are in.
+- Connect your phone from Settings: press one button, scan the code, and see your phones in a list you can remove from.
+- Settings is calmer. Extra options are tucked under Advanced.
+- Helpers in the terminal now show as calm, short rows.
+
 ## 2.1.13 | Clover C2.1.13 | 2026-11-25
 
 - Clover in the terminal now opens with a friendly welcome and a short hands-on tour. Type /tour to see it again.
