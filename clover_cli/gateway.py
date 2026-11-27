@@ -8043,7 +8043,14 @@ def _builtin_setup_fn(key: str):
     }.get(key)
 
 
-def _prompt_required_env(names) -> bool:
+# Settings some platforms need beyond ``required_env`` to actually start.
+_EXTRA_REQUIRED_ENV = {
+    "email": ["EMAIL_IMAP_HOST"],
+    "sms": ["SMS_WEBHOOK_URL"],
+}
+
+
+def _prompt_required_env(names, platform_key: str = "") -> bool:
     """Ask for each required setting and save it; never send the user to .env.
 
     Used by plugin platforms (Email, SMS, Home Assistant, ntfy, ...) that have
@@ -8051,6 +8058,7 @@ def _prompt_required_env(names) -> bool:
     when every value is set afterwards.
     """
     secret_hints = ("TOKEN", "SECRET", "PASSWORD", "KEY")
+    names = list(names) + [n for n in _EXTRA_REQUIRED_ENV.get(platform_key, []) if n not in names]
     for name in names:
         existing = get_env_value(name)
         secret = any(h in name.upper() for h in secret_hints)
@@ -8101,7 +8109,7 @@ def _configure_platform(platform: dict) -> None:
     print(color(f"  ─── {emoji} {label} Setup ───", Colors.CYAN))
     required = entry.required_env if entry else []
     if required:
-        _prompt_required_env(required)
+        _prompt_required_env(required, platform["key"])
     else:
         print_info(
             f"  Configure {label} in config.yaml under gateway.platforms.{platform['key']}"

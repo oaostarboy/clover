@@ -466,3 +466,58 @@ def test_unconfigured_platform_message_is_plain(caplog):
     text = caplog.text
     assert "validation failed" not in text
     assert "DEMO_TOKEN" in text and "clover gateway setup" in text
+
+
+def test_signal_unreachable_message_says_how_to_start(caplog):
+    import asyncio, logging
+    from gateway.config import PlatformConfig
+    from gateway.platforms.signal import SignalAdapter
+
+    a = SignalAdapter(PlatformConfig(enabled=True, extra={
+        "http_url": "http://127.0.0.1:9", "account": "+15550000000"}))
+    a._acquire_platform_lock = lambda *x, **k: True
+    a._release_platform_lock = lambda: None
+    with caplog.at_level(logging.ERROR):
+        assert asyncio.run(a.connect()) is False
+    assert "Start it first" in caplog.text and "clover gateway setup" in caplog.text
+
+
+def test_discord_bad_token_is_plain_not_a_crash():
+    from plugins.platforms.discord.adapter import DiscordAdapter
+
+    class LoginFailure(Exception):
+        pass
+
+    a = DiscordAdapter.__new__(DiscordAdapter)
+    code, msg, retryable = a._classify_connect_exception(LoginFailure("Improper token"))
+    assert code == "discord_auth_error" and retryable is False
+    assert "DISCORD_BOT_TOKEN" in msg
+
+
+def test_slack_bad_token_logs_one_plain_line(caplog, monkeypatch):
+    monkeypatch.setenv("SLACK_APP_TOKEN", "xapp-fake")
+    import asyncio, logging
+    pytest = __import__("pytest")
+    slack = pytest.importorskip("slack_sdk")
+    from plugins.platforms.slack import adapter as sa
+    from gateway.config import PlatformConfig
+
+    a = sa.SlackAdapter(PlatformConfig(enabled=True, token="xoxb-fake"))
+    a._release_platform_lock = lambda: None
+
+    class Boom(Exception):
+        pass
+
+    async def _go():
+        with patch_slack_client(Boom("... {'ok': False, 'error': 'invalid_auth'}")):
+            return await a.connect()
+
+    with caplog.at_level(logging.ERROR):
+        assert asyncio.run(_go()) is False
+    assert "Slack rejected the tokens" in caplog.text
+    assert "Traceback" not in caplog.text
+
+
+def patch_slack_client(exc):
+    from unittest.mock import patch, AsyncMock
+    return patch("slack_sdk.web.async_client.AsyncWebClient.auth_test", AsyncMock(side_effect=exc))
