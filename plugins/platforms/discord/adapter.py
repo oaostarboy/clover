@@ -1497,7 +1497,14 @@ class DiscordAdapter(BasePlatformAdapter):
             )
             return False
         except Exception as e:  # pragma: no cover - defensive logging
-            logger.error("[%s] Failed to connect to Discord: %s", self.name, e, exc_info=True)
+            # Bad token / missing intents are owner mistakes, not crashes: one
+            # plain line, no traceback. Unknown errors keep the full trace.
+            _known = e.__class__.__name__ in ("LoginFailure", "PrivilegedIntentsRequired")
+            _code, _msg, _ = self._classify_connect_exception(e)
+            if _known:
+                logger.error("[%s] %s", self.name, _msg)
+            else:
+                logger.error("[%s] Failed to connect to Discord: %s", self.name, e, exc_info=True)
             # Same zombie-client hazard as the timeout branch: the background
             # client.start() task may already be running when a later setup
             # step raises. Cancel it so the discarded adapter cannot connect.

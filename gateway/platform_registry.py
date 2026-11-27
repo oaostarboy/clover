@@ -668,9 +668,14 @@ class PlatformRegistry:
         if entry.validate_config is not None:
             try:
                 if not entry.validate_config(config):
+                    _req = ", ".join(entry.required_env or [])
                     logger.warning(
-                        "Platform '%s' config validation failed",
+                        "%s is switched on but not set up yet%s. "
+                        "Run `clover gateway setup` to finish it, or turn it off "
+                        "with `clover config set platforms.%s.enabled false`.",
                         entry.label,
+                        f" (missing: {_req})" if _req else "",
+                        entry.name,
                     )
                     return None
             except Exception as e:

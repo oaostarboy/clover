@@ -448,3 +448,21 @@ class TestRuntimeStatusAttentionFields:
         platform = payload["platforms"]["telegram"]
         assert platform["needs_attention"] is False
         assert platform["retrying_since"] is None
+
+
+def test_unconfigured_platform_message_is_plain(caplog):
+    """Enabled-but-no-credentials gives a how-to-fix line, not 'validation failed'."""
+    import logging
+    from gateway.platform_registry import PlatformEntry, PlatformRegistry
+
+    reg = PlatformRegistry()
+    reg.register(PlatformEntry(
+        name="demo", label="Demo App", adapter_factory=lambda c: object(),
+        check_fn=lambda: True, validate_config=lambda c: False,
+        required_env=["DEMO_TOKEN"],
+    ))
+    with caplog.at_level(logging.WARNING):
+        assert reg.create_adapter("demo", object()) is None
+    text = caplog.text
+    assert "validation failed" not in text
+    assert "DEMO_TOKEN" in text and "clover gateway setup" in text
