@@ -2492,7 +2492,15 @@ class SlackAdapter(BasePlatformAdapter):
             return True
 
         except Exception as e:  # pragma: no cover - defensive logging
-            logger.error("[Slack] Connection failed: %s", e, exc_info=True)
+            _msg = str(e)
+            if "invalid_auth" in _msg or "not_authed" in _msg or "token_revoked" in _msg:
+                # Wrong/revoked token is an owner mistake, not a crash: one plain line.
+                logger.error(
+                    "[Slack] Slack rejected the tokens. Check SLACK_BOT_TOKEN (xoxb-...) "
+                    "and SLACK_APP_TOKEN (xapp-...), or run `clover gateway setup` > Slack."
+                )
+            else:
+                logger.error("[Slack] Connection failed: %s", e, exc_info=True)
             return False
         finally:
             if lock_acquired and not self._running:

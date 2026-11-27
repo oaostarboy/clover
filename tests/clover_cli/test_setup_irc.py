@@ -123,8 +123,13 @@ class TestIRCInteractiveSetup:
 
 
     def test_configure_platform_fallback_when_no_setup_fn(self, monkeypatch, capsys):
-        """A plugin with no setup_fn falls back to env-var instructions."""
+        """A plugin with no setup_fn asks for each required setting (no 'edit .env')."""
         import clover_cli.gateway as gateway_mod
+
+        asked = []
+        monkeypatch.setattr(
+            gateway_mod, "prompt", lambda q, *a, **k: asked.append(q) or ""
+        )
 
         plat = _register_irc_platform(setup_fn=None)
         try:
@@ -134,7 +139,8 @@ class TestIRCInteractiveSetup:
 
         out = capsys.readouterr().out
         assert "IRC" in out
-        assert "IRC_SERVER" in out
+        assert any("irc server" in q.lower() for q in asked)
+        assert ".env" not in out
 
 
 # ── End-to-end fresh-install gateway setup ──────────────────────────────────
