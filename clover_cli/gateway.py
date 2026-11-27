@@ -8043,6 +8043,29 @@ def _builtin_setup_fn(key: str):
     }.get(key)
 
 
+def _prompt_required_env(names) -> bool:
+    """Ask for each required setting and save it; never send the user to .env.
+
+    Used by plugin platforms (Email, SMS, Home Assistant, ntfy, ...) that have
+    no dedicated setup function. Secret-looking names are masked. Returns True
+    when every value is set afterwards.
+    """
+    secret_hints = ("TOKEN", "SECRET", "PASSWORD", "KEY")
+    for name in names:
+        existing = get_env_value(name)
+        secret = any(h in name.upper() for h in secret_hints)
+        human = name.replace("_", " ").lower()
+        if existing:
+            print_info(f"  {human}: already set (press Enter to keep it)")
+        value = prompt(f"  Enter {human}", default=existing or "", password=secret)
+        if not value:
+            print_warning(f"  {human} is required. Setup for this app was not finished.")
+            return False
+        save_env_value(name, value.strip())
+    print_success("  Saved. Restart the gateway to connect.")
+    return True
+
+
 def _configure_platform(platform: dict) -> None:
     """Run the interactive setup flow for a single platform.
 
@@ -8078,7 +8101,7 @@ def _configure_platform(platform: dict) -> None:
     print(color(f"  ─── {emoji} {label} Setup ───", Colors.CYAN))
     required = entry.required_env if entry else []
     if required:
-        print_info(f"  Set these env vars in ~/.clover/.env: {', '.join(required)}")
+        _prompt_required_env(required)
     else:
         print_info(
             f"  Configure {label} in config.yaml under gateway.platforms.{platform['key']}"

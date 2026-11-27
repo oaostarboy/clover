@@ -397,7 +397,12 @@ class SignalAdapter(BasePlatformAdapter):
                     logger.error("Signal: health check failed (status %d)", resp.status_code)
                     return False
             except Exception as e:
-                logger.error("Signal: cannot reach signal-cli at %s: %s", self.http_url, e)
+                logger.error(
+                    "Signal: can't reach signal-cli at %s. Start it first "
+                    "(signal-cli --account +YOURNUMBER daemon --http %s) or run "
+                    "`clover gateway setup` > Signal. (%s)",
+                    self.http_url, self.http_url.split("//")[-1], e,
+                )
                 return False
 
             self._running = True
