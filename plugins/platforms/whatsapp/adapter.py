@@ -1825,7 +1825,8 @@ def interactive_setup() -> None:
 
     print_header("WhatsApp")
     print_info("WhatsApp uses a local Node.js bridge (WhatsApp Web client).")
-    print_info("Start the bridge separately; the gateway connects to it over HTTP.")
+    print_info("The bridge installs itself. After this, run `clover whatsapp` and scan the")
+    print_info("QR code with your phone (WhatsApp > Settings > Linked devices).")
     existing = get_env_value("WHATSAPP_ENABLED")
     if existing and existing.lower() in {"true", "1", "yes"}:
         print_info("WhatsApp: already enabled")

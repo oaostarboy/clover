@@ -1832,9 +1832,8 @@ class MatrixAdapter(BasePlatformAdapter):
                 )
             except Exception as exc:
                 logger.error(
-                    "Matrix: whoami failed — check MATRIX_ACCESS_TOKEN and MATRIX_HOMESERVER: %s",
+                    "Matrix: could not sign in — check MATRIX_ACCESS_TOKEN and MATRIX_HOMESERVER: %s",
                     exc,
-                    exc_info=True,
                 )
                 await api.session.close()
                 return False
