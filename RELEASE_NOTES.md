@@ -15,6 +15,12 @@ HOW TO EDIT (by hand, at release time)
   * Bump order at release: fill this file, then __version__, pyproject.toml, uv.lock.
 -->
 
+## 2.1.15 | Clover C2.1.15 | 2026-11-27
+
+- Helpers now show a clear title and live progress while they work.
+- Setting up Discord, Slack, Matrix, Email, SMS, WhatsApp and Signal now gives plainer steps and errors.
+- Setup no longer sends you to edit a hidden file. It asks for each setting.
+
 ## 2.1.14 | Clover C2.1.14 | 2026-11-25
 
 - The desktop app is simpler, with the same layout and flow as T3 Code in Clover's own look. Harness your luck.
